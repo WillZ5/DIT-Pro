@@ -1,0 +1,127 @@
+name: CI — Build & Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ─── Rust Backend Tests ────────────────────────────────────────────
+  rust-tests:
+    name: Rust Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-14]  # Intel + Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action/setup@v1
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+        working-directory: src-tauri
+
+      - name: Clippy lints
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+
+      - name: Run unit tests
+        run: cargo test --lib --verbose
+        working-directory: src-tauri
+
+      - name: Run integration tests
+        run: cargo test --test '*' --verbose
+        working-directory: src-tauri
+
+      - name: Run doc tests
+        run: cargo test --doc --verbose
+        working-directory: src-tauri
+
+  # ─── Release Build Benchmark ───────────────────────────────────────
+  benchmark:
+    name: Hash Throughput Benchmark
+    runs-on: macos-latest
+    needs: rust-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action/setup@v1
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run benchmark (release mode)
+        run: cargo test --release --test hash_benchmark -- --nocapture
+        working-directory: src-tauri
+
+  # ─── Frontend Type Check ───────────────────────────────────────────
+  frontend:
+    name: Frontend Type Check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+  # ─── MHL Verify CLI ───────────────────────────────────────────────
+  mhl-cli:
+    name: MHL Verify CLI Build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action/setup@v1
+        with:
+          toolchain: stable
+
+      - name: Build mhl-verify-cli
+        run: cargo build --release
+        working-directory: mhl-verify-cli
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mhl-verify-cli-macos
+          path: target/release/mhl-verify-cli
+          if-no-files-found: ignore

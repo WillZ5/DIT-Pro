@@ -950,3 +950,104 @@
   background: #333;
   color: #fff;
 }
+
+/* ─── Report View ──────────────────────────────────────────────────────── */
+
+.report-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.report-stat {
+  background: #12122a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+.report-stat-value {
+  display: block;
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.report-stat-label {
+  display: block;
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  margin-top: 4px;
+  letter-spacing: 0.5px;
+}
+
+.report-table-wrap {
+  overflow-x: auto;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+
+.report-table th,
+.report-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #333;
+}
+
+.report-table th {
+  background: #12122a;
+  color: #888;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.report-table td {
+  font-size: 13px;
+}
+
+.report-table--detail td {
+  font-size: 12px;
+}
+
+.report-job-name {
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.report-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.report-status--ok {
+  background: #4caf5022;
+  color: #4caf50;
+}
+
+.report-status--error {
+  background: #f4433622;
+  color: #f44336;
+}
+
+.report-status--pending {
+  background: #ff980022;
+  color: #ff9800;
+}
+
+.report-hash {
+  font-family: 'SF Mono', Monaco, Consolas, monospace;
+  font-size: 10px;
+  color: #9c27b0;
+  word-break: break-all;
+  max-width: 140px;
+}

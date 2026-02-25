@@ -236,3 +236,43 @@ export interface WorkflowPreset {
   createdAt: string;
   updatedAt: string;
 }
+
+// ─── Report Types ──────────────────────────────────────────────────────
+
+export interface JobSummary {
+  jobId: string;
+  jobName: string;
+  status: string;
+  sourcePath: string;
+  totalFiles: number;
+  completedFiles: number;
+  failedFiles: number;
+  totalBytes: number;
+  completedBytes: number;
+  createdAt: string;
+}
+
+export interface TaskDetail {
+  sourcePath: string;
+  destPath: string;
+  fileSize: number;
+  status: string;
+  hashXxh64: string | null;
+  hashSha256: string | null;
+}
+
+export interface DayReport {
+  date: string;
+  jobs: JobSummary[];
+  totalFiles: number;
+  totalBytes: number;
+  totalJobs: number;
+  completedJobs: number;
+  failedJobs: number;
+}
+
+export interface JobReport {
+  summary: JobSummary;
+  tasks: TaskDetail[];
+  destPaths: string[];
+}

@@ -95,6 +95,12 @@ pub fn run() {
             commands::create_preset,
             commands::update_preset,
             commands::delete_preset,
+            // Reports
+            commands::get_report_dates,
+            commands::get_day_report,
+            commands::get_job_report,
+            commands::export_day_report,
+            commands::export_job_report,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

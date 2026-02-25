@@ -14,6 +14,7 @@ use tauri::{Emitter, State};
 use crate::checkpoint::{self, JobProgress};
 use crate::config::{self, AppSettings};
 use crate::preset::{self, WorkflowPreset};
+use crate::report::{self, DayReport, JobReport};
 use crate::hash_engine::{self, HashAlgorithm, HashEngineConfig, HashResult};
 use crate::io_scheduler::IoScheduler;
 use crate::mhl::{self, MhlConfig, MhlProcessType};
@@ -687,6 +688,78 @@ pub fn delete_preset(
     match preset::delete_preset(&state.app_data_dir, &preset_id) {
         Ok(_) => Ok(CommandResult::ok(true)),
         Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+// ─── Report Commands ──────────────────────────────────────────────────────
+
+/// Get list of dates that have offload jobs (for report date picker)
+#[tauri::command]
+pub fn get_report_dates(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<Vec<String>>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    match report::get_report_dates(&conn) {
+        Ok(dates) => Ok(CommandResult::ok(dates)),
+        Err(e) => Ok(CommandResult::<Vec<String>>::err(e.to_string())),
+    }
+}
+
+/// Get a day report for a specific date (format: "YYYY-MM-DD")
+#[tauri::command]
+pub fn get_day_report(
+    state: State<'_, AppState>,
+    date: String,
+) -> Result<CommandResult<DayReport>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    match report::get_day_report(&conn, &date) {
+        Ok(data) => Ok(CommandResult::ok(data)),
+        Err(e) => Ok(CommandResult::<DayReport>::err(e.to_string())),
+    }
+}
+
+/// Get a detailed job report
+#[tauri::command]
+pub fn get_job_report(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<CommandResult<JobReport>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    match report::get_job_report(&conn, &job_id) {
+        Ok(data) => Ok(CommandResult::ok(data)),
+        Err(e) => Ok(CommandResult::<JobReport>::err(e.to_string())),
+    }
+}
+
+/// Generate an HTML day report and save to disk. Returns file path.
+#[tauri::command]
+pub fn export_day_report(
+    state: State<'_, AppState>,
+    date: String,
+) -> Result<CommandResult<String>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let data = report::get_day_report(&conn, &date).map_err(|e: anyhow::Error| e.to_string())?;
+    let html = report::render_day_report_html(&data);
+    let filename = format!("day-report-{}.html", date);
+    match report::save_report(&state.app_data_dir, &filename, &html) {
+        Ok(path) => Ok(CommandResult::<String>::ok(path.to_string_lossy().to_string())),
+        Err(e) => Ok(CommandResult::<String>::err(e.to_string())),
+    }
+}
+
+/// Generate an HTML job report and save to disk. Returns file path.
+#[tauri::command]
+pub fn export_job_report(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<CommandResult<String>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let data = report::get_job_report(&conn, &job_id).map_err(|e: anyhow::Error| e.to_string())?;
+    let html = report::render_job_report_html(&data);
+    let filename = format!("job-report-{}.html", job_id);
+    match report::save_report(&state.app_data_dir, &filename, &html) {
+        Ok(path) => Ok(CommandResult::<String>::ok(path.to_string_lossy().to_string())),
+        Err(e) => Ok(CommandResult::<String>::err(e.to_string())),
     }
 }
 

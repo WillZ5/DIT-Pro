@@ -1,0 +1,66 @@
+[package]
+name = "dit-system"
+version = "0.1.0"
+description = "DIT Material Management System — Bulletproof Card Offload Engine"
+authors = ["William Zhao"]
+license = "MIT"
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2" }
+
+[dependencies]
+# Tauri framework
+tauri = { version = "2", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Hash algorithms
+xxhash-rust = { version = "0.8", features = ["xxh64", "xxh3"] }
+sha2 = "0.10"
+md-5 = "0.10"
+
+# Logging
+log = "0.4"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Email notification
+lettre = { version = "0.11", features = ["tokio1-native-tls"] }
+
+# File system watching
+notify = "6"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# XML (for ASC MHL)
+quick-xml = { version = "0.31", features = ["serialize"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

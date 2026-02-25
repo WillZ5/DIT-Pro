@@ -1,0 +1,76 @@
+//! Database Layer — SQLite with WAL mode for crash-safe persistence.
+//!
+//! Stores:
+//! - Copy task state (checkpoint/recovery)
+//! - File metadata
+//! - Volume tracking info
+//! - Job history
+//! - Hash records
+
+use anyhow::Result;
+use rusqlite::Connection;
+
+/// Initialize the SQLite database with WAL mode and create tables
+pub fn init_database(db_path: &str) -> Result<Connection> {
+    let conn = Connection::open(db_path)?;
+
+    // Enable WAL mode for crash safety
+    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+    conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
+    conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+
+    // Create core tables
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS jobs (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'pending',
+            source_path TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS copy_tasks (
+            id          TEXT PRIMARY KEY,
+            job_id      TEXT NOT NULL REFERENCES jobs(id),
+            source_path TEXT NOT NULL,
+            dest_path   TEXT NOT NULL,
+            file_size   INTEGER NOT NULL DEFAULT 0,
+            status      TEXT NOT NULL DEFAULT 'pending',
+            hash_xxh64  TEXT,
+            hash_sha256 TEXT,
+            error_msg   TEXT,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS volumes (
+            id              TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            mount_point     TEXT,
+            total_bytes     INTEGER,
+            available_bytes INTEGER,
+            device_type     TEXT,
+            serial_number   TEXT,
+            last_seen_at    TEXT,
+            last_seen_by    TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS hash_records (
+            id          TEXT PRIMARY KEY,
+            task_id     TEXT NOT NULL REFERENCES copy_tasks(id),
+            algorithm   TEXT NOT NULL,
+            hex_digest  TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_copy_tasks_job_id ON copy_tasks(job_id);
+        CREATE INDEX IF NOT EXISTS idx_copy_tasks_status ON copy_tasks(status);
+        CREATE INDEX IF NOT EXISTS idx_hash_records_task_id ON hash_records(task_id);
+        ",
+    )?;
+
+    Ok(conn)
+}

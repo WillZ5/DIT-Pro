@@ -1,0 +1,15 @@
+[package]
+name = "mhl-verify"
+version = "0.1.0"
+description = "Standalone ASC MHL verification CLI tool — zero dependencies, cross-platform"
+authors = ["William Zhao"]
+license = "MIT"
+edition = "2021"
+
+[dependencies]
+xxhash-rust = { version = "0.8", features = ["xxh64", "xxh3"] }
+sha2 = "0.10"
+md-5 = "0.10"
+quick-xml = { version = "0.31", features = ["serialize"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"

@@ -62,5 +62,12 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # XML (for ASC MHL)
 quick-xml = { version = "0.31", features = ["serialize"] }
 
+# Platform-specific
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]

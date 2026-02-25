@@ -3,6 +3,7 @@
 
 pub mod checkpoint;
 pub mod commands;
+pub mod config;
 pub mod copy_engine;
 pub mod db;
 pub mod hash_engine;
@@ -47,10 +48,17 @@ pub fn run() {
             let conn = db::init_database(db_path.to_str().unwrap_or("dit-system.db"))?;
             log::info!("Database initialized at {:?}", db_path);
 
+            // Load settings
+            let settings = config::load_settings(&app_data_dir)
+                .unwrap_or_default();
+            log::info!("Settings loaded (hash: {:?})", settings.hash_algorithms);
+
             // Initialize app state
             let state = AppState {
                 db: Arc::new(Mutex::new(conn)),
                 io_scheduler: Mutex::new(IoScheduler::new()),
+                app_data_dir: app_data_dir.clone(),
+                settings: Mutex::new(settings),
             };
             app.manage(state);
 
@@ -78,6 +86,9 @@ pub fn run() {
             commands::verify_mhl_chain,
             // Workflow
             commands::start_offload,
+            // Settings
+            commands::get_settings,
+            commands::save_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

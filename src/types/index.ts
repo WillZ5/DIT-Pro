@@ -174,3 +174,44 @@ export interface StartOffloadRequest {
   postVerify?: boolean;
   generateMhl?: boolean;
 }
+
+// ─── Settings Types ──────────────────────────────────────────────────────
+
+export interface DeviceIoConfig {
+  maxConcurrent: number;
+  bufferSizeMb: number;
+}
+
+export interface IoSchedulingSettings {
+  hdd: DeviceIoConfig;
+  ssd: DeviceIoConfig;
+  nvme: DeviceIoConfig;
+  raid: DeviceIoConfig;
+  network: DeviceIoConfig;
+}
+
+export interface OffloadDefaults {
+  sourceVerify: boolean;
+  postVerify: boolean;
+  generateMhl: boolean;
+  bufferSize: number;
+  maxRetries: number;
+}
+
+export interface EmailSettings {
+  enabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUsername: string;
+  smtpPasswordSet: boolean;
+  fromAddress: string;
+  toAddress: string;
+  useTls: boolean;
+}
+
+export interface AppSettings {
+  hashAlgorithms: string[];
+  offload: OffloadDefaults;
+  ioScheduling: IoSchedulingSettings;
+  email: EmailSettings;
+}

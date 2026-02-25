@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 
 use crate::checkpoint::{self, JobProgress};
+use crate::config::{self, AppSettings};
 use crate::hash_engine::{self, HashAlgorithm, HashEngineConfig, HashResult};
 use crate::io_scheduler::IoScheduler;
 use crate::mhl::{self, MhlConfig, MhlProcessType};
@@ -24,6 +25,8 @@ use crate::workflow;
 pub struct AppState {
     pub db: Arc<Mutex<Connection>>,
     pub io_scheduler: Mutex<IoScheduler>,
+    pub app_data_dir: PathBuf,
+    pub settings: Mutex<AppSettings>,
 }
 
 // ─── Response Types ───────────────────────────────────────────────────────
@@ -541,9 +544,12 @@ pub async fn start_offload(
 ) -> Result<CommandResult<String>, String> {
     let job_id = uuid::Uuid::new_v4().to_string();
 
+    // Read saved settings as defaults
+    let saved = state.settings.lock().map_err(|e| e.to_string())?.clone();
+
     let algos: Vec<HashAlgorithm> = request
         .hash_algorithms
-        .unwrap_or_default()
+        .unwrap_or_else(|| saved.hash_algorithms.clone())
         .iter()
         .filter_map(|s| parse_algorithm(s))
         .collect();
@@ -558,11 +564,11 @@ pub async fn start_offload(
         } else {
             algos
         },
-        buffer_size: 4 * 1024 * 1024,
-        source_verify: request.source_verify.unwrap_or(true),
-        post_verify: request.post_verify.unwrap_or(true),
-        generate_mhl: request.generate_mhl.unwrap_or(true),
-        max_retries: 3,
+        buffer_size: saved.offload.buffer_size,
+        source_verify: request.source_verify.unwrap_or(saved.offload.source_verify),
+        post_verify: request.post_verify.unwrap_or(saved.offload.post_verify),
+        generate_mhl: request.generate_mhl.unwrap_or(saved.offload.generate_mhl),
+        max_retries: saved.offload.max_retries,
     };
 
     let db = state.db.clone();
@@ -595,6 +601,34 @@ pub async fn start_offload(
     });
 
     Ok(CommandResult::ok(job_id))
+}
+
+// ─── Settings Commands ────────────────────────────────────────────────────
+
+/// Get current application settings
+#[tauri::command]
+pub fn get_settings(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<AppSettings>, String> {
+    let settings = state.settings.lock().map_err(|e| e.to_string())?;
+    Ok(CommandResult::ok(settings.clone()))
+}
+
+/// Save application settings to disk
+#[tauri::command]
+pub fn save_settings(
+    state: State<'_, AppState>,
+    settings: AppSettings,
+) -> Result<CommandResult<bool>, String> {
+    // Save to disk
+    config::save_settings(&state.app_data_dir, &settings)
+        .map_err(|e| e.to_string())?;
+
+    // Update in-memory state
+    let mut current = state.settings.lock().map_err(|e| e.to_string())?;
+    *current = settings;
+
+    Ok(CommandResult::ok(true))
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

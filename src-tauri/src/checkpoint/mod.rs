@@ -129,12 +129,12 @@ pub fn get_pending_tasks(conn: &Connection, job_id: &str) -> Result<Vec<Checkpoi
     Ok(records)
 }
 
-/// Get tasks that were interrupted (not pending, not completed)
+/// Get tasks that were interrupted or failed (recoverable tasks)
 pub fn get_interrupted_tasks(conn: &Connection, job_id: &str) -> Result<Vec<CheckpointRecord>> {
     let mut stmt = conn.prepare(
         "SELECT id, job_id, source_path, dest_path, file_size, status,
                 hash_xxh64, hash_sha256, error_msg, retry_count
-         FROM copy_tasks WHERE job_id = ?1 AND status IN ('copying', 'verifying')
+         FROM copy_tasks WHERE job_id = ?1 AND status IN ('copying', 'verifying', 'failed')
          ORDER BY rowid ASC",
     )?;
 

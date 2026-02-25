@@ -115,6 +115,12 @@ export type OffloadPhase =
   | "Complete"
   | "Failed";
 
+/** Envelope wrapping OffloadEvent with job_id for demuxing concurrent jobs */
+export interface OffloadEventEnvelope {
+  jobId: string;
+  event: OffloadEvent;
+}
+
 /** Events emitted by the offload workflow via Tauri event system */
 export type OffloadEvent =
   | { type: "phaseChanged"; phase: OffloadPhase; message: string }

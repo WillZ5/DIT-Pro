@@ -280,6 +280,15 @@ impl OffloadWorkflow {
         self.preflight_space_check(&source_files).await?;
         self.create_db_records(&source_files)?;
 
+        // Mark job as actively copying
+        {
+            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+            conn.execute(
+                "UPDATE jobs SET status = 'copying', updated_at = datetime('now') WHERE id = ?1",
+                rusqlite::params![self.config.job_id],
+            )?;
+        }
+
         // ── Phase 2: Source Verification (optional) ─────────────────
         let mut source_hashes: HashMap<String, Vec<HashResult>> = HashMap::new();
 
@@ -343,6 +352,13 @@ impl OffloadWorkflow {
         let mut failed_count = 0;
 
         if self.config.post_verify {
+            {
+                let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                conn.execute(
+                    "UPDATE jobs SET status = 'verifying', updated_at = datetime('now') WHERE id = ?1",
+                    rusqlite::params![self.config.job_id],
+                )?;
+            }
             self.emit(OffloadEvent::PhaseChanged {
                 phase: OffloadPhase::Verifying,
                 message: "Re-reading destination files for verification...".into(),
@@ -398,6 +414,122 @@ impl OffloadWorkflow {
             failed_files: failed_count,
             duration_secs: duration,
             source_hashes,
+            mhl_paths,
+            errors,
+        })
+    }
+
+    /// Execute a resume workflow for an existing job with pending tasks.
+    /// Skips source scan, DB record creation, and source verification.
+    /// Only processes pending copy tasks.
+    pub async fn execute_resume(&self) -> Result<OffloadResult> {
+        let start = Instant::now();
+        let mut errors: Vec<String> = Vec::new();
+        let mhl_paths: Vec<PathBuf> = Vec::new();
+
+        // Read pending tasks from DB
+        let pending_tasks = {
+            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+            checkpoint::get_pending_tasks(&conn, &self.config.job_id)?
+        };
+
+        if pending_tasks.is_empty() {
+            bail!("No pending tasks to resume for job {}", self.config.job_id);
+        }
+
+        // Build source file list from pending tasks (deduplicate by source_path)
+        let mut seen = std::collections::HashSet::new();
+        let mut source_files: Vec<SourceFile> = Vec::new();
+        for task in &pending_tasks {
+            if seen.insert(task.source_path.clone()) {
+                let abs_path = PathBuf::from(&task.source_path);
+                let rel_path = abs_path
+                    .strip_prefix(&self.config.source_path)
+                    .unwrap_or(&abs_path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                source_files.push(SourceFile {
+                    rel_path,
+                    abs_path,
+                    size: task.file_size as u64,
+                });
+            }
+        }
+
+        let total_bytes: u64 = source_files.iter().map(|f| f.size).sum();
+        let total_files = source_files.len();
+
+        // Emit resume start
+        self.emit(OffloadEvent::PhaseChanged {
+            phase: OffloadPhase::Copying,
+            message: format!("Resuming: {} files remaining...", total_files),
+        });
+
+        // Copy pending files
+        let copy_hashes = self.copy_all_files(&source_files, &start, total_bytes).await?;
+
+        // Post-copy verification (optional)
+        let mut failed_count = 0;
+        if self.config.post_verify && !copy_hashes.is_empty() {
+            {
+                let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                conn.execute(
+                    "UPDATE jobs SET status = 'verifying', updated_at = datetime('now') WHERE id = ?1",
+                    rusqlite::params![self.config.job_id],
+                )?;
+            }
+            self.emit(OffloadEvent::PhaseChanged {
+                phase: OffloadPhase::Verifying,
+                message: "Re-reading destination files for verification...".into(),
+            });
+            failed_count = self.verify_destinations(&source_files, &copy_hashes, &mut errors).await?;
+        }
+
+        // Finalize
+        let duration = start.elapsed().as_secs_f64();
+        let success = failed_count == 0 && errors.is_empty();
+
+        // Check overall job status (including previously completed tasks)
+        let overall_failed = {
+            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+            let progress = checkpoint::get_job_progress(&conn, &self.config.job_id)?;
+            progress.failed
+        };
+
+        {
+            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+            let status = if success && overall_failed == 0 { "completed" } else { "completed_with_errors" };
+            conn.execute(
+                "UPDATE jobs SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
+                rusqlite::params![status, self.config.job_id],
+            )?;
+        }
+
+        self.emit(OffloadEvent::PhaseChanged {
+            phase: if success { OffloadPhase::Complete } else { OffloadPhase::Failed },
+            message: if success {
+                format!("Resume complete: {} files, {} in {:.1}s",
+                    total_files, format_bytes(total_bytes), duration)
+            } else {
+                format!("Resume finished with {} error(s)", errors.len() + failed_count)
+            },
+        });
+
+        self.emit(OffloadEvent::Complete {
+            total_files,
+            total_bytes,
+            duration_secs: duration,
+            mhl_paths: mhl_paths.iter().map(|p| p.to_string_lossy().into()).collect(),
+        });
+
+        Ok(OffloadResult {
+            job_id: self.config.job_id.clone(),
+            success,
+            total_files,
+            total_bytes,
+            failed_files: failed_count,
+            duration_secs: duration,
+            source_hashes: copy_hashes,
             mhl_paths,
             errors,
         })

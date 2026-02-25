@@ -1,15 +1,30 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { useState, useEffect, useCallback } from "react";
+import { safeInvoke, isTauri } from "../../utils/tauriCompat";
+import { setActiveJobCount } from "../../App";
+import { useI18n, type TranslationKeys } from "../../i18n";
 import type {
+  AppSettings,
   CommandResult,
   JobInfo,
-  OffloadEvent,
+  OffloadEventEnvelope,
   OffloadPhase,
   WorkflowPreset,
   StartOffloadRequest,
 } from "../../types";
+
+/** Translate backend status string to localized display text */
+function translateStatus(status: string, t: TranslationKeys): string {
+  const map: Record<string, string> = {
+    completed: t.jobs.statusCompleted,
+    completed_with_errors: t.jobs.statusCompletedWithErrors,
+    copying: t.jobs.statusCopying,
+    verifying: t.jobs.statusVerifying,
+    failed: t.jobs.statusFailed,
+    pending: t.jobs.statusPending,
+    error: t.jobs.statusError,
+  };
+  return map[status] || status.toUpperCase();
+}
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -31,16 +46,19 @@ function formatDuration(secs: number): string {
 }
 
 /** Phase display configuration */
-const PHASE_INFO: Record<OffloadPhase, { label: string; color: string }> = {
-  PreFlight: { label: "Pre-Flight", color: "#ff9800" },
-  SourceVerify: { label: "Hashing Source", color: "#9c27b0" },
-  Copying: { label: "Copying", color: "#2196f3" },
-  Cascading: { label: "Cascading", color: "#ff5722" },
-  Verifying: { label: "Verifying", color: "#00bcd4" },
-  Sealing: { label: "MHL Sealing", color: "#3f51b5" },
-  Complete: { label: "Complete", color: "#4caf50" },
-  Failed: { label: "Failed", color: "#f44336" },
-};
+function usePhaseInfo(): Record<OffloadPhase, { label: string; color: string }> {
+  const { t } = useI18n();
+  return {
+    PreFlight: { label: t.jobs.phasePreFlight, color: "#ff9800" },
+    SourceVerify: { label: t.jobs.phaseSourceVerify, color: "#9c27b0" },
+    Copying: { label: t.jobs.phaseCopying, color: "#2196f3" },
+    Cascading: { label: t.jobs.phaseCascading, color: "#ff5722" },
+    Verifying: { label: t.jobs.phaseVerifying, color: "#00bcd4" },
+    Sealing: { label: t.jobs.phaseSealing, color: "#3f51b5" },
+    Complete: { label: t.jobs.phaseComplete, color: "#4caf50" },
+    Failed: { label: t.jobs.phaseFailed, color: "#f44336" },
+  };
+}
 
 /** Live state for an active offload tracked via events */
 interface ActiveOffload {
@@ -96,6 +114,7 @@ interface NewOffloadDialogProps {
 }
 
 function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
+  const { t } = useI18n();
   const [name, setName] = useState(
     `Offload ${new Date().toLocaleString()}`
   );
@@ -104,37 +123,52 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
   const [presets, setPresets] = useState<WorkflowPreset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
 
-  // Offload options (can be overridden by preset)
+  // Offload options (can be overridden by preset or loaded from settings)
   const [hashAlgorithms, setHashAlgorithms] = useState<string[]>(["XXH64", "SHA256"]);
   const [sourceVerify, setSourceVerify] = useState(true);
   const [postVerify, setPostVerify] = useState(true);
   const [generateMhl, setGenerateMhl] = useState(true);
   const [cascade, setCascade] = useState(false);
 
-  // Load presets
+  // Load presets + default settings
   useEffect(() => {
-    invoke<CommandResult<WorkflowPreset[]>>("list_presets").then((result) => {
+    safeInvoke<CommandResult<WorkflowPreset[]>>("list_presets").then((result) => {
       if (result.success && result.data) {
         setPresets(result.data);
+      }
+    });
+    // Load default algorithms and offload options from settings
+    safeInvoke<CommandResult<AppSettings>>("get_settings").then((result) => {
+      if (result.success && result.data) {
+        setHashAlgorithms(result.data.hashAlgorithms);
+        setSourceVerify(result.data.offload.sourceVerify);
+        setPostVerify(result.data.offload.postVerify);
+        setGenerateMhl(result.data.offload.generateMhl);
+        setCascade(result.data.offload.cascade);
       }
     });
   }, []);
 
   const handleSelectSource = async () => {
-    const path = await open({
-      directory: true,
-      title: "Select Source Card / Directory",
-    });
-    if (path) setSourcePath(path as string);
+    if (isTauri()) {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const path = await open({ directory: true, title: t.jobs.sourceCard });
+      if (path) setSourcePath(path as string);
+    } else {
+      setSourcePath("/Volumes/ALEXA_A001");
+    }
   };
 
   const handleAddDest = async () => {
-    const path = await open({
-      directory: true,
-      title: "Select Destination Directory",
-    });
-    if (path && !destPaths.includes(path as string)) {
-      setDestPaths([...destPaths, path as string]);
+    if (isTauri()) {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const path = await open({ directory: true, title: t.jobs.destinations });
+      if (path && !destPaths.includes(path as string)) {
+        setDestPaths([...destPaths, path as string]);
+      }
+    } else {
+      const demoPath = `/Volumes/RAID_SHUTTLE_0${destPaths.length + 1}`;
+      if (!destPaths.includes(demoPath)) setDestPaths([...destPaths, demoPath]);
     }
   };
 
@@ -154,7 +188,6 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
     setPostVerify(preset.postVerify);
     setGenerateMhl(preset.generateMhl);
     setCascade(preset.cascade);
-    // Optionally apply default destinations from preset
     if (preset.defaultDestPaths.length > 0 && destPaths.length === 0) {
       setDestPaths(preset.defaultDestPaths);
     }
@@ -190,7 +223,7 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
     <div className="dialog-overlay" onClick={onCancel}>
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
         <div className="dialog-header">
-          <h3>New Offload</h3>
+          <h3>{t.jobs.dialogTitle}</h3>
           <button className="dialog-close" onClick={onCancel}>
             &times;
           </button>
@@ -199,27 +232,27 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
         <div className="dialog-body">
           {/* Job Name */}
           <div className="form-group">
-            <label>Job Name</label>
+            <label>{t.jobs.jobName}</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Day 1 A-Cam"
+              placeholder={t.jobs.jobNamePlaceholder}
             />
           </div>
 
           {/* Source */}
           <div className="form-group">
-            <label>Source Card / Directory</label>
+            <label>{t.jobs.sourceCard}</label>
             <div className="path-selector">
               <input
                 type="text"
                 value={sourcePath}
                 readOnly
-                placeholder="Select source directory..."
+                placeholder={t.jobs.sourcePlaceholder}
               />
               <button className="btn-secondary" onClick={handleSelectSource}>
-                Browse
+                {t.common.browse}
               </button>
             </div>
           </div>
@@ -227,34 +260,34 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
           {/* Destinations (multi) */}
           <div className="form-group">
             <label>
-              Destinations{" "}
+              {t.jobs.destinations}{" "}
               <span className="label-hint">
-                ({destPaths.length} selected)
+                ({destPaths.length} {t.jobs.selected})
               </span>
             </label>
             <div className="dest-list">
               {destPaths.map((path, i) => (
                 <div key={path} className="dest-item">
-                  <span className="dest-index">{i === 0 && cascade ? "Primary" : `Dest ${i + 1}`}</span>
+                  <span className="dest-index">{i === 0 && cascade ? t.jobs.primary : `${t.jobs.dest} ${i + 1}`}</span>
                   <span className="dest-path" title={path}>{path}</span>
                   <button
                     className="btn-icon btn-remove"
                     onClick={() => handleRemoveDest(i)}
-                    title="Remove"
+                    title={t.common.delete}
                   >
                     &times;
                   </button>
                 </div>
               ))}
               <button className="btn-secondary btn-add-dest" onClick={handleAddDest}>
-                + Add Destination
+                {t.jobs.addDest}
               </button>
             </div>
           </div>
 
           {/* Preset selector */}
           <div className="form-group">
-            <label>Workflow Preset</label>
+            <label>{t.jobs.workflowPreset}</label>
             <select
               value={selectedPresetId || ""}
               onChange={(e) =>
@@ -263,7 +296,7 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
                   : setSelectedPresetId(null)
               }
             >
-              <option value="">Custom Configuration</option>
+              <option value="">{t.jobs.customConfig}</option>
               {presets.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -274,7 +307,7 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
 
           {/* Options Grid */}
           <div className="form-group">
-            <label>Options</label>
+            <label>{t.jobs.options}</label>
             <div className="options-grid">
               <label className="checkbox-label">
                 <input
@@ -285,7 +318,7 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
                     setSelectedPresetId(null);
                   }}
                 />
-                Source Verify
+                {t.jobs.sourceVerify}
               </label>
               <label className="checkbox-label">
                 <input
@@ -296,7 +329,7 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
                     setSelectedPresetId(null);
                   }}
                 />
-                Post Verify
+                {t.jobs.postVerify}
               </label>
               <label className="checkbox-label">
                 <input
@@ -307,7 +340,7 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
                     setSelectedPresetId(null);
                   }}
                 />
-                Generate MHL
+                {t.jobs.generateMhl}
               </label>
               <label className="checkbox-label">
                 <input
@@ -318,16 +351,16 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
                     setSelectedPresetId(null);
                   }}
                 />
-                Cascade Copy
+                {t.jobs.cascadeCopy}
               </label>
             </div>
           </div>
 
           {/* Hash Algorithms */}
           <div className="form-group">
-            <label>Hash Algorithms</label>
+            <label>{t.jobs.hashAlgorithms}</label>
             <div className="options-grid">
-              {["XXH64", "XXH3", "SHA256", "MD5"].map((algo) => (
+              {["XXH64", "XXH3", "XXH128", "SHA256", "MD5"].map((algo) => (
                 <label key={algo} className="checkbox-label">
                   <input
                     type="checkbox"
@@ -342,24 +375,27 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
 
           {/* Cascade info */}
           {cascade && destPaths.length >= 2 && (
-            <div className="info-banner">
-              Cascade mode: Files copy to <strong>{destPaths[0]?.split("/").pop()}</strong> first
-              (fastest), then cascade to {destPaths.length - 1} secondary
-              destination(s). Source card is freed sooner.
-            </div>
+            <div
+              className="info-banner"
+              dangerouslySetInnerHTML={{
+                __html: t.jobs.cascadeInfo
+                  .replace("{dest}", destPaths[0]?.split("/").pop() || "")
+                  .replace("{count}", String(destPaths.length - 1)),
+              }}
+            />
           )}
         </div>
 
         <div className="dialog-footer">
           <button className="btn-secondary" onClick={onCancel}>
-            Cancel
+            {t.common.cancel}
           </button>
           <button
             className="btn-primary"
             onClick={handleStart}
             disabled={!canStart}
           >
-            Start Offload
+            {t.jobs.startOffload}
           </button>
         </div>
       </div>
@@ -370,6 +406,8 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
 // ─── Main Jobs View ─────────────────────────────────────────────────────
 
 export function JobsView() {
+  const { t } = useI18n();
+  const PHASE_INFO = usePhaseInfo();
   const [jobs, setJobs] = useState<JobInfo[]>([]);
   const [activeOffloads, setActiveOffloads] = useState<
     Map<string, ActiveOffload>
@@ -377,13 +415,20 @@ export function JobsView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showNewDialog, setShowNewDialog] = useState(false);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
 
-  // Ref to track the latest active offload ID for event routing
-  const latestJobIdRef = useRef<string | null>(null);
+  // Report active job count for exit confirmation dialog
+  useEffect(() => {
+    const running = Array.from(activeOffloads.values()).filter(
+      (o) => o.phase !== "Complete" && o.phase !== "Failed"
+    );
+    setActiveJobCount(running.length);
+    return () => setActiveJobCount(0);
+  }, [activeOffloads]);
 
   const loadJobs = useCallback(async () => {
     try {
-      const result = await invoke<CommandResult<JobInfo[]>>("list_jobs");
+      const result = await safeInvoke<CommandResult<JobInfo[]>>("list_jobs");
       if (result.success && result.data) {
         setJobs(result.data);
       }
@@ -399,18 +444,17 @@ export function JobsView() {
     return () => clearInterval(interval);
   }, [loadJobs]);
 
-  // Listen for real-time offload events
+  // Listen for real-time offload events (only in Tauri)
   useEffect(() => {
-    let unlisten: UnlistenFn | null = null;
+    if (!isTauri()) return;
+    let unlisten: (() => void) | null = null;
 
     const setup = async () => {
-      unlisten = await listen<OffloadEvent>("offload-event", (event) => {
-        const ev = event.payload;
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen<OffloadEventEnvelope>("offload-event", (event) => {
+        const { jobId, event: ev } = event.payload;
 
         setActiveOffloads((prev) => {
-          const jobId = latestJobIdRef.current;
-          if (!jobId) return prev;
-
           const next = new Map(prev);
           const offload = next.get(jobId);
           if (!offload) return prev;
@@ -509,13 +553,12 @@ export function JobsView() {
 
     try {
       setLoading(true);
-      const result = await invoke<CommandResult<string>>("start_offload", {
+      const result = await safeInvoke<CommandResult<string>>("start_offload", {
         request,
       });
 
       if (result.success && result.data) {
         const jobId = result.data;
-        latestJobIdRef.current = jobId;
 
         setActiveOffloads((prev) => {
           const next = new Map(prev);
@@ -534,10 +577,19 @@ export function JobsView() {
 
   const handleRecover = async (jobId: string) => {
     try {
-      const result = await invoke<CommandResult<JobInfo>>("recover_job", {
+      setError(null);
+      // Resume offload: recovers tasks + restarts the workflow
+      const result = await safeInvoke<CommandResult<string>>("resume_offload", {
         jobId,
       });
-      if (result.success) {
+      if (result.success && result.data) {
+        // Track as active offload for real-time events
+        const job = jobs.find((j) => j.id === jobId);
+        setActiveOffloads((prev) => {
+          const next = new Map(prev);
+          next.set(jobId, createActiveOffload(jobId, job?.name || "Resumed Offload"));
+          return next;
+        });
         await loadJobs();
       } else {
         setError(result.error || "Recovery failed");
@@ -550,16 +602,34 @@ export function JobsView() {
   const getStatusColor = (status: string): string => {
     switch (status) {
       case "completed":
-        return "#4caf50";
+        return "#22c55e";
       case "copying":
       case "verifying":
-        return "#2196f3";
+        return "#3b82f6";
       case "failed":
-        return "#f44336";
+      case "completed_with_errors":
+        return "#ef4444";
       case "pending":
-        return "#ff9800";
+        return "#f59e0b";
       default:
-        return "#9e9e9e";
+        return "#71717a";
+    }
+  };
+
+  const getStatusBadgeClass = (status: string): string => {
+    switch (status) {
+      case "completed":
+        return "status-badge status-badge--completed";
+      case "copying":
+      case "verifying":
+        return "status-badge status-badge--active";
+      case "failed":
+      case "completed_with_errors":
+        return "status-badge status-badge--failed";
+      case "pending":
+        return "status-badge status-badge--pending";
+      default:
+        return "status-badge";
     }
   };
 
@@ -575,20 +645,20 @@ export function JobsView() {
   return (
     <div className="jobs-view">
       <div className="view-header">
-        <h2>Jobs</h2>
+        <h2>{t.jobs.title}</h2>
         <button
           className="btn-primary"
           onClick={() => setShowNewDialog(true)}
           disabled={loading}
         >
-          {loading ? "Starting..." : "+ New Offload"}
+          {loading ? t.jobs.starting : t.jobs.newOffload}
         </button>
       </div>
 
       {error && (
         <div className="error-banner">
           <span>{error}</span>
-          <button onClick={() => setError(null)}>Dismiss</button>
+          <button onClick={() => setError(null)}>{t.common.dismiss}</button>
         </div>
       )}
 
@@ -603,8 +673,8 @@ export function JobsView() {
       {activeList.length === 0 && dbOnlyJobs.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">&#x1F4C1;</div>
-          <h3>No active jobs</h3>
-          <p>Insert a card and click "New Offload" to start copying.</p>
+          <h3>{t.jobs.noJobs}</h3>
+          <p>{t.jobs.noJobsHint}</p>
         </div>
       ) : (
         <div className="jobs-list">
@@ -625,6 +695,8 @@ export function JobsView() {
                   offload.currentSpeed
                 : 0;
 
+            const isExpanded = expandedJobId === offload.jobId;
+
             return (
               <div
                 key={offload.jobId}
@@ -633,19 +705,30 @@ export function JobsView() {
                 <div className="job-info">
                   <div className="job-header">
                     <span className="job-name">{offload.name}</span>
-                    <span
-                      className="job-phase-badge"
-                      style={{
-                        backgroundColor: phaseInfo.color + "22",
-                        color: phaseInfo.color,
-                        borderColor: phaseInfo.color + "44",
-                      }}
-                    >
-                      {isRunning && (
-                        <span className="pulse-dot" style={{ backgroundColor: phaseInfo.color }} />
-                      )}
-                      {phaseInfo.label}
-                    </span>
+                    <div className="job-header-right">
+                      <span
+                        className="job-phase-badge"
+                        style={{
+                          backgroundColor: phaseInfo.color + "22",
+                          color: phaseInfo.color,
+                          borderColor: phaseInfo.color + "44",
+                        }}
+                      >
+                        {isRunning && (
+                          <span className="pulse-dot" style={{ backgroundColor: phaseInfo.color }} />
+                        )}
+                        {phaseInfo.label}
+                      </span>
+                      <button
+                        className={`job-expand-btn ${isExpanded ? "job-expand-btn--open" : ""}`}
+                        onClick={() => setExpandedJobId(isExpanded ? null : offload.jobId)}
+                        title={t.jobs.details}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <path d="M4 5.5L7 8.5L10 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="job-details">
@@ -655,7 +738,7 @@ export function JobsView() {
                       </span>
                     )}
                     <span className="job-stats">
-                      {offload.completedFiles}/{offload.totalFiles} files
+                      {offload.completedFiles}/{offload.totalFiles} {t.common.files}
                       {offload.totalBytes > 0 && (
                         <>
                           {" \u00B7 "}
@@ -695,14 +778,61 @@ export function JobsView() {
                   />
                 </div>
 
+                {/* Expandable detail panel */}
+                {isExpanded && (
+                  <div className="job-detail-panel">
+                    <div className="job-detail-grid">
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.jobs.currentFile}</span>
+                        <span className="job-detail-value job-detail-file" title={offload.currentFile}>
+                          {offload.currentFile || "—"}
+                        </span>
+                      </div>
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.jobs.speed}</span>
+                        <span className="job-detail-value">
+                          {offload.currentSpeed > 0 ? formatSpeed(offload.currentSpeed) : "—"}
+                        </span>
+                      </div>
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.jobs.elapsed}</span>
+                        <span className="job-detail-value">
+                          {offload.elapsedSecs > 0 ? formatDuration(offload.elapsedSecs) : "—"}
+                        </span>
+                      </div>
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.jobs.eta}</span>
+                        <span className="job-detail-value">
+                          {isRunning && eta > 0 ? formatDuration(eta) : "—"}
+                        </span>
+                      </div>
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.reports.colFiles}</span>
+                        <span className="job-detail-value">
+                          {offload.completedFiles} / {offload.totalFiles}
+                        </span>
+                      </div>
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.reports.colSize}</span>
+                        <span className="job-detail-value">
+                          {formatBytes(offload.completedBytes)} / {formatBytes(offload.totalBytes)}
+                        </span>
+                      </div>
+                    </div>
+                    {offload.phaseMessage && (
+                      <div className="job-detail-phase-msg">{offload.phaseMessage}</div>
+                    )}
+                  </div>
+                )}
+
                 {/* Completion summary */}
                 {offload.phase === "Complete" && (
                   <div className="job-complete-summary">
                     <span className="complete-check">&#x2713;</span>
-                    {offload.totalFiles} files copied in{" "}
+                    {offload.totalFiles} {t.jobs.filesCopiedIn}{" "}
                     {formatDuration(offload.durationSecs)}
                     {offload.totalBytes > 0 && (
-                      <> &mdash; {formatBytes(offload.totalBytes)} total</>
+                      <> &mdash; {formatBytes(offload.totalBytes)} {t.common.total}</>
                     )}
                     {offload.mhlPaths.length > 0 && (
                       <span className="mhl-badge">MHL</span>
@@ -730,54 +860,110 @@ export function JobsView() {
           })}
 
           {/* Historical / DB-only jobs */}
-          {dbOnlyJobs.map((job) => (
-            <div key={job.id} className="job-card">
-              <div className="job-info">
-                <div className="job-header">
-                  <span className="job-name">{job.name}</span>
-                  <span
-                    className="job-status"
-                    style={{ color: getStatusColor(job.status) }}
-                  >
-                    {job.status.toUpperCase()}
-                  </span>
+          {dbOnlyJobs.map((job) => {
+            const isExpanded = expandedJobId === job.id;
+            return (
+              <div key={job.id} className="job-card">
+                <div className="job-info">
+                  <div className="job-header">
+                    <span className="job-name">{job.name}</span>
+                    <div className="job-header-right">
+                      <span className={getStatusBadgeClass(job.status)}>
+                        {translateStatus(job.status, t)}
+                      </span>
+                      <button
+                        className={`job-expand-btn ${isExpanded ? "job-expand-btn--open" : ""}`}
+                        onClick={() => setExpandedJobId(isExpanded ? null : job.id)}
+                        title={t.jobs.details}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <path d="M4 5.5L7 8.5L10 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="job-details">
+                    <span className="job-source" title={job.sourcePath}>
+                      {job.sourcePath}
+                    </span>
+                    <span className="job-stats">
+                      {job.completedTasks}/{job.totalTasks} {t.common.files}
+                      {" \u00B7 "}
+                      {formatBytes(job.copiedBytes)} /{" "}
+                      {formatBytes(job.totalBytes)}
+                    </span>
+                  </div>
                 </div>
-                <div className="job-details">
-                  <span className="job-source" title={job.sourcePath}>
-                    {job.sourcePath}
-                  </span>
-                  <span className="job-stats">
-                    {job.completedTasks}/{job.totalTasks} files
-                    {" \u00B7 "}
-                    {formatBytes(job.copiedBytes)} /{" "}
-                    {formatBytes(job.totalBytes)}
-                  </span>
+                <div className="job-progress">
+                  <div
+                    className="progress-bar"
+                    style={{
+                      width: `${job.progressPercent}%`,
+                      backgroundColor: getStatusColor(job.status),
+                    }}
+                  />
+                </div>
+
+                {/* Expandable detail panel */}
+                {isExpanded && (
+                  <div className="job-detail-panel">
+                    <div className="job-detail-grid">
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.jobs.sourceCard}</span>
+                        <span className="job-detail-value job-detail-file" title={job.sourcePath}>
+                          {job.sourcePath}
+                        </span>
+                      </div>
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.reports.colStatus}</span>
+                        <span className="job-detail-value">
+                          {translateStatus(job.status, t)}
+                        </span>
+                      </div>
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.reports.colFiles}</span>
+                        <span className="job-detail-value">
+                          {job.completedTasks} / {job.totalTasks}
+                        </span>
+                      </div>
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.reports.colSize}</span>
+                        <span className="job-detail-value">
+                          {formatBytes(job.copiedBytes)} / {formatBytes(job.totalBytes)}
+                        </span>
+                      </div>
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.jobs.failed}</span>
+                        <span className="job-detail-value" style={job.failedTasks > 0 ? { color: "#ef4444" } : undefined}>
+                          {job.failedTasks}
+                        </span>
+                      </div>
+                      <div className="job-detail-item">
+                        <span className="job-detail-label">{t.common.total}</span>
+                        <span className="job-detail-value">
+                          {job.progressPercent.toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="job-actions">
+                  {job.failedTasks > 0 && (
+                    <span className="failed-badge">{job.failedTasks} {t.jobs.failed}</span>
+                  )}
+                  {(job.status === "pending" || job.status === "copying" || job.failedTasks > 0) && (
+                    <button
+                      className="btn-secondary btn-sm"
+                      onClick={() => handleRecover(job.id)}
+                    >
+                      {t.common.recover}
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="job-progress">
-                <div
-                  className="progress-bar"
-                  style={{
-                    width: `${job.progressPercent}%`,
-                    backgroundColor: getStatusColor(job.status),
-                  }}
-                />
-              </div>
-              <div className="job-actions">
-                {job.failedTasks > 0 && (
-                  <span className="failed-badge">{job.failedTasks} failed</span>
-                )}
-                {(job.status === "pending" || job.failedTasks > 0) && (
-                  <button
-                    className="btn-secondary btn-sm"
-                    onClick={() => handleRecover(job.id)}
-                  >
-                    Recover
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

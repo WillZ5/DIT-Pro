@@ -1,24 +1,27 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "../../utils/tauriCompat";
+import { useI18n, type Locale } from "../../i18n";
 import type { CommandResult, AppSettings, DeviceIoConfig } from "../../types";
 
-const AVAILABLE_ALGORITHMS = [
-  { id: "XXH64", label: "XXH64", desc: "Ultra-fast, recommended default" },
-  { id: "XXH3", label: "XXH3", desc: "Next-gen, fastest available" },
-  { id: "XXH128", label: "XXH128", desc: "128-bit XXH variant" },
-  { id: "SHA256", label: "SHA-256", desc: "Cryptographic, high security" },
-  { id: "MD5", label: "MD5", desc: "Legacy compatibility" },
-];
-
-const DEVICE_TYPES: { key: keyof AppSettings["ioScheduling"]; label: string; icon: string }[] = [
-  { key: "hdd", label: "HDD", icon: "💿" },
-  { key: "ssd", label: "SSD", icon: "⚡" },
-  { key: "nvme", label: "NVMe", icon: "🚀" },
-  { key: "raid", label: "RAID", icon: "🏗️" },
-  { key: "network", label: "Network", icon: "🌐" },
-];
-
 export function SettingsView() {
+  const { t, locale, setLocale } = useI18n();
+
+  const AVAILABLE_ALGORITHMS = [
+    { id: "XXH64", label: "XXH64", desc: t.settings.algoXxh64Desc },
+    { id: "XXH3", label: "XXH3", desc: t.settings.algoXxh3Desc },
+    { id: "XXH128", label: "XXH128", desc: t.settings.algoXxh128Desc },
+    { id: "SHA256", label: "SHA-256", desc: t.settings.algoSha256Desc },
+    { id: "MD5", label: "MD5", desc: t.settings.algoMd5Desc },
+  ];
+
+  const DEVICE_TYPES: { key: keyof AppSettings["ioScheduling"]; label: string; desc: string }[] = [
+    { key: "hdd", label: "HDD", desc: t.settings.deviceHdd },
+    { key: "ssd", label: "SSD", desc: t.settings.deviceSsd },
+    { key: "nvme", label: "NVMe", desc: t.settings.deviceNvme },
+    { key: "raid", label: "RAID", desc: t.settings.deviceRaid },
+    { key: "network", label: "Network", desc: t.settings.deviceNetwork },
+  ];
+
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -26,7 +29,7 @@ export function SettingsView() {
 
   const loadSettings = useCallback(async () => {
     try {
-      const result = await invoke<CommandResult<AppSettings>>("get_settings");
+      const result = await safeInvoke<CommandResult<AppSettings>>("get_settings");
       if (result.success && result.data) {
         setSettings(result.data);
       }
@@ -45,7 +48,7 @@ export function SettingsView() {
     setSaved(false);
     setError(null);
     try {
-      const result = await invoke<CommandResult<boolean>>("save_settings", {
+      const result = await safeInvoke<CommandResult<boolean>>("save_settings", {
         settings,
       });
       if (result.success) {
@@ -67,7 +70,6 @@ export function SettingsView() {
     const next = current.includes(algoId)
       ? current.filter((a) => a !== algoId)
       : [...current, algoId];
-    // Must have at least one algorithm
     if (next.length === 0) return;
     setSettings({ ...settings, hashAlgorithms: next });
   };
@@ -110,10 +112,10 @@ export function SettingsView() {
     return (
       <div className="settings-view">
         <div className="view-header">
-          <h2>Settings</h2>
+          <h2>{t.settings.title}</h2>
         </div>
         <div className="empty-state">
-          <p>Loading settings...</p>
+          <p>{t.settings.loadingSettings}</p>
         </div>
       </div>
     );
@@ -122,15 +124,15 @@ export function SettingsView() {
   return (
     <div className="settings-view">
       <div className="view-header">
-        <h2>Settings</h2>
+        <h2>{t.settings.title}</h2>
         <div className="settings-actions">
-          {saved && <span className="save-success">&#x2713; Saved</span>}
+          {saved && <span className="save-success">{t.common.saved}</span>}
           <button
             className="btn-primary"
             onClick={handleSave}
             disabled={saving}
           >
-            {saving ? "Saving..." : "Save Settings"}
+            {saving ? t.common.saving : t.settings.saveSettings}
           </button>
         </div>
       </div>
@@ -138,15 +140,40 @@ export function SettingsView() {
       {error && (
         <div className="error-banner">
           <span>{error}</span>
-          <button onClick={() => setError(null)}>Dismiss</button>
+          <button onClick={() => setError(null)}>{t.common.dismiss}</button>
         </div>
       )}
 
       <div className="settings-sections">
-        {/* ─── Hash Algorithms ──────────────────────────────────── */}
+        {/* Language */}
         <section className="settings-section">
-          <h3>Hash Algorithms</h3>
-          <p>Select which hash algorithms to use during copy verification.</p>
+          <h3>{t.settings.languageTitle}</h3>
+          <p>{t.settings.languageDesc}</p>
+          <div className="algo-grid algo-grid--compact">
+            {([
+              { id: "en" as Locale, label: t.settings.languageEn },
+              { id: "zh" as Locale, label: t.settings.languageZh },
+            ]).map((lang) => (
+              <label
+                key={lang.id}
+                className={`algo-chip ${locale === lang.id ? "algo-chip--active" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name="language"
+                  checked={locale === lang.id}
+                  onChange={() => setLocale(lang.id)}
+                />
+                <span className="algo-name">{lang.label}</span>
+              </label>
+            ))}
+          </div>
+        </section>
+
+        {/* Hash Algorithms */}
+        <section className="settings-section">
+          <h3>{t.settings.hashAlgorithmsTitle}</h3>
+          <p>{t.settings.hashAlgorithmsDesc}</p>
           <div className="algo-grid">
             {AVAILABLE_ALGORITHMS.map((algo) => (
               <label
@@ -165,137 +192,118 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* ─── Offload Defaults ─────────────────────────────────── */}
+        {/* Offload Defaults */}
         <section className="settings-section">
-          <h3>Offload Defaults</h3>
-          <p>Default options applied to every new offload job.</p>
+          <h3>{t.settings.offloadDefaultsTitle}</h3>
+          <p>{t.settings.offloadDefaultsDesc}</p>
           <div className="settings-grid">
             <label className="toggle-row">
-              <span className="toggle-label">Source Verification</span>
+              <span className="toggle-label">{t.settings.sourceVerification}</span>
               <span className="toggle-desc">
-                Hash source files before copying to detect read errors
+                {t.settings.sourceVerifyDesc}
               </span>
               <input
                 type="checkbox"
                 className="toggle-input"
                 checked={settings.offload.sourceVerify}
-                onChange={(e) =>
-                  updateOffload("sourceVerify", e.target.checked)
-                }
+                onChange={(e) => updateOffload("sourceVerify", e.target.checked)}
               />
               <span className="toggle-switch" />
             </label>
 
             <label className="toggle-row">
-              <span className="toggle-label">Post-Copy Verification</span>
+              <span className="toggle-label">{t.settings.postCopyVerification}</span>
               <span className="toggle-desc">
-                Re-read destination files and verify hashes match
+                {t.settings.postVerifyDesc}
               </span>
               <input
                 type="checkbox"
                 className="toggle-input"
                 checked={settings.offload.postVerify}
-                onChange={(e) =>
-                  updateOffload("postVerify", e.target.checked)
-                }
+                onChange={(e) => updateOffload("postVerify", e.target.checked)}
               />
               <span className="toggle-switch" />
             </label>
 
             <label className="toggle-row">
-              <span className="toggle-label">Generate ASC MHL</span>
+              <span className="toggle-label">{t.settings.generateAscMhl}</span>
               <span className="toggle-desc">
-                Create chain-of-custody manifest after successful copy
+                {t.settings.generateMhlDesc}
               </span>
               <input
                 type="checkbox"
                 className="toggle-input"
                 checked={settings.offload.generateMhl}
-                onChange={(e) =>
-                  updateOffload("generateMhl", e.target.checked)
-                }
+                onChange={(e) => updateOffload("generateMhl", e.target.checked)}
               />
               <span className="toggle-switch" />
             </label>
 
             <label className="toggle-row">
-              <span className="toggle-label">Cascading Copy</span>
+              <span className="toggle-label">{t.settings.cascadingCopy}</span>
               <span className="toggle-desc">
-                Copy to fastest destination first, then cascade to slower targets (frees source card sooner)
+                {t.settings.cascadeDesc}
               </span>
               <input
                 type="checkbox"
                 className="toggle-input"
                 checked={settings.offload.cascade}
-                onChange={(e) =>
-                  updateOffload("cascade", e.target.checked)
-                }
+                onChange={(e) => updateOffload("cascade", e.target.checked)}
               />
               <span className="toggle-switch" />
             </label>
 
             <div className="number-row">
-              <span className="toggle-label">Buffer Size</span>
-              <span className="toggle-desc">
-                IO buffer size for file operations
-              </span>
+              <span className="toggle-label">{t.settings.bufferSize}</span>
+              <span className="toggle-desc">{t.settings.bufferSizeDesc}</span>
               <select
                 className="settings-select"
                 value={settings.offload.bufferSize}
-                onChange={(e) =>
-                  updateOffload("bufferSize", Number(e.target.value))
-                }
+                onChange={(e) => updateOffload("bufferSize", Number(e.target.value))}
               >
                 <option value={1048576}>1 MB</option>
                 <option value={2097152}>2 MB</option>
-                <option value={4194304}>4 MB (default)</option>
+                <option value={4194304}>4 MB {t.settings.bufferDefault}</option>
                 <option value={8388608}>8 MB</option>
                 <option value={16777216}>16 MB</option>
               </select>
             </div>
 
             <div className="number-row">
-              <span className="toggle-label">Max Retries</span>
-              <span className="toggle-desc">
-                Number of retry attempts for failed file copies
-              </span>
+              <span className="toggle-label">{t.settings.maxRetries}</span>
+              <span className="toggle-desc">{t.settings.maxRetriesDesc}</span>
               <select
                 className="settings-select"
                 value={settings.offload.maxRetries}
-                onChange={(e) =>
-                  updateOffload("maxRetries", Number(e.target.value))
-                }
+                onChange={(e) => updateOffload("maxRetries", Number(e.target.value))}
               >
-                <option value={0}>0 (no retry)</option>
+                <option value={0}>0 ({t.settings.noRetry})</option>
                 <option value={1}>1</option>
                 <option value={2}>2</option>
-                <option value={3}>3 (default)</option>
+                <option value={3}>3 {t.settings.bufferDefault}</option>
                 <option value={5}>5</option>
               </select>
             </div>
           </div>
         </section>
 
-        {/* ─── IO Scheduling ───────────────────────────────────── */}
+        {/* IO Scheduling */}
         <section className="settings-section">
-          <h3>IO Scheduling</h3>
-          <p>
-            Per-device concurrency settings. Lower values protect HDDs from
-            excessive seeking. Higher values utilize fast SSD/NVMe bandwidth.
-          </p>
+          <h3>{t.settings.ioSchedulingTitle}</h3>
+          <p>{t.settings.ioSchedulingDesc}</p>
           <div className="io-table">
             <div className="io-table-header">
-              <span>Device</span>
-              <span>Max Concurrent</span>
-              <span>Buffer (MB)</span>
+              <span>{t.settings.colDevice}</span>
+              <span>{t.settings.colMaxConcurrent}</span>
+              <span>{t.settings.colBufferMb}</span>
             </div>
             {DEVICE_TYPES.map((dt) => {
               const cfg = settings.ioScheduling[dt.key];
               return (
                 <div key={dt.key} className="io-table-row">
                   <span className="io-device">
-                    <span className="io-device-icon">{dt.icon}</span>
-                    {dt.label}
+                    <span className="io-device-label">{dt.label}</span>
+                    <span className="io-device-desc">{dt.desc}</span>
                   </span>
                   <input
                     type="number"
@@ -304,11 +312,7 @@ export function SettingsView() {
                     max={32}
                     value={cfg.maxConcurrent}
                     onChange={(e) =>
-                      updateIo(
-                        dt.key,
-                        "maxConcurrent",
-                        Math.max(1, Math.min(32, Number(e.target.value)))
-                      )
+                      updateIo(dt.key, "maxConcurrent", Math.max(1, Math.min(32, Number(e.target.value))))
                     }
                   />
                   <input
@@ -318,11 +322,7 @@ export function SettingsView() {
                     max={64}
                     value={cfg.bufferSizeMb}
                     onChange={(e) =>
-                      updateIo(
-                        dt.key,
-                        "bufferSizeMb",
-                        Math.max(1, Math.min(64, Number(e.target.value)))
-                      )
+                      updateIo(dt.key, "bufferSizeMb", Math.max(1, Math.min(64, Number(e.target.value))))
                     }
                   />
                 </div>
@@ -331,16 +331,14 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* ─── Email Notifications ─────────────────────────────── */}
+        {/* Email Notifications */}
         <section className="settings-section">
-          <h3>Email Notifications</h3>
-          <p>Send email alerts when offload jobs complete or fail.</p>
+          <h3>{t.settings.emailTitle}</h3>
+          <p>{t.settings.emailDesc}</p>
 
           <label className="toggle-row" style={{ marginBottom: 12 }}>
-            <span className="toggle-label">Enable Email Notifications</span>
-            <span className="toggle-desc">
-              Send alerts via SMTP when jobs finish
-            </span>
+            <span className="toggle-label">{t.settings.enableEmail}</span>
+            <span className="toggle-desc">{t.settings.enableEmailDesc}</span>
             <input
               type="checkbox"
               className="toggle-input"
@@ -353,7 +351,7 @@ export function SettingsView() {
           {settings.email.enabled && (
             <div className="email-fields">
               <div className="field-row">
-                <label className="field-label">SMTP Host</label>
+                <label className="field-label">{t.settings.smtpHost}</label>
                 <input
                   type="text"
                   className="settings-input"
@@ -364,18 +362,16 @@ export function SettingsView() {
               </div>
               <div className="field-row-inline">
                 <div className="field-row">
-                  <label className="field-label">Port</label>
+                  <label className="field-label">{t.settings.port}</label>
                   <input
                     type="number"
                     className="settings-number"
                     value={settings.email.smtpPort}
-                    onChange={(e) =>
-                      updateEmail("smtpPort", Number(e.target.value))
-                    }
+                    onChange={(e) => updateEmail("smtpPort", Number(e.target.value))}
                   />
                 </div>
                 <label className="toggle-row-compact">
-                  <span>TLS</span>
+                  <span>{t.settings.tls}</span>
                   <input
                     type="checkbox"
                     className="toggle-input"
@@ -386,31 +382,27 @@ export function SettingsView() {
                 </label>
               </div>
               <div className="field-row">
-                <label className="field-label">Username</label>
+                <label className="field-label">{t.settings.username}</label>
                 <input
                   type="text"
                   className="settings-input"
                   placeholder="user@gmail.com"
                   value={settings.email.smtpUsername}
-                  onChange={(e) =>
-                    updateEmail("smtpUsername", e.target.value)
-                  }
+                  onChange={(e) => updateEmail("smtpUsername", e.target.value)}
                 />
               </div>
               <div className="field-row">
-                <label className="field-label">From Address</label>
+                <label className="field-label">{t.settings.fromAddress}</label>
                 <input
                   type="email"
                   className="settings-input"
                   placeholder="dit-system@studio.com"
                   value={settings.email.fromAddress}
-                  onChange={(e) =>
-                    updateEmail("fromAddress", e.target.value)
-                  }
+                  onChange={(e) => updateEmail("fromAddress", e.target.value)}
                 />
               </div>
               <div className="field-row">
-                <label className="field-label">To Address</label>
+                <label className="field-label">{t.settings.toAddress}</label>
                 <input
                   type="email"
                   className="settings-input"

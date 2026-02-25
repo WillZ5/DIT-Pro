@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "../../utils/tauriCompat";
+import { useI18n } from "../../i18n";
 import type { CommandResult, WorkflowPreset } from "../../types";
 
 const ALGO_OPTIONS = [
@@ -37,6 +38,7 @@ function emptyPreset(): WorkflowPreset {
 }
 
 export function PresetsView() {
+  const { t } = useI18n();
   const [presets, setPresets] = useState<WorkflowPreset[]>([]);
   const [editing, setEditing] = useState<WorkflowPreset | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -45,7 +47,7 @@ export function PresetsView() {
 
   const loadPresets = useCallback(async () => {
     try {
-      const result = await invoke<CommandResult<WorkflowPreset[]>>("list_presets");
+      const result = await safeInvoke<CommandResult<WorkflowPreset[]>>("list_presets");
       if (result.success && result.data) {
         setPresets(result.data);
       }
@@ -78,7 +80,7 @@ export function PresetsView() {
 
   const handleSave = async () => {
     if (!editing || !editing.name.trim()) {
-      setError("Preset name is required");
+      setError(t.presets.presetNameRequired);
       return;
     }
     setSaving(true);
@@ -86,7 +88,7 @@ export function PresetsView() {
 
     try {
       const cmd = isNew ? "create_preset" : "update_preset";
-      const result = await invoke<CommandResult<WorkflowPreset>>(cmd, {
+      const result = await safeInvoke<CommandResult<WorkflowPreset>>(cmd, {
         presetData: editing,
       });
       if (result.success) {
@@ -105,7 +107,7 @@ export function PresetsView() {
 
   const handleDelete = async (presetId: string) => {
     try {
-      const result = await invoke<CommandResult<boolean>>("delete_preset", {
+      const result = await safeInvoke<CommandResult<boolean>>("delete_preset", {
         presetId,
       });
       if (result.success) {
@@ -155,10 +157,10 @@ export function PresetsView() {
   return (
     <div className="settings-view">
       <div className="view-header">
-        <h2>Workflow Presets</h2>
+        <h2>{t.presets.title}</h2>
         <div className="settings-actions">
           <button className="btn-primary" onClick={handleNew}>
-            + New Preset
+            {t.presets.newPreset}
           </button>
         </div>
       </div>
@@ -166,16 +168,16 @@ export function PresetsView() {
       {error && (
         <div className="error-banner">
           <span>{error}</span>
-          <button onClick={() => setError(null)}>Dismiss</button>
+          <button onClick={() => setError(null)}>{t.common.dismiss}</button>
         </div>
       )}
 
       <div className="presets-layout">
-        {/* ─── Preset List ────────────────────────────────────── */}
+        {/* Preset List */}
         <div className="preset-list">
           {presets.length === 0 ? (
             <div className="empty-state">
-              <p>No presets yet. Click "+ New Preset" to create one.</p>
+              <p>{t.presets.noPresets}</p>
             </div>
           ) : (
             presets.map((p) => (
@@ -189,7 +191,7 @@ export function PresetsView() {
                   <div className="preset-card-badges">
                     {p.cascade && (
                       <span className="preset-badge preset-badge--cascade">
-                        Cascade
+                        {t.presets.cascade}
                       </span>
                     )}
                     {p.generateMhl && (
@@ -206,11 +208,11 @@ export function PresetsView() {
                   </span>
                   <span className="preset-card-flags">
                     {[
-                      p.sourceVerify && "SrcVerify",
-                      p.postVerify && "PostVerify",
+                      p.sourceVerify && t.presets.srcVerify,
+                      p.postVerify && t.presets.postVerifyFlag,
                     ]
                       .filter(Boolean)
-                      .join(" · ")}
+                      .join(" \u00B7 ")}
                   </span>
                 </div>
                 <div className="preset-card-actions">
@@ -221,7 +223,7 @@ export function PresetsView() {
                       handleDuplicate(p);
                     }}
                   >
-                    Duplicate
+                    {t.common.duplicate}
                   </button>
                   <button
                     className="btn-small btn-danger"
@@ -230,7 +232,7 @@ export function PresetsView() {
                       handleDelete(p.id);
                     }}
                   >
-                    Delete
+                    {t.common.delete}
                   </button>
                 </div>
               </div>
@@ -238,35 +240,35 @@ export function PresetsView() {
           )}
         </div>
 
-        {/* ─── Preset Editor ──────────────────────────────────── */}
+        {/* Preset Editor */}
         {editing && (
           <div className="preset-editor">
-            <h3>{isNew ? "New Preset" : "Edit Preset"}</h3>
+            <h3>{isNew ? t.presets.newTitle : t.presets.editTitle}</h3>
 
             <div className="field-row">
-              <label className="field-label">Name</label>
+              <label className="field-label">{t.presets.name}</label>
               <input
                 type="text"
                 className="settings-input"
-                placeholder="e.g., ARRI Daily Offload"
+                placeholder={t.presets.namePlaceholder}
                 value={editing.name}
                 onChange={(e) => updateField("name", e.target.value)}
               />
             </div>
 
             <div className="field-row">
-              <label className="field-label">Description</label>
+              <label className="field-label">{t.presets.description}</label>
               <input
                 type="text"
                 className="settings-input"
-                placeholder="Optional description..."
+                placeholder={t.presets.descPlaceholder}
                 value={editing.description}
                 onChange={(e) => updateField("description", e.target.value)}
               />
             </div>
 
             <div className="field-row">
-              <label className="field-label">Hash Algorithms</label>
+              <label className="field-label">{t.presets.hashAlgorithms}</label>
               <div className="algo-grid algo-grid--compact">
                 {ALGO_OPTIONS.map((algo) => (
                   <label
@@ -286,7 +288,7 @@ export function PresetsView() {
 
             <div className="preset-toggles">
               <label className="toggle-row">
-                <span className="toggle-label">Source Verification</span>
+                <span className="toggle-label">{t.presets.sourceVerification}</span>
                 <input
                   type="checkbox"
                   className="toggle-input"
@@ -297,7 +299,7 @@ export function PresetsView() {
               </label>
 
               <label className="toggle-row">
-                <span className="toggle-label">Post-Copy Verification</span>
+                <span className="toggle-label">{t.presets.postCopyVerification}</span>
                 <input
                   type="checkbox"
                   className="toggle-input"
@@ -308,7 +310,7 @@ export function PresetsView() {
               </label>
 
               <label className="toggle-row">
-                <span className="toggle-label">Generate ASC MHL</span>
+                <span className="toggle-label">{t.presets.generateAscMhl}</span>
                 <input
                   type="checkbox"
                   className="toggle-input"
@@ -319,7 +321,7 @@ export function PresetsView() {
               </label>
 
               <label className="toggle-row">
-                <span className="toggle-label">Cascading Copy</span>
+                <span className="toggle-label">{t.presets.cascadingCopy}</span>
                 <input
                   type="checkbox"
                   className="toggle-input"
@@ -332,7 +334,7 @@ export function PresetsView() {
 
             <div className="field-row-inline">
               <div className="field-row">
-                <label className="field-label">Buffer Size</label>
+                <label className="field-label">{t.presets.bufferSize}</label>
                 <select
                   className="settings-select"
                   value={editing.bufferSize}
@@ -348,7 +350,7 @@ export function PresetsView() {
                 </select>
               </div>
               <div className="field-row">
-                <label className="field-label">Max Retries</label>
+                <label className="field-label">{t.presets.maxRetries}</label>
                 <select
                   className="settings-select"
                   value={editing.maxRetries}
@@ -367,14 +369,14 @@ export function PresetsView() {
 
             <div className="preset-editor-actions">
               <button className="btn-secondary" onClick={handleCancel}>
-                Cancel
+                {t.common.cancel}
               </button>
               <button
                 className="btn-primary"
                 onClick={handleSave}
                 disabled={saving}
               >
-                {saving ? "Saving..." : isNew ? "Create Preset" : "Save Changes"}
+                {saving ? t.common.saving : isNew ? t.presets.createPreset : t.presets.saveChanges}
               </button>
             </div>
           </div>

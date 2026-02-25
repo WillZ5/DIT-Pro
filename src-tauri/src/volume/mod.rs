@@ -132,8 +132,69 @@ pub fn get_volume_space(_path: &Path) -> Result<VolumeSpaceInfo> {
     anyhow::bail!("Volume space query not implemented on this platform")
 }
 
+/// Detect device type for a mounted volume using `diskutil info`.
+#[cfg(target_os = "macos")]
+fn detect_device_type(mount_point: &str) -> DeviceType {
+    use std::process::Command;
+
+    // Network shares (SMB, NFS, AFP) are not under /dev
+    let output = match Command::new("diskutil")
+        .args(["info", mount_point])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return DeviceType::Unknown,
+    };
+
+    let info = String::from_utf8_lossy(&output.stdout);
+
+    // Check for network filesystem protocols
+    if info.contains("Protocol:") {
+        let proto_line = info.lines().find(|l| l.contains("Protocol:")).unwrap_or("");
+        let proto = proto_line.to_lowercase();
+        if proto.contains("smb") || proto.contains("nfs") || proto.contains("afp") {
+            return DeviceType::Network;
+        }
+    }
+
+    // Check for RAID (AppleRAID or software RAID)
+    if info.contains("RAID") || info.contains("AppleRAID") {
+        return DeviceType::RAID;
+    }
+
+    // Determine internal media type from diskutil output
+    let info_lower = info.to_lowercase();
+
+    // Check "Solid State:" field  (Yes = SSD/NVMe)
+    let is_solid_state = info.lines()
+        .find(|l| l.contains("Solid State:"))
+        .map(|l| l.contains("Yes"))
+        .unwrap_or(false);
+
+    // Check protocol/bus for NVMe
+    if info_lower.contains("nvme") || info_lower.contains("nvmexpress") {
+        return DeviceType::NVMe;
+    }
+
+    if is_solid_state {
+        return DeviceType::SSD;
+    }
+
+    // If diskutil returned valid device info but not solid state, it's likely HDD
+    // (only for physical disks, not disk images)
+    if info.contains("Device Node:") && info.contains("Total Size:") {
+        return DeviceType::HDD;
+    }
+
+    DeviceType::Unknown
+}
+
+#[cfg(not(target_os = "macos"))]
+fn detect_device_type(_mount_point: &str) -> DeviceType {
+    DeviceType::Unknown
+}
+
 /// List mounted volumes on macOS by reading /Volumes directory.
-/// Returns basic info — device type detection requires deeper system queries.
 pub async fn list_mounted_volumes() -> Result<Vec<VolumeInfo>> {
     let volumes_dir = Path::new("/Volumes");
     if !volumes_dir.exists() {
@@ -163,6 +224,9 @@ pub async fn list_mounted_volumes() -> Result<Vec<VolumeInfo>> {
             Err(_) => (0, 0),
         };
 
+        // Detect device type (SSD/NVMe/HDD/RAID/Network)
+        let device_type = detect_device_type(&mount_point);
+
         let id = uuid::Uuid::new_v4().to_string();
 
         volumes.push(VolumeInfo {
@@ -171,7 +235,7 @@ pub async fn list_mounted_volumes() -> Result<Vec<VolumeInfo>> {
             mount_point,
             total_bytes,
             available_bytes,
-            device_type: DeviceType::Unknown,
+            device_type,
             serial_number: None,
             is_mounted: true,
             last_seen_at: Some(Utc::now()),

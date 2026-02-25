@@ -1,6 +1,21 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "../../utils/tauriCompat";
+import { useI18n, type TranslationKeys } from "../../i18n";
 import type { CommandResult, DayReport, JobReport } from "../../types";
+
+/** Translate backend status string to localized display text */
+function translateStatus(status: string, t: TranslationKeys): string {
+  const map: Record<string, string> = {
+    completed: t.jobs.statusCompleted,
+    completed_with_errors: t.jobs.statusCompletedWithErrors,
+    copying: t.jobs.statusCopying,
+    verifying: t.jobs.statusVerifying,
+    failed: t.jobs.statusFailed,
+    pending: t.jobs.statusPending,
+    error: t.jobs.statusError,
+  };
+  return map[status] || status.toUpperCase();
+}
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -11,6 +26,7 @@ function formatBytes(bytes: number): string {
 }
 
 export function ReportView() {
+  const { t } = useI18n();
   const [dates, setDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [dayReport, setDayReport] = useState<DayReport | null>(null);
@@ -20,7 +36,7 @@ export function ReportView() {
 
   const loadDates = useCallback(async () => {
     try {
-      const result = await invoke<CommandResult<string[]>>("get_report_dates");
+      const result = await safeInvoke<CommandResult<string[]>>("get_report_dates");
       if (result.success && result.data) {
         setDates(result.data);
         if (result.data.length > 0 && !selectedDate) {
@@ -40,7 +56,7 @@ export function ReportView() {
     if (!selectedDate) return;
     (async () => {
       try {
-        const result = await invoke<CommandResult<DayReport>>("get_day_report", {
+        const result = await safeInvoke<CommandResult<DayReport>>("get_day_report", {
           date: selectedDate,
         });
         if (result.success && result.data) {
@@ -55,7 +71,7 @@ export function ReportView() {
 
   const handleViewJobDetail = async (jobId: string) => {
     try {
-      const result = await invoke<CommandResult<JobReport>>("get_job_report", {
+      const result = await safeInvoke<CommandResult<JobReport>>("get_job_report", {
         jobId,
       });
       if (result.success && result.data) {
@@ -71,12 +87,12 @@ export function ReportView() {
     setExporting(true);
     setError(null);
     try {
-      const result = await invoke<CommandResult<string>>("export_day_report", {
+      const result = await safeInvoke<CommandResult<string>>("export_day_report", {
         date: selectedDate,
       });
       if (result.success && result.data) {
         setError(null);
-        alert(`Report saved to:\n${result.data}`);
+        alert(`${t.reports.reportSavedTo}\n${result.data}`);
       } else {
         setError(result.error || "Export failed");
       }
@@ -91,11 +107,11 @@ export function ReportView() {
     setExporting(true);
     setError(null);
     try {
-      const result = await invoke<CommandResult<string>>("export_job_report", {
+      const result = await safeInvoke<CommandResult<string>>("export_job_report", {
         jobId,
       });
       if (result.success && result.data) {
-        alert(`Report saved to:\n${result.data}`);
+        alert(`${t.reports.reportSavedTo}\n${result.data}`);
       } else {
         setError(result.error || "Export failed");
       }
@@ -110,12 +126,17 @@ export function ReportView() {
     return (
       <div className="settings-view">
         <div className="view-header">
-          <h2>Reports</h2>
+          <h2>{t.reports.title}</h2>
         </div>
         <div className="empty-state">
-          <div className="empty-icon">📊</div>
-          <h3>No reports yet</h3>
-          <p>Reports will be generated after completing offload jobs.</p>
+          <div className="empty-icon-svg">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <rect x="10" y="6" width="28" height="36" rx="3" stroke="#333" strokeWidth="2" />
+              <path d="M16 16h16M16 22h16M16 28h10" stroke="#333" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+          <h3>{t.reports.noReports}</h3>
+          <p>{t.reports.noReportsHint}</p>
         </div>
       </div>
     );
@@ -124,7 +145,7 @@ export function ReportView() {
   return (
     <div className="settings-view">
       <div className="view-header">
-        <h2>Reports</h2>
+        <h2>{t.reports.title}</h2>
         <div className="settings-actions">
           <select
             className="settings-select"
@@ -142,7 +163,7 @@ export function ReportView() {
             onClick={handleExportDay}
             disabled={exporting || !selectedDate}
           >
-            {exporting ? "Exporting..." : "Export HTML"}
+            {exporting ? t.reports.exporting : t.reports.exportHtml}
           </button>
         </div>
       </div>
@@ -150,7 +171,7 @@ export function ReportView() {
       {error && (
         <div className="error-banner">
           <span>{error}</span>
-          <button onClick={() => setError(null)}>Dismiss</button>
+          <button onClick={() => setError(null)}>{t.common.dismiss}</button>
         </div>
       )}
 
@@ -158,43 +179,43 @@ export function ReportView() {
         <div className="settings-sections">
           {/* Day Summary Stats */}
           <section className="settings-section">
-            <h3>Day Summary — {dayReport.date}</h3>
+            <h3>{t.reports.daySummary} — {dayReport.date}</h3>
             <div className="report-stats">
               <div className="report-stat">
                 <span className="report-stat-value">{dayReport.totalJobs}</span>
-                <span className="report-stat-label">Total Jobs</span>
+                <span className="report-stat-label">{t.reports.totalJobs}</span>
               </div>
               <div className="report-stat">
                 <span className="report-stat-value">{dayReport.totalFiles}</span>
-                <span className="report-stat-label">Total Files</span>
+                <span className="report-stat-label">{t.reports.totalFiles}</span>
               </div>
               <div className="report-stat">
                 <span className="report-stat-value">
                   {formatBytes(dayReport.totalBytes)}
                 </span>
-                <span className="report-stat-label">Total Data</span>
+                <span className="report-stat-label">{t.reports.totalData}</span>
               </div>
               <div className="report-stat">
                 <span className="report-stat-value">
                   {dayReport.completedJobs}/{dayReport.totalJobs}
                 </span>
-                <span className="report-stat-label">Completed</span>
+                <span className="report-stat-label">{t.reports.completed}</span>
               </div>
             </div>
           </section>
 
           {/* Job List */}
           <section className="settings-section">
-            <h3>Jobs</h3>
+            <h3>{t.reports.jobsTableTitle}</h3>
             <div className="report-table-wrap">
               <table className="report-table">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Files</th>
-                    <th>Size</th>
-                    <th>Actions</th>
+                    <th>{t.reports.colName}</th>
+                    <th>{t.reports.colStatus}</th>
+                    <th>{t.reports.colFiles}</th>
+                    <th>{t.reports.colSize}</th>
+                    <th>{t.reports.colActions}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -206,12 +227,14 @@ export function ReportView() {
                           className={`report-status ${
                             job.status === "completed"
                               ? "report-status--ok"
-                              : job.status.includes("error")
+                              : job.status === "completed_with_errors" || job.status === "failed" || job.status === "error"
                                 ? "report-status--error"
-                                : "report-status--pending"
+                                : job.status === "copying" || job.status === "verifying"
+                                  ? "report-status--active"
+                                  : "report-status--pending"
                           }`}
                         >
-                          {job.status}
+                          {translateStatus(job.status, t)}
                         </span>
                       </td>
                       <td>
@@ -223,14 +246,14 @@ export function ReportView() {
                           className="btn-small"
                           onClick={() => handleViewJobDetail(job.jobId)}
                         >
-                          Detail
+                          {t.reports.detail}
                         </button>
                         <button
                           className="btn-small"
                           onClick={() => handleExportJob(job.jobId)}
                           disabled={exporting}
                         >
-                          Export
+                          {t.common.export}
                         </button>
                       </td>
                     </tr>
@@ -240,17 +263,17 @@ export function ReportView() {
             </div>
           </section>
 
-          {/* Job Detail (when selected) */}
+          {/* Job Detail */}
           {jobReport && (
             <section className="settings-section">
               <h3>
-                Job Detail — {jobReport.summary.jobName}
+                {t.reports.jobDetail} — {jobReport.summary.jobName}
                 <button
                   className="btn-small"
                   style={{ marginLeft: 12 }}
                   onClick={() => setJobReport(null)}
                 >
-                  Close
+                  {t.common.close}
                 </button>
               </h3>
               <div className="report-stats">
@@ -258,25 +281,25 @@ export function ReportView() {
                   <span className="report-stat-value">
                     {jobReport.summary.totalFiles}
                   </span>
-                  <span className="report-stat-label">Files</span>
+                  <span className="report-stat-label">{t.reports.colFiles}</span>
                 </div>
                 <div className="report-stat">
                   <span className="report-stat-value">
                     {jobReport.summary.completedFiles}
                   </span>
-                  <span className="report-stat-label">Completed</span>
+                  <span className="report-stat-label">{t.reports.completed}</span>
                 </div>
                 <div className="report-stat">
                   <span className="report-stat-value">
                     {jobReport.summary.failedFiles}
                   </span>
-                  <span className="report-stat-label">Failed</span>
+                  <span className="report-stat-label">{t.jobs.failed}</span>
                 </div>
                 <div className="report-stat">
                   <span className="report-stat-value">
                     {formatBytes(jobReport.summary.totalBytes)}
                   </span>
-                  <span className="report-stat-label">Total</span>
+                  <span className="report-stat-label">{t.common.total}</span>
                 </div>
               </div>
 
@@ -284,10 +307,10 @@ export function ReportView() {
                 <table className="report-table report-table--detail">
                   <thead>
                     <tr>
-                      <th>File</th>
-                      <th>Destination</th>
-                      <th>Size</th>
-                      <th>Status</th>
+                      <th>{t.reports.colFile}</th>
+                      <th>{t.reports.colDestination}</th>
+                      <th>{t.reports.colSize}</th>
+                      <th>{t.reports.colStatus}</th>
                       <th>XXH64</th>
                       <th>SHA-256</th>
                     </tr>
@@ -308,17 +331,21 @@ export function ReportView() {
                               className={`report-status ${
                                 task.status === "completed"
                                   ? "report-status--ok"
-                                  : "report-status--error"
+                                  : task.status === "pending"
+                                    ? "report-status--pending"
+                                    : task.status === "copying" || task.status === "verifying"
+                                      ? "report-status--active"
+                                      : "report-status--error"
                               }`}
                             >
-                              {task.status}
+                              {translateStatus(task.status, t)}
                             </span>
                           </td>
-                          <td className="report-hash">{task.hashXxh64 || "—"}</td>
+                          <td className="report-hash">{task.hashXxh64 || "\u2014"}</td>
                           <td className="report-hash">
                             {task.hashSha256
                               ? task.hashSha256.slice(0, 16) + "..."
-                              : "—"}
+                              : "\u2014"}
                           </td>
                         </tr>
                       );

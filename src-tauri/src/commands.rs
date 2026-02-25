@@ -32,6 +32,17 @@ pub struct AppState {
     pub settings: Mutex<AppSettings>,
 }
 
+// ─── Event Envelope ──────────────────────────────────────────────────────
+
+/// Wraps an OffloadEvent with the job_id so the frontend can demux events
+/// from multiple concurrent offload workflows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OffloadEventEnvelope {
+    pub job_id: String,
+    pub event: workflow::OffloadEvent,
+}
+
 // ─── Response Types ───────────────────────────────────────────────────────
 
 /// Standard response for Tauri commands
@@ -236,10 +247,21 @@ pub fn list_jobs(
             0.0
         };
 
+        // Derive effective status from checkpoint progress when DB status is stale
+        let effective_status = if status == "pending" && progress.copying > 0 {
+            "copying".to_string()
+        } else if status == "pending" && progress.completed > 0 && progress.completed < progress.total_tasks {
+            "copying".to_string()
+        } else if status == "completed" && progress.failed > 0 {
+            "completed_with_errors".to_string()
+        } else {
+            status
+        };
+
         result.push(JobInfo {
             id,
             name,
-            status,
+            status: effective_status,
             source_path,
             total_tasks: progress.total_tasks,
             completed_tasks: progress.completed,
@@ -630,10 +652,223 @@ pub async fn start_offload(
         }
     });
 
-    // Spawn event forwarder: mpsc channel → Tauri events
+    // Spawn event forwarder: mpsc channel → Tauri events (wrapped with job_id)
+    let job_id_for_events = job_id.clone();
     tokio::spawn(async move {
+        // Set tray to active on first event
+        crate::tray::update_tray_icon(&app, crate::tray::TrayState::Active);
+
         while let Some(event) = rx.recv().await {
-            app.emit("offload-event", &event).ok();
+            // Update tray icon on terminal events
+            match &event {
+                workflow::OffloadEvent::Complete { .. } => {
+                    crate::tray::update_tray_icon(&app, crate::tray::TrayState::Idle);
+                }
+                workflow::OffloadEvent::Error { .. } => {
+                    crate::tray::update_tray_icon(&app, crate::tray::TrayState::Error);
+                }
+                _ => {}
+            }
+
+            let envelope = OffloadEventEnvelope {
+                job_id: job_id_for_events.clone(),
+                event,
+            };
+            app.emit("offload-event", &envelope).ok();
+        }
+    });
+
+    Ok(CommandResult::ok(job_id))
+}
+
+/// Resume an interrupted offload workflow. Recovers interrupted tasks and
+/// re-launches the copy pipeline for remaining pending tasks.
+#[tauri::command]
+pub async fn resume_offload(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<CommandResult<String>, String> {
+    // Step 1: Read job info
+    let (job_name, source_path) = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let result: (String, String) = conn
+            .query_row(
+                "SELECT name, source_path FROM jobs WHERE id = ?1",
+                rusqlite::params![job_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|e| format!("Job not found: {}", e))?;
+        result
+    };
+
+    // Step 2: Recover interrupted tasks (reset to pending, clean .tmp files)
+    let interrupted_dest_paths: Vec<String> = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let interrupted = checkpoint::get_interrupted_tasks(&conn, &job_id)
+            .map_err(|e| e.to_string())?;
+        let paths: Vec<String> = interrupted.iter().map(|t| t.dest_path.clone()).collect();
+        for task in &interrupted {
+            checkpoint::update_task_status(&conn, &task.task_id, checkpoint::STATUS_PENDING)
+                .map_err(|e| e.to_string())?;
+        }
+        paths
+    };
+
+    for dest in &interrupted_dest_paths {
+        let tmp_path = crate::copy_engine::atomic_writer::AtomicWriter::temp_path_for(
+            Path::new(dest),
+        );
+        if tmp_path.exists() {
+            tokio::fs::remove_file(&tmp_path).await.ok();
+        }
+    }
+
+    // Step 3: Get all pending tasks and extract dest root paths
+    let pending_tasks = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        checkpoint::get_pending_tasks(&conn, &job_id).map_err(|e| e.to_string())?
+    };
+
+    if pending_tasks.is_empty() {
+        return Ok(CommandResult::err("No pending tasks to resume".to_string()));
+    }
+
+    // Derive unique destination root paths from task dest_paths relative to source paths
+    let dest_roots: Vec<PathBuf> = {
+        let mut roots = std::collections::HashSet::new();
+        let source_root = PathBuf::from(&source_path);
+        for task in &pending_tasks {
+            let source_file = PathBuf::from(&task.source_path);
+            let dest_file = PathBuf::from(&task.dest_path);
+            // dest_root = dest_file without the relative part from source
+            if let Ok(rel) = source_file.strip_prefix(&source_root) {
+                if let Some(parent) = dest_file.to_str() {
+                    let rel_str = rel.to_string_lossy();
+                    if parent.ends_with(&*rel_str) {
+                        let root = &parent[..parent.len() - rel_str.len()];
+                        let root = root.trim_end_matches('/');
+                        roots.insert(root.to_string());
+                    }
+                }
+            }
+        }
+        roots.into_iter().map(PathBuf::from).collect()
+    };
+
+    if dest_roots.is_empty() {
+        return Ok(CommandResult::err("Could not determine destination paths".to_string()));
+    }
+
+    // Step 4: Build config from settings + extracted paths
+    let saved = state.settings.lock().map_err(|e| e.to_string())?.clone();
+
+    let algos: Vec<HashAlgorithm> = saved
+        .hash_algorithms
+        .iter()
+        .filter_map(|s| parse_algorithm(s))
+        .collect();
+
+    let config = workflow::OffloadConfig {
+        job_id: job_id.clone(),
+        job_name: job_name.clone(),
+        source_path: PathBuf::from(&source_path),
+        dest_paths: dest_roots,
+        hash_algorithms: if algos.is_empty() {
+            vec![HashAlgorithm::XXH64, HashAlgorithm::SHA256]
+        } else {
+            algos
+        },
+        buffer_size: saved.offload.buffer_size,
+        source_verify: false, // Skip source verify on resume
+        post_verify: saved.offload.post_verify,
+        generate_mhl: saved.offload.generate_mhl,
+        max_retries: saved.offload.max_retries,
+        cascade: false, // No cascade on resume
+    };
+
+    // Step 5: Mark job as copying
+    {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE jobs SET status = 'copying', updated_at = datetime('now') WHERE id = ?1",
+            rusqlite::params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    let db = state.db.clone();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let email_settings = state.settings.lock().map_err(|e| e.to_string())?.email.clone();
+    let offload_name = job_name.clone();
+
+    // Step 6: Spawn resume workflow (skips scan & record creation, only processes pending tasks)
+    let job_id_for_task = job_id.clone();
+    tokio::spawn(async move {
+        let wf = workflow::OffloadWorkflow::new(config, db, tx);
+        match wf.execute_resume().await {
+            Ok(result) => {
+                log::info!(
+                    "Resume offload {} completed: {} files, {:.1}s",
+                    job_id_for_task,
+                    result.total_files,
+                    result.duration_secs
+                );
+
+                if email_settings.enabled {
+                    let event = NotifyEvent::OffloadCompleted {
+                        job_id: job_id_for_task.clone(),
+                        job_name: offload_name.clone(),
+                        file_count: result.total_files,
+                        total_bytes: result.total_bytes,
+                        duration_secs: result.duration_secs,
+                        mhl_generated: !result.mhl_paths.is_empty(),
+                        warnings: result.errors.clone(),
+                    };
+                    if let Err(e) = notify::send_notification(&email_settings, &event).await {
+                        log::warn!("Failed to send completion notification: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Resume offload {} failed: {}", job_id_for_task, e);
+
+                if email_settings.enabled {
+                    let event = NotifyEvent::OffloadFailed {
+                        job_id: job_id_for_task.clone(),
+                        job_name: offload_name.clone(),
+                        error: e.to_string(),
+                    };
+                    if let Err(e) = notify::send_notification(&email_settings, &event).await {
+                        log::warn!("Failed to send failure notification: {}", e);
+                    }
+                }
+            }
+        }
+    });
+
+    // Spawn event forwarder
+    let job_id_for_events = job_id.clone();
+    tokio::spawn(async move {
+        crate::tray::update_tray_icon(&app, crate::tray::TrayState::Active);
+
+        while let Some(event) = rx.recv().await {
+            match &event {
+                workflow::OffloadEvent::Complete { .. } => {
+                    crate::tray::update_tray_icon(&app, crate::tray::TrayState::Idle);
+                }
+                workflow::OffloadEvent::Error { .. } => {
+                    crate::tray::update_tray_icon(&app, crate::tray::TrayState::Error);
+                }
+                _ => {}
+            }
+
+            let envelope = OffloadEventEnvelope {
+                job_id: job_id_for_events.clone(),
+                event,
+            };
+            app.emit("offload-event", &envelope).ok();
         }
     });
 

@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # Tauri framework
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -61,6 +61,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 # XML (for ASC MHL)
 quick-xml = { version = "0.31", features = ["serialize"] }
+tauri-plugin-process = "2"
 
 # Platform-specific
 [target.'cfg(unix)'.dependencies]

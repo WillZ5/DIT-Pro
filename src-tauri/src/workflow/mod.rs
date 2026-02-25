@@ -52,6 +52,10 @@ pub struct OffloadConfig {
     /// Generate ASC MHL manifests after successful copy
     pub generate_mhl: bool,
     pub max_retries: u32,
+    /// Cascading copy: copy to first (fastest) dest first, then cascade from
+    /// that copy to remaining (slower) destinations. Frees source card sooner.
+    #[serde(default)]
+    pub cascade: bool,
 }
 
 impl Default for OffloadConfig {
@@ -67,6 +71,7 @@ impl Default for OffloadConfig {
             post_verify: true,
             generate_mhl: true,
             max_retries: 3,
+            cascade: false,
         }
     }
 }
@@ -79,6 +84,8 @@ pub enum OffloadPhase {
     PreFlight,
     SourceVerify,
     Copying,
+    /// Cascading: copying from primary (fast) dest → secondary (slower) dests
+    Cascading,
     Verifying,
     Sealing,
     Complete,
@@ -91,6 +98,7 @@ impl std::fmt::Display for OffloadPhase {
             Self::PreFlight => write!(f, "Pre-Flight Check"),
             Self::SourceVerify => write!(f, "Source Verification"),
             Self::Copying => write!(f, "Copying"),
+            Self::Cascading => write!(f, "Cascading to Secondary Destinations"),
             Self::Verifying => write!(f, "Post-Copy Verification"),
             Self::Sealing => write!(f, "MHL Sealing"),
             Self::Complete => write!(f, "Complete"),
@@ -238,20 +246,51 @@ impl OffloadWorkflow {
         }
 
         // ── Phase 3: Copy ───────────────────────────────────────────
-        self.emit(OffloadEvent::PhaseChanged {
-            phase: OffloadPhase::Copying,
-            message: format!(
-                "Copying {} files to {} destination(s)...",
-                total_files,
-                self.config.dest_paths.len()
-            ),
-        });
+        let use_cascade = self.config.cascade && self.config.dest_paths.len() >= 2;
 
-        let copy_hashes = self.copy_all_files(&source_files, &start, total_bytes).await?;
+        if use_cascade {
+            // Phase 3a: Source → Primary (fast) destination only
+            self.emit(OffloadEvent::PhaseChanged {
+                phase: OffloadPhase::Copying,
+                message: format!(
+                    "Copying {} files to primary destination (cascade mode)...",
+                    total_files,
+                ),
+            });
 
-        // If source verify was skipped, use inline copy hashes as baseline
-        if !self.config.source_verify {
-            source_hashes = copy_hashes;
+            let copy_hashes_primary = self.copy_to_primary(&source_files, &start, total_bytes).await?;
+
+            if !self.config.source_verify {
+                source_hashes = copy_hashes_primary;
+            }
+
+            // Phase 3b: Primary → Secondary destinations (source card now free)
+            self.emit(OffloadEvent::PhaseChanged {
+                phase: OffloadPhase::Cascading,
+                message: format!(
+                    "Cascading {} files to {} secondary destination(s)...",
+                    total_files,
+                    self.config.dest_paths.len() - 1,
+                ),
+            });
+
+            self.cascade_from_primary(&source_files, &start, total_bytes).await?;
+        } else {
+            // Standard: read source once → write all destinations simultaneously
+            self.emit(OffloadEvent::PhaseChanged {
+                phase: OffloadPhase::Copying,
+                message: format!(
+                    "Copying {} files to {} destination(s)...",
+                    total_files,
+                    self.config.dest_paths.len()
+                ),
+            });
+
+            let copy_hashes = self.copy_all_files(&source_files, &start, total_bytes).await?;
+
+            if !self.config.source_verify {
+                source_hashes = copy_hashes;
+            }
         }
 
         // ── Phase 4: Post-Copy Verification (optional) ──────────────
@@ -590,6 +629,264 @@ impl OffloadWorkflow {
         Ok(copy_hashes)
     }
 
+    // ── Internal: Cascade Copy ─────────────────────────────────────────
+
+    /// Phase 3a (cascade mode): Copy source files to the PRIMARY destination only.
+    /// Returns inline hashes from the copy.
+    async fn copy_to_primary(
+        &self,
+        files: &[SourceFile],
+        start: &Instant,
+        total_bytes: u64,
+    ) -> Result<HashMap<String, Vec<HashResult>>> {
+        let primary_dest = &self.config.dest_paths[0];
+        let mut copy_hashes: HashMap<String, Vec<HashResult>> = HashMap::new();
+        let mut completed_bytes: u64 = 0;
+        let total_files = files.len();
+
+        let copy_config = CopyEngineConfig {
+            buffer_size: self.config.buffer_size,
+            max_retries: self.config.max_retries,
+            cascading_enabled: true,
+            hash_algorithms: self.config.hash_algorithms.clone(),
+        };
+
+        for (i, file) in files.iter().enumerate() {
+            let dest_file = primary_dest.join(&file.rel_path);
+
+            self.emit(OffloadEvent::FileCopyStarted {
+                rel_path: file.rel_path.clone(),
+                file_size: file.size,
+                dest_count: 1,
+            });
+
+            // Mark task as copying
+            {
+                let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                conn.execute(
+                    "UPDATE copy_tasks SET status = ?1, updated_at = datetime('now')
+                     WHERE job_id = ?2 AND source_path = ?3 AND dest_path = ?4",
+                    rusqlite::params![
+                        STATUS_COPYING,
+                        self.config.job_id,
+                        file.abs_path.to_str().unwrap_or(""),
+                        dest_file.to_str().unwrap_or(""),
+                    ],
+                )?;
+            }
+
+            match copy_engine::copy_file_single(&file.abs_path, &dest_file, &copy_config).await {
+                Ok(result) => {
+                    copy_hashes.insert(file.rel_path.clone(), result.hash_results.clone());
+
+                    let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                    let xxh64 = result.hash_results.iter()
+                        .find(|h| h.algorithm == HashAlgorithm::XXH64)
+                        .map(|h| h.hex_digest.as_str());
+                    let sha256 = result.hash_results.iter()
+                        .find(|h| h.algorithm == HashAlgorithm::SHA256)
+                        .map(|h| h.hex_digest.as_str());
+
+                    let task_id: Option<String> = conn
+                        .query_row(
+                            "SELECT id FROM copy_tasks
+                             WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                            rusqlite::params![
+                                self.config.job_id,
+                                file.abs_path.to_str().unwrap_or(""),
+                                dest_file.to_str().unwrap_or(""),
+                            ],
+                            |row| row.get(0),
+                        )
+                        .ok();
+
+                    if let Some(tid) = task_id {
+                        checkpoint::update_task_completed(&conn, &tid, xxh64, sha256)?;
+                    }
+                }
+                Err(e) => {
+                    self.emit(OffloadEvent::Warning {
+                        message: format!("Primary copy failed for {}: {}", file.rel_path, e),
+                    });
+                    let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                    let task_id: Option<String> = conn
+                        .query_row(
+                            "SELECT id FROM copy_tasks
+                             WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                            rusqlite::params![
+                                self.config.job_id,
+                                file.abs_path.to_str().unwrap_or(""),
+                                dest_file.to_str().unwrap_or(""),
+                            ],
+                            |row| row.get(0),
+                        )
+                        .ok();
+                    if let Some(tid) = task_id {
+                        checkpoint::update_task_failed(&conn, &tid, &e.to_string())?;
+                    }
+                }
+            }
+
+            completed_bytes += file.size;
+
+            self.emit(OffloadEvent::FileCopyCompleted {
+                rel_path: file.rel_path.clone(),
+                file_size: file.size,
+                hashes: copy_hashes.get(&file.rel_path).cloned().unwrap_or_default(),
+                file_index: i,
+                total_files,
+            });
+
+            self.emit(OffloadEvent::JobProgress {
+                completed_files: i + 1,
+                total_files,
+                completed_bytes,
+                total_bytes,
+                phase: OffloadPhase::Copying,
+                elapsed_secs: start.elapsed().as_secs_f64(),
+            });
+        }
+
+        Ok(copy_hashes)
+    }
+
+    /// Phase 3b (cascade mode): Copy from PRIMARY destination → all SECONDARY destinations.
+    /// The source card is now free to be ejected.
+    async fn cascade_from_primary(
+        &self,
+        files: &[SourceFile],
+        start: &Instant,
+        total_bytes: u64,
+    ) -> Result<()> {
+        let primary_dest = &self.config.dest_paths[0];
+        let secondary_dests = &self.config.dest_paths[1..];
+        let total_files = files.len();
+        let mut completed_bytes: u64 = 0;
+
+        let copy_config = CopyEngineConfig {
+            buffer_size: self.config.buffer_size,
+            max_retries: self.config.max_retries,
+            cascading_enabled: true,
+            hash_algorithms: self.config.hash_algorithms.clone(),
+        };
+
+        for (i, file) in files.iter().enumerate() {
+            let primary_file = primary_dest.join(&file.rel_path);
+            let secondary_files: Vec<PathBuf> = secondary_dests
+                .iter()
+                .map(|d| d.join(&file.rel_path))
+                .collect();
+
+            self.emit(OffloadEvent::FileCopyStarted {
+                rel_path: file.rel_path.clone(),
+                file_size: file.size,
+                dest_count: secondary_files.len(),
+            });
+
+            // Mark secondary tasks as copying
+            {
+                let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                for dest in &secondary_files {
+                    conn.execute(
+                        "UPDATE copy_tasks SET status = ?1, updated_at = datetime('now')
+                         WHERE job_id = ?2 AND source_path = ?3 AND dest_path = ?4",
+                        rusqlite::params![
+                            STATUS_COPYING,
+                            self.config.job_id,
+                            file.abs_path.to_str().unwrap_or(""),
+                            dest.to_str().unwrap_or(""),
+                        ],
+                    )?;
+                }
+            }
+
+            // Read from primary copy → write to all secondary destinations
+            match copy_engine::copy_file_multi(&primary_file, &secondary_files, &copy_config).await
+            {
+                Ok(results) => {
+                    let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                    for r in &results {
+                        let xxh64 = r.hash_results.iter()
+                            .find(|h| h.algorithm == HashAlgorithm::XXH64)
+                            .map(|h| h.hex_digest.as_str());
+                        let sha256 = r.hash_results.iter()
+                            .find(|h| h.algorithm == HashAlgorithm::SHA256)
+                            .map(|h| h.hex_digest.as_str());
+
+                        let task_id: Option<String> = conn
+                            .query_row(
+                                "SELECT id FROM copy_tasks
+                                 WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                                rusqlite::params![
+                                    self.config.job_id,
+                                    file.abs_path.to_str().unwrap_or(""),
+                                    r.dest_path.to_str().unwrap_or(""),
+                                ],
+                                |row| row.get(0),
+                            )
+                            .ok();
+
+                        if let Some(tid) = task_id {
+                            if r.success {
+                                checkpoint::update_task_completed(&conn, &tid, xxh64, sha256)?;
+                            } else {
+                                checkpoint::update_task_failed(
+                                    &conn,
+                                    &tid,
+                                    r.error.as_deref().unwrap_or("Cascade copy error"),
+                                )?;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    self.emit(OffloadEvent::Warning {
+                        message: format!("Cascade failed for {}: {}", file.rel_path, e),
+                    });
+                    let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                    for dest in &secondary_files {
+                        let task_id: Option<String> = conn
+                            .query_row(
+                                "SELECT id FROM copy_tasks
+                                 WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                                rusqlite::params![
+                                    self.config.job_id,
+                                    file.abs_path.to_str().unwrap_or(""),
+                                    dest.to_str().unwrap_or(""),
+                                ],
+                                |row| row.get(0),
+                            )
+                            .ok();
+                        if let Some(tid) = task_id {
+                            checkpoint::update_task_failed(&conn, &tid, &e.to_string())?;
+                        }
+                    }
+                }
+            }
+
+            completed_bytes += file.size;
+
+            self.emit(OffloadEvent::FileCopyCompleted {
+                rel_path: file.rel_path.clone(),
+                file_size: file.size,
+                hashes: Vec::new(), // Cascade hashes already validated
+                file_index: i,
+                total_files,
+            });
+
+            self.emit(OffloadEvent::JobProgress {
+                completed_files: i + 1,
+                total_files,
+                completed_bytes,
+                total_bytes,
+                phase: OffloadPhase::Cascading,
+                elapsed_secs: start.elapsed().as_secs_f64(),
+            });
+        }
+
+        Ok(())
+    }
+
     // ── Internal: Verify ─────────────────────────────────────────────
 
     /// Re-read destination files and compare hashes against source.
@@ -836,6 +1133,7 @@ mod tests {
             post_verify: true,
             generate_mhl: true,
             max_retries: 3,
+            cascade: false,
         };
 
         let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -913,6 +1211,7 @@ mod tests {
             post_verify: true,
             generate_mhl: false,
             max_retries: 1,
+            cascade: false,
         };
 
         let workflow = OffloadWorkflow::new(config, db, tx);
@@ -951,6 +1250,7 @@ mod tests {
             post_verify: true,
             generate_mhl: false,
             max_retries: 1,
+            cascade: false,
         };
 
         let workflow = OffloadWorkflow::new(config, db, tx);
@@ -1005,6 +1305,7 @@ mod tests {
             post_verify: false,
             generate_mhl: false,
             max_retries: 1,
+            cascade: false,
         };
 
         let workflow = OffloadWorkflow::new(config, db, tx);
@@ -1072,6 +1373,7 @@ mod tests {
             post_verify: true,
             generate_mhl: false,
             max_retries: 1,
+            cascade: false,
         };
 
         let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -1098,5 +1400,137 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 6);
+    }
+
+    #[tokio::test]
+    async fn test_cascading_copy_primary_then_secondary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("src");
+        let primary = tmp.path().join("fast_ssd");
+        let secondary1 = tmp.path().join("shuttle1");
+        let secondary2 = tmp.path().join("shuttle2");
+        std::fs::create_dir_all(&source).unwrap();
+
+        create_source_files(&source, &[
+            ("A001C001.braw", b"BMPCC footage clip 001 take 1"),
+            ("A001C002.braw", b"BMPCC footage clip 002 take 1 longer"),
+            ("audio/boom.wav", b"audio boom track day 1"),
+        ]);
+
+        let db = test_db();
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        let config = OffloadConfig {
+            job_id: "test-cascade".into(),
+            job_name: "Cascade Day 1".into(),
+            source_path: source.clone(),
+            dest_paths: vec![primary.clone(), secondary1.clone(), secondary2.clone()],
+            hash_algorithms: vec![HashAlgorithm::XXH64, HashAlgorithm::SHA256],
+            buffer_size: 1024,
+            source_verify: true,
+            post_verify: true,
+            generate_mhl: false,
+            max_retries: 1,
+            cascade: true,
+        };
+
+        let workflow = OffloadWorkflow::new(config, db.clone(), tx);
+        let result = workflow.execute().await.unwrap();
+
+        assert!(result.success, "Cascade offload should succeed");
+        assert_eq!(result.total_files, 3);
+        assert_eq!(result.failed_files, 0);
+
+        // ALL destinations must match source exactly
+        for name in &["A001C001.braw", "A001C002.braw", "audio/boom.wav"] {
+            let src_data = std::fs::read(source.join(name)).unwrap();
+            let pri_data = std::fs::read(primary.join(name)).unwrap();
+            let s1_data = std::fs::read(secondary1.join(name)).unwrap();
+            let s2_data = std::fs::read(secondary2.join(name)).unwrap();
+            assert_eq!(src_data, pri_data, "Primary mismatch for {}", name);
+            assert_eq!(src_data, s1_data, "Secondary1 mismatch for {}", name);
+            assert_eq!(src_data, s2_data, "Secondary2 mismatch for {}", name);
+        }
+
+        // 3 files × 3 dests = 9 tasks all completed
+        {
+            let conn = db.lock().unwrap();
+            let count: usize = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM copy_tasks WHERE job_id = 'test-cascade' AND status = 'completed'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 9);
+        }
+
+        // Verify we got Cascading phase events
+        drop(workflow);
+        let events = drain_events(rx).await;
+        let cascading_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(
+                e,
+                OffloadEvent::PhaseChanged { phase: OffloadPhase::Cascading, .. }
+            ))
+            .collect();
+        assert!(
+            !cascading_events.is_empty(),
+            "Should have emitted a Cascading phase event"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cascade_single_dest_falls_back_to_normal() {
+        // With only 1 dest, cascade should behave like normal mode
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("src");
+        let dest = tmp.path().join("dst");
+        std::fs::create_dir_all(&source).unwrap();
+
+        create_source_files(&source, &[("clip.mov", b"single dest cascade test")]);
+
+        let db = test_db();
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        let config = OffloadConfig {
+            job_id: "test-cascade-single".into(),
+            job_name: "Single Dest Cascade".into(),
+            source_path: source.clone(),
+            dest_paths: vec![dest.clone()],
+            hash_algorithms: vec![HashAlgorithm::XXH64],
+            buffer_size: 1024,
+            source_verify: false,
+            post_verify: false,
+            generate_mhl: false,
+            max_retries: 1,
+            cascade: true, // enabled but only 1 dest → should not cascade
+        };
+
+        let workflow = OffloadWorkflow::new(config, db, tx);
+        let result = workflow.execute().await.unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.total_files, 1);
+        assert_eq!(
+            std::fs::read(dest.join("clip.mov")).unwrap(),
+            b"single dest cascade test"
+        );
+
+        // Should NOT have Cascading phase (only 1 dest)
+        drop(workflow);
+        let events = drain_events(rx).await;
+        let cascading_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(
+                e,
+                OffloadEvent::PhaseChanged { phase: OffloadPhase::Cascading, .. }
+            ))
+            .collect();
+        assert!(
+            cascading_events.is_empty(),
+            "Should NOT cascade when there's only 1 destination"
+        );
     }
 }

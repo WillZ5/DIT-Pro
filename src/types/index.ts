@@ -109,6 +109,7 @@ export type OffloadPhase =
   | "PreFlight"
   | "SourceVerify"
   | "Copying"
+  | "Cascading"
   | "Verifying"
   | "Sealing"
   | "Complete"
@@ -173,6 +174,7 @@ export interface StartOffloadRequest {
   sourceVerify?: boolean;
   postVerify?: boolean;
   generateMhl?: boolean;
+  cascade?: boolean;
 }
 
 // ─── Settings Types ──────────────────────────────────────────────────────
@@ -196,6 +198,7 @@ export interface OffloadDefaults {
   generateMhl: boolean;
   bufferSize: number;
   maxRetries: number;
+  cascade: boolean;
 }
 
 export interface EmailSettings {

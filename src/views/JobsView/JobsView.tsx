@@ -33,6 +33,7 @@ const PHASE_INFO: Record<OffloadPhase, { label: string; color: string }> = {
   PreFlight: { label: "Pre-Flight", color: "#ff9800" },
   SourceVerify: { label: "Hashing Source", color: "#9c27b0" },
   Copying: { label: "Copying", color: "#2196f3" },
+  Cascading: { label: "Cascading", color: "#ff5722" },
   Verifying: { label: "Verifying", color: "#00bcd4" },
   Sealing: { label: "MHL Sealing", color: "#3f51b5" },
   Complete: { label: "Complete", color: "#4caf50" },

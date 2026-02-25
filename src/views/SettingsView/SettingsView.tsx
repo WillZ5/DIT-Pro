@@ -218,6 +218,22 @@ export function SettingsView() {
               <span className="toggle-switch" />
             </label>
 
+            <label className="toggle-row">
+              <span className="toggle-label">Cascading Copy</span>
+              <span className="toggle-desc">
+                Copy to fastest destination first, then cascade to slower targets (frees source card sooner)
+              </span>
+              <input
+                type="checkbox"
+                className="toggle-input"
+                checked={settings.offload.cascade}
+                onChange={(e) =>
+                  updateOffload("cascade", e.target.checked)
+                }
+              />
+              <span className="toggle-switch" />
+            </label>
+
             <div className="number-row">
               <span className="toggle-label">Buffer Size</span>
               <span className="toggle-desc">

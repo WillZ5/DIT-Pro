@@ -532,6 +532,7 @@ pub struct StartOffloadRequest {
     pub source_verify: Option<bool>,
     pub post_verify: Option<bool>,
     pub generate_mhl: Option<bool>,
+    pub cascade: Option<bool>,
 }
 
 /// Start an offload workflow. Returns immediately with job_id.
@@ -569,6 +570,7 @@ pub async fn start_offload(
         post_verify: request.post_verify.unwrap_or(saved.offload.post_verify),
         generate_mhl: request.generate_mhl.unwrap_or(saved.offload.generate_mhl),
         max_retries: saved.offload.max_retries,
+        cascade: request.cascade.unwrap_or(saved.offload.cascade),
     };
 
     let db = state.db.clone();

@@ -69,6 +69,11 @@ pub struct OffloadDefaults {
     /// Max retry count for failed file copies
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
+
+    /// Enable cascading copy: copy to fastest dest first, then cascade
+    /// from that copy to slower destinations (frees source card sooner)
+    #[serde(default)]
+    pub cascade: bool,
 }
 
 impl Default for OffloadDefaults {
@@ -79,6 +84,7 @@ impl Default for OffloadDefaults {
             generate_mhl: true,
             buffer_size: default_buffer_size(),
             max_retries: 3,
+            cascade: false,
         }
     }
 }

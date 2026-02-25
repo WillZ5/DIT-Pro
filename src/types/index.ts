@@ -50,3 +50,55 @@ export interface VolumeInfo {
 }
 
 export type ViewType = "jobs" | "volumes" | "reports" | "settings";
+
+// ─── Backend Response Types ───────────────────────────────────────────────
+
+/** Standard command result from Rust backend */
+export interface CommandResult<T> {
+  success: boolean;
+  data: T | null;
+  error: string | null;
+}
+
+/** Job info from backend */
+export interface JobInfo {
+  id: string;
+  name: string;
+  status: string;
+  sourcePath: string;
+  totalTasks: number;
+  completedTasks: number;
+  failedTasks: number;
+  totalBytes: number;
+  copiedBytes: number;
+  progressPercent: number;
+}
+
+/** Volume info from backend */
+export interface VolumeInfoResponse {
+  id: string;
+  name: string;
+  mountPoint: string;
+  totalBytes: number;
+  availableBytes: number;
+  deviceType: string;
+  serialNumber: string | null;
+  isMounted: boolean;
+  usagePercent: number;
+  isLow: boolean;
+  isCritical: boolean;
+}
+
+/** Space issue from pre-flight check */
+export interface SpaceIssue {
+  path: string;
+  availableBytes: number;
+  requiredBytes: number;
+  deficitBytes: number;
+}
+
+/** MHL chain verification result */
+export interface MhlChainVerifyResult {
+  generation: number;
+  valid: boolean;
+}

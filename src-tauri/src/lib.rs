@@ -2,6 +2,7 @@
 // Core modules for the DIT material management system
 
 pub mod checkpoint;
+pub mod commands;
 pub mod copy_engine;
 pub mod db;
 pub mod hash_engine;
@@ -11,7 +12,11 @@ pub mod notify;
 pub mod report;
 pub mod volume;
 
+use std::sync::Mutex;
 use tauri::Manager;
+
+use commands::AppState;
+use io_scheduler::IoScheduler;
 
 /// Tauri command: get application version
 #[tauri::command]
@@ -38,12 +43,39 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
             let db_path = app_data_dir.join("dit-system.db");
-            let _conn = db::init_database(db_path.to_str().unwrap_or("dit-system.db"))?;
+            let conn = db::init_database(db_path.to_str().unwrap_or("dit-system.db"))?;
             log::info!("Database initialized at {:?}", db_path);
+
+            // Initialize app state
+            let state = AppState {
+                db: Mutex::new(conn),
+                io_scheduler: Mutex::new(IoScheduler::new()),
+            };
+            app.manage(state);
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_app_version])
+        .invoke_handler(tauri::generate_handler![
+            // App
+            get_app_version,
+            // Jobs
+            commands::create_job,
+            commands::get_job_progress,
+            commands::list_jobs,
+            commands::recover_job,
+            // Volumes
+            commands::list_volumes,
+            commands::get_space_info,
+            commands::preflight_check,
+            // Hash
+            commands::hash_file,
+            // IO Scheduler
+            commands::register_device,
+            commands::get_scheduler_status,
+            // MHL
+            commands::create_mhl_generation,
+            commands::verify_mhl_chain,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

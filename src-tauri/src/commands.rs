@@ -8,20 +8,21 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use tauri::State;
+use std::sync::{Arc, Mutex};
+use tauri::{Emitter, State};
 
 use crate::checkpoint::{self, JobProgress};
 use crate::hash_engine::{self, HashAlgorithm, HashEngineConfig, HashResult};
 use crate::io_scheduler::IoScheduler;
 use crate::mhl::{self, MhlConfig, MhlProcessType};
 use crate::volume::{self, DeviceType, VolumeSpaceInfo};
+use crate::workflow;
 
 // ─── App State ────────────────────────────────────────────────────────────
 
 /// Shared application state managed by Tauri
 pub struct AppState {
-    pub db: Mutex<Connection>,
+    pub db: Arc<Mutex<Connection>>,
     pub io_scheduler: Mutex<IoScheduler>,
 }
 
@@ -513,6 +514,87 @@ pub async fn verify_mhl_chain(
 pub struct MhlChainVerifyResult {
     pub generation: u32,
     pub valid: bool,
+}
+
+// ─── Offload Workflow Commands ────────────────────────────────────────
+
+/// Request to start a full offload workflow
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartOffloadRequest {
+    pub name: String,
+    pub source_path: String,
+    pub dest_paths: Vec<String>,
+    pub hash_algorithms: Option<Vec<String>>,
+    pub source_verify: Option<bool>,
+    pub post_verify: Option<bool>,
+    pub generate_mhl: Option<bool>,
+}
+
+/// Start an offload workflow. Returns immediately with job_id.
+/// Progress is emitted as Tauri events ("offload-event").
+#[tauri::command]
+pub async fn start_offload(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    request: StartOffloadRequest,
+) -> Result<CommandResult<String>, String> {
+    let job_id = uuid::Uuid::new_v4().to_string();
+
+    let algos: Vec<HashAlgorithm> = request
+        .hash_algorithms
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|s| parse_algorithm(s))
+        .collect();
+
+    let config = workflow::OffloadConfig {
+        job_id: job_id.clone(),
+        job_name: request.name,
+        source_path: PathBuf::from(&request.source_path),
+        dest_paths: request.dest_paths.iter().map(PathBuf::from).collect(),
+        hash_algorithms: if algos.is_empty() {
+            vec![HashAlgorithm::XXH64, HashAlgorithm::SHA256]
+        } else {
+            algos
+        },
+        buffer_size: 4 * 1024 * 1024,
+        source_verify: request.source_verify.unwrap_or(true),
+        post_verify: request.post_verify.unwrap_or(true),
+        generate_mhl: request.generate_mhl.unwrap_or(true),
+        max_retries: 3,
+    };
+
+    let db = state.db.clone();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+    // Spawn the workflow on a background task
+    let job_id_for_task = job_id.clone();
+    tokio::spawn(async move {
+        let wf = workflow::OffloadWorkflow::new(config, db, tx);
+        match wf.execute().await {
+            Ok(result) => {
+                log::info!(
+                    "Offload {} completed: {} files, {:.1}s",
+                    job_id_for_task,
+                    result.total_files,
+                    result.duration_secs
+                );
+            }
+            Err(e) => {
+                log::error!("Offload {} failed: {}", job_id_for_task, e);
+            }
+        }
+    });
+
+    // Spawn event forwarder: mpsc channel → Tauri events
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            app.emit("offload-event", &event).ok();
+        }
+    });
+
+    Ok(CommandResult::ok(job_id))
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

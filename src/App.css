@@ -253,3 +253,184 @@
   font-size: 13px;
   color: #888;
 }
+
+/* ─── Active Offload Card ─────────────────────────────────────────────── */
+
+.job-card--active {
+  border-color: #2196f344;
+}
+
+.job-card--failed {
+  border-color: #f4433644;
+}
+
+.job-card--complete {
+  border-color: #4caf5044;
+}
+
+.job-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.job-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.job-phase-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid;
+  letter-spacing: 0.02em;
+}
+
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.job-current-file {
+  font-size: 12px;
+  color: #aaa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 500px;
+}
+
+.job-stats {
+  font-size: 12px;
+  color: #666;
+}
+
+.job-source {
+  font-size: 12px;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 400px;
+}
+
+.progress-bar--animated {
+  transition: width 0.4s ease;
+}
+
+.job-complete-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #4caf50;
+}
+
+.complete-check {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mhl-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #3f51b522;
+  color: #7986cb;
+  border: 1px solid #3f51b544;
+  margin-left: 4px;
+}
+
+.job-error-msg {
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #f44336;
+  background: #f4433610;
+  border: 1px solid #f4433630;
+  border-radius: 4px;
+}
+
+.job-warnings {
+  margin-top: 8px;
+}
+
+.job-warning-item {
+  font-size: 11px;
+  color: #ff9800;
+  padding: 2px 0;
+}
+
+.job-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.failed-badge {
+  font-size: 11px;
+  color: #f44336;
+  font-weight: 500;
+}
+
+.btn-secondary {
+  padding: 4px 10px;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background: transparent;
+  color: #aaa;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-secondary:hover {
+  background: #1a1a1a;
+  border-color: #444;
+  color: #fff;
+}
+
+.btn-sm {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: #f4433615;
+  border: 1px solid #f4433630;
+  border-radius: 6px;
+  color: #f44336;
+  font-size: 13px;
+}
+
+.error-banner button {
+  background: none;
+  border: none;
+  color: #f44336;
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+}

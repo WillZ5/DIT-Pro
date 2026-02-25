@@ -102,3 +102,75 @@ export interface MhlChainVerifyResult {
   generation: number;
   valid: boolean;
 }
+
+// ─── Offload Workflow Types ──────────────────────────────────────────────
+
+export type OffloadPhase =
+  | "PreFlight"
+  | "SourceVerify"
+  | "Copying"
+  | "Verifying"
+  | "Sealing"
+  | "Complete"
+  | "Failed";
+
+/** Events emitted by the offload workflow via Tauri event system */
+export type OffloadEvent =
+  | { type: "phaseChanged"; phase: OffloadPhase; message: string }
+  | {
+      type: "sourceHashCompleted";
+      relPath: string;
+      hashes: HashResult[];
+      fileIndex: number;
+      totalFiles: number;
+    }
+  | {
+      type: "fileCopyStarted";
+      relPath: string;
+      fileSize: number;
+      destCount: number;
+    }
+  | {
+      type: "fileCopyCompleted";
+      relPath: string;
+      fileSize: number;
+      hashes: HashResult[];
+      fileIndex: number;
+      totalFiles: number;
+    }
+  | {
+      type: "fileVerified";
+      relPath: string;
+      destPath: string;
+      verified: boolean;
+      mismatchDetail: string | null;
+    }
+  | {
+      type: "jobProgress";
+      completedFiles: number;
+      totalFiles: number;
+      completedBytes: number;
+      totalBytes: number;
+      phase: OffloadPhase;
+      elapsedSecs: number;
+    }
+  | { type: "warning"; message: string }
+  | {
+      type: "complete";
+      totalFiles: number;
+      totalBytes: number;
+      durationSecs: number;
+      mhlPaths: string[];
+    }
+  | { type: "error"; message: string };
+
+/** Request to start an offload workflow */
+export interface StartOffloadRequest {
+  name: string;
+  sourcePath: string;
+  destPaths: string[];
+  hashAlgorithms?: string[];
+  sourceVerify?: boolean;
+  postVerify?: boolean;
+  generateMhl?: boolean;
+}

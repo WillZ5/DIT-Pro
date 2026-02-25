@@ -13,7 +13,7 @@ pub mod report;
 pub mod volume;
 pub mod workflow;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 use commands::AppState;
@@ -49,7 +49,7 @@ pub fn run() {
 
             // Initialize app state
             let state = AppState {
-                db: Mutex::new(conn),
+                db: Arc::new(Mutex::new(conn)),
                 io_scheduler: Mutex::new(IoScheduler::new()),
             };
             app.manage(state);
@@ -76,6 +76,8 @@ pub fn run() {
             // MHL
             commands::create_mhl_generation,
             commands::verify_mhl_chain,
+            // Workflow
+            commands::start_offload,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

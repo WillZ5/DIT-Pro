@@ -31,7 +31,7 @@ const demoStore = {
 function mockInvoke<T>(cmd: string, args?: Record<string, any>): T {
   switch (cmd) {
     case "get_app_version":
-      return "0.1.0-demo" as T;
+      return "0.4.0-demo" as T;
     case "list_jobs":
       return ok(MOCK_JOBS) as T;
     case "list_volumes":

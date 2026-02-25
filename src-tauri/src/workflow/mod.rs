@@ -20,6 +20,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -188,6 +189,33 @@ struct SourceFile {
 
 // ─── Workflow Orchestrator ───────────────────────────────────────────────
 
+/// Cancellation token for stopping a running workflow.
+/// Clone this and call `cancel()` to request cancellation.
+#[derive(Clone)]
+pub struct CancelToken(Arc<AtomicBool>);
+
+impl CancelToken {
+    pub fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+
+    /// Request cancellation of the workflow.
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    /// Check if cancellation has been requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+impl Default for CancelToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// The offload workflow orchestrator.
 ///
 /// Ties together: space check → source hash → copy → verify → MHL seal
@@ -195,6 +223,7 @@ pub struct OffloadWorkflow {
     config: OffloadConfig,
     db: Arc<std::sync::Mutex<Connection>>,
     event_tx: mpsc::UnboundedSender<OffloadEvent>,
+    cancel: CancelToken,
 }
 
 impl OffloadWorkflow {
@@ -203,7 +232,24 @@ impl OffloadWorkflow {
         db: Arc<std::sync::Mutex<Connection>>,
         event_tx: mpsc::UnboundedSender<OffloadEvent>,
     ) -> Self {
-        Self { config, db, event_tx }
+        Self { config, db, event_tx, cancel: CancelToken::new() }
+    }
+
+    pub fn with_cancel(
+        config: OffloadConfig,
+        db: Arc<std::sync::Mutex<Connection>>,
+        event_tx: mpsc::UnboundedSender<OffloadEvent>,
+        cancel: CancelToken,
+    ) -> Self {
+        Self { config, db, event_tx, cancel }
+    }
+
+    /// Check if the workflow has been cancelled and bail if so.
+    fn check_cancelled(&self) -> Result<()> {
+        if self.cancel.is_cancelled() {
+            bail!("Offload cancelled by user");
+        }
+        Ok(())
     }
 
     /// Send an event (silently ignores if receiver dropped)

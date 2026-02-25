@@ -1051,3 +1051,212 @@
   word-break: break-all;
   max-width: 140px;
 }
+
+/* ─── New Offload Dialog ──────────────────────────────────────────────── */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.dialog {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 12px;
+  width: 560px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.dialog-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.dialog-close {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.dialog-close:hover {
+  color: #fff;
+}
+
+.dialog-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid #2a2a2a;
+}
+
+/* Form elements in dialog */
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #999;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.label-hint {
+  font-weight: 400;
+  text-transform: none;
+  color: #666;
+}
+
+.form-group input[type="text"],
+.form-group select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: #111;
+  color: #e0e0e0;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.form-group input[type="text"]:focus,
+.form-group select:focus {
+  border-color: #2563eb;
+  outline: none;
+}
+
+.path-selector {
+  display: flex;
+  gap: 8px;
+}
+
+.path-selector input {
+  flex: 1;
+}
+
+/* Destination list */
+.dest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dest-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+}
+
+.dest-index {
+  font-size: 10px;
+  font-weight: 700;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-width: 50px;
+}
+
+.dest-path {
+  flex: 1;
+  font-size: 12px;
+  color: #aaa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #666;
+  font-size: 16px;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.btn-icon:hover {
+  color: #f44336;
+}
+
+.btn-add-dest {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+/* Options grid */
+.options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #ccc;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+
+.checkbox-label:hover {
+  background: #ffffff08;
+}
+
+.checkbox-label input[type="checkbox"] {
+  accent-color: #2563eb;
+  width: 14px;
+  height: 14px;
+}
+
+/* Info banner */
+.info-banner {
+  padding: 10px 14px;
+  background: #2563eb10;
+  border: 1px solid #2563eb30;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #90caf9;
+  line-height: 1.5;
+}

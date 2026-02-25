@@ -101,6 +101,9 @@ pub fn run() {
             commands::get_job_report,
             commands::export_day_report,
             commands::export_job_report,
+            // Notifications
+            commands::send_test_email,
+            commands::save_smtp_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

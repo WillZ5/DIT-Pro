@@ -13,6 +13,7 @@ use tauri::{Emitter, State};
 
 use crate::checkpoint::{self, JobProgress};
 use crate::config::{self, AppSettings};
+use crate::notify::{self, NotifyEvent};
 use crate::preset::{self, WorkflowPreset};
 use crate::report::{self, DayReport, JobReport};
 use crate::hash_engine::{self, HashAlgorithm, HashEngineConfig, HashResult};
@@ -578,6 +579,10 @@ pub async fn start_offload(
     let db = state.db.clone();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
+    // Capture email settings for notification after completion
+    let email_settings = state.settings.lock().map_err(|e| e.to_string())?.email.clone();
+    let offload_name = config.job_name.clone();
+
     // Spawn the workflow on a background task
     let job_id_for_task = job_id.clone();
     tokio::spawn(async move {
@@ -590,9 +595,37 @@ pub async fn start_offload(
                     result.total_files,
                     result.duration_secs
                 );
+
+                // Send email notification on completion
+                if email_settings.enabled {
+                    let event = NotifyEvent::OffloadCompleted {
+                        job_id: job_id_for_task.clone(),
+                        job_name: offload_name.clone(),
+                        file_count: result.total_files,
+                        total_bytes: result.total_bytes,
+                        duration_secs: result.duration_secs,
+                        mhl_generated: !result.mhl_paths.is_empty(),
+                        warnings: result.errors.clone(),
+                    };
+                    if let Err(e) = notify::send_notification(&email_settings, &event).await {
+                        log::warn!("Failed to send completion notification: {}", e);
+                    }
+                }
             }
             Err(e) => {
                 log::error!("Offload {} failed: {}", job_id_for_task, e);
+
+                // Send email notification on failure
+                if email_settings.enabled {
+                    let event = NotifyEvent::OffloadFailed {
+                        job_id: job_id_for_task.clone(),
+                        job_name: offload_name.clone(),
+                        error: e.to_string(),
+                    };
+                    if let Err(e) = notify::send_notification(&email_settings, &event).await {
+                        log::warn!("Failed to send failure notification: {}", e);
+                    }
+                }
             }
         }
     });
@@ -761,6 +794,42 @@ pub fn export_job_report(
         Ok(path) => Ok(CommandResult::<String>::ok(path.to_string_lossy().to_string())),
         Err(e) => Ok(CommandResult::<String>::err(e.to_string())),
     }
+}
+
+// ─── Notification Commands ────────────────────────────────────────────────
+
+/// Send a test email to verify SMTP configuration
+#[tauri::command]
+pub async fn send_test_email(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<bool>, String> {
+    let email_settings = {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.email.clone()
+    }; // MutexGuard dropped here before any await
+
+    match notify::send_test_email(&email_settings).await {
+        Ok(()) => Ok(CommandResult::ok(true)),
+        Err(e) => Ok(CommandResult::err(format!("Email test failed: {}", e))),
+    }
+}
+
+/// Save SMTP password securely (separate from settings to avoid plaintext in JSON)
+#[tauri::command]
+pub fn save_smtp_password(
+    state: State<'_, AppState>,
+    password: String,
+) -> Result<CommandResult<bool>, String> {
+    // Store password in a separate file (not in settings.json)
+    let path = state.app_data_dir.join(".smtp_credential");
+    std::fs::write(&path, &password).map_err(|e| e.to_string())?;
+
+    // Mark password as set in settings
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    settings.email.smtp_password_set = !password.is_empty();
+    config::save_settings(&state.app_data_dir, &settings).map_err(|e| e.to_string())?;
+
+    Ok(CommandResult::ok(true))
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

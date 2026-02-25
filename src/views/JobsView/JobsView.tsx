@@ -7,6 +7,8 @@ import type {
   JobInfo,
   OffloadEvent,
   OffloadPhase,
+  WorkflowPreset,
+  StartOffloadRequest,
 } from "../../types";
 
 function formatBytes(bytes: number): string {
@@ -56,7 +58,7 @@ interface ActiveOffload {
   error: string | null;
   mhlPaths: string[];
   durationSecs: number;
-  startedAt: number; // timestamp for speed calc
+  startedAt: number;
   lastBytesSnapshot: number;
   lastSnapshotTime: number;
   currentSpeed: number;
@@ -86,6 +88,287 @@ function createActiveOffload(jobId: string, name: string): ActiveOffload {
   };
 }
 
+// ─── New Offload Dialog ─────────────────────────────────────────────────
+
+interface NewOffloadDialogProps {
+  onStart: (request: StartOffloadRequest) => void;
+  onCancel: () => void;
+}
+
+function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
+  const [name, setName] = useState(
+    `Offload ${new Date().toLocaleString()}`
+  );
+  const [sourcePath, setSourcePath] = useState("");
+  const [destPaths, setDestPaths] = useState<string[]>([]);
+  const [presets, setPresets] = useState<WorkflowPreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
+
+  // Offload options (can be overridden by preset)
+  const [hashAlgorithms, setHashAlgorithms] = useState<string[]>(["XXH64", "SHA256"]);
+  const [sourceVerify, setSourceVerify] = useState(true);
+  const [postVerify, setPostVerify] = useState(true);
+  const [generateMhl, setGenerateMhl] = useState(true);
+  const [cascade, setCascade] = useState(false);
+
+  // Load presets
+  useEffect(() => {
+    invoke<CommandResult<WorkflowPreset[]>>("list_presets").then((result) => {
+      if (result.success && result.data) {
+        setPresets(result.data);
+      }
+    });
+  }, []);
+
+  const handleSelectSource = async () => {
+    const path = await open({
+      directory: true,
+      title: "Select Source Card / Directory",
+    });
+    if (path) setSourcePath(path as string);
+  };
+
+  const handleAddDest = async () => {
+    const path = await open({
+      directory: true,
+      title: "Select Destination Directory",
+    });
+    if (path && !destPaths.includes(path as string)) {
+      setDestPaths([...destPaths, path as string]);
+    }
+  };
+
+  const handleRemoveDest = (index: number) => {
+    setDestPaths(destPaths.filter((_, i) => i !== index));
+  };
+
+  const handleApplyPreset = (presetId: string) => {
+    const preset = presets.find((p) => p.id === presetId);
+    if (!preset) {
+      setSelectedPresetId(null);
+      return;
+    }
+    setSelectedPresetId(presetId);
+    setHashAlgorithms(preset.hashAlgorithms);
+    setSourceVerify(preset.sourceVerify);
+    setPostVerify(preset.postVerify);
+    setGenerateMhl(preset.generateMhl);
+    setCascade(preset.cascade);
+    // Optionally apply default destinations from preset
+    if (preset.defaultDestPaths.length > 0 && destPaths.length === 0) {
+      setDestPaths(preset.defaultDestPaths);
+    }
+  };
+
+  const toggleAlgorithm = (algo: string) => {
+    if (hashAlgorithms.includes(algo)) {
+      if (hashAlgorithms.length > 1) {
+        setHashAlgorithms(hashAlgorithms.filter((a) => a !== algo));
+      }
+    } else {
+      setHashAlgorithms([...hashAlgorithms, algo]);
+    }
+    setSelectedPresetId(null);
+  };
+
+  const canStart = sourcePath !== "" && destPaths.length > 0;
+
+  const handleStart = () => {
+    onStart({
+      name,
+      sourcePath,
+      destPaths,
+      hashAlgorithms,
+      sourceVerify,
+      postVerify,
+      generateMhl,
+      cascade,
+    });
+  };
+
+  return (
+    <div className="dialog-overlay" onClick={onCancel}>
+      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog-header">
+          <h3>New Offload</h3>
+          <button className="dialog-close" onClick={onCancel}>
+            &times;
+          </button>
+        </div>
+
+        <div className="dialog-body">
+          {/* Job Name */}
+          <div className="form-group">
+            <label>Job Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Day 1 A-Cam"
+            />
+          </div>
+
+          {/* Source */}
+          <div className="form-group">
+            <label>Source Card / Directory</label>
+            <div className="path-selector">
+              <input
+                type="text"
+                value={sourcePath}
+                readOnly
+                placeholder="Select source directory..."
+              />
+              <button className="btn-secondary" onClick={handleSelectSource}>
+                Browse
+              </button>
+            </div>
+          </div>
+
+          {/* Destinations (multi) */}
+          <div className="form-group">
+            <label>
+              Destinations{" "}
+              <span className="label-hint">
+                ({destPaths.length} selected)
+              </span>
+            </label>
+            <div className="dest-list">
+              {destPaths.map((path, i) => (
+                <div key={path} className="dest-item">
+                  <span className="dest-index">{i === 0 && cascade ? "Primary" : `Dest ${i + 1}`}</span>
+                  <span className="dest-path" title={path}>{path}</span>
+                  <button
+                    className="btn-icon btn-remove"
+                    onClick={() => handleRemoveDest(i)}
+                    title="Remove"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+              <button className="btn-secondary btn-add-dest" onClick={handleAddDest}>
+                + Add Destination
+              </button>
+            </div>
+          </div>
+
+          {/* Preset selector */}
+          <div className="form-group">
+            <label>Workflow Preset</label>
+            <select
+              value={selectedPresetId || ""}
+              onChange={(e) =>
+                e.target.value
+                  ? handleApplyPreset(e.target.value)
+                  : setSelectedPresetId(null)
+              }
+            >
+              <option value="">Custom Configuration</option>
+              {presets.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Options Grid */}
+          <div className="form-group">
+            <label>Options</label>
+            <div className="options-grid">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={sourceVerify}
+                  onChange={(e) => {
+                    setSourceVerify(e.target.checked);
+                    setSelectedPresetId(null);
+                  }}
+                />
+                Source Verify
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={postVerify}
+                  onChange={(e) => {
+                    setPostVerify(e.target.checked);
+                    setSelectedPresetId(null);
+                  }}
+                />
+                Post Verify
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={generateMhl}
+                  onChange={(e) => {
+                    setGenerateMhl(e.target.checked);
+                    setSelectedPresetId(null);
+                  }}
+                />
+                Generate MHL
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={cascade}
+                  onChange={(e) => {
+                    setCascade(e.target.checked);
+                    setSelectedPresetId(null);
+                  }}
+                />
+                Cascade Copy
+              </label>
+            </div>
+          </div>
+
+          {/* Hash Algorithms */}
+          <div className="form-group">
+            <label>Hash Algorithms</label>
+            <div className="options-grid">
+              {["XXH64", "XXH3", "SHA256", "MD5"].map((algo) => (
+                <label key={algo} className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={hashAlgorithms.includes(algo)}
+                    onChange={() => toggleAlgorithm(algo)}
+                  />
+                  {algo}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Cascade info */}
+          {cascade && destPaths.length >= 2 && (
+            <div className="info-banner">
+              Cascade mode: Files copy to <strong>{destPaths[0]?.split("/").pop()}</strong> first
+              (fastest), then cascade to {destPaths.length - 1} secondary
+              destination(s). Source card is freed sooner.
+            </div>
+          )}
+        </div>
+
+        <div className="dialog-footer">
+          <button className="btn-secondary" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            className="btn-primary"
+            onClick={handleStart}
+            disabled={!canStart}
+          >
+            Start Offload
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Jobs View ─────────────────────────────────────────────────────
+
 export function JobsView() {
   const [jobs, setJobs] = useState<JobInfo[]>([]);
   const [activeOffloads, setActiveOffloads] = useState<
@@ -93,6 +376,7 @@ export function JobsView() {
   >(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showNewDialog, setShowNewDialog] = useState(false);
 
   // Ref to track the latest active offload ID for event routing
   const latestJobIdRef = useRef<string | null>(null);
@@ -196,7 +480,6 @@ export function JobsView() {
               updated.totalBytes = ev.totalBytes;
               updated.durationSecs = ev.durationSecs;
               updated.mhlPaths = ev.mhlPaths;
-              // Reload DB jobs to reflect completed state
               loadJobs();
               break;
 
@@ -220,44 +503,23 @@ export function JobsView() {
     };
   }, [loadJobs]);
 
-  const handleNewOffload = async () => {
+  const handleStartOffload = async (request: StartOffloadRequest) => {
+    setShowNewDialog(false);
     setError(null);
+
     try {
-      // Select source directory
-      const sourcePath = await open({
-        directory: true,
-        title: "Select Source Card / Directory",
-      });
-      if (!sourcePath) return;
-
-      // Select destination directory
-      const destPath = await open({
-        directory: true,
-        title: "Select Destination Directory",
-      });
-      if (!destPath) return;
-
       setLoading(true);
       const result = await invoke<CommandResult<string>>("start_offload", {
-        request: {
-          name: `Offload ${new Date().toLocaleString()}`,
-          sourcePath: sourcePath,
-          destPaths: [destPath],
-          hashAlgorithms: ["XXH64"],
-          sourceVerify: true,
-          postVerify: true,
-          generateMhl: true,
-        },
+        request,
       });
 
       if (result.success && result.data) {
         const jobId = result.data;
-        const name = `Offload ${new Date().toLocaleString()}`;
         latestJobIdRef.current = jobId;
 
         setActiveOffloads((prev) => {
           const next = new Map(prev);
-          next.set(jobId, createActiveOffload(jobId, name));
+          next.set(jobId, createActiveOffload(jobId, request.name));
           return next;
         });
       } else {
@@ -316,7 +578,7 @@ export function JobsView() {
         <h2>Jobs</h2>
         <button
           className="btn-primary"
-          onClick={handleNewOffload}
+          onClick={() => setShowNewDialog(true)}
           disabled={loading}
         >
           {loading ? "Starting..." : "+ New Offload"}
@@ -328,6 +590,14 @@ export function JobsView() {
           <span>{error}</span>
           <button onClick={() => setError(null)}>Dismiss</button>
         </div>
+      )}
+
+      {/* New Offload Dialog */}
+      {showNewDialog && (
+        <NewOffloadDialog
+          onStart={handleStartOffload}
+          onCancel={() => setShowNewDialog(false)}
+        />
       )}
 
       {activeList.length === 0 && dbOnlyJobs.length === 0 ? (

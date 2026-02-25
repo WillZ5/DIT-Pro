@@ -10,6 +10,7 @@ pub mod hash_engine;
 pub mod io_scheduler;
 pub mod mhl;
 pub mod notify;
+pub mod preset;
 pub mod report;
 pub mod volume;
 pub mod workflow;
@@ -89,6 +90,11 @@ pub fn run() {
             // Settings
             commands::get_settings,
             commands::save_settings,
+            // Presets
+            commands::list_presets,
+            commands::create_preset,
+            commands::update_preset,
+            commands::delete_preset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

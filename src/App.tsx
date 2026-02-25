@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { JobsView } from "./views/JobsView/JobsView";
 import { VolumeView } from "./views/VolumeView/VolumeView";
 import { ReportView } from "./views/ReportView/ReportView";
+import { PresetsView } from "./views/PresetsView/PresetsView";
 import { SettingsView } from "./views/SettingsView/SettingsView";
 import type { ViewType } from "./types";
 import "./App.css";
@@ -18,6 +19,7 @@ function App() {
   const navItems: { id: ViewType; label: string; icon: string }[] = [
     { id: "jobs", label: "Jobs", icon: "⚡" },
     { id: "volumes", label: "Volumes", icon: "💾" },
+    { id: "presets", label: "Presets", icon: "📋" },
     { id: "reports", label: "Reports", icon: "📊" },
     { id: "settings", label: "Settings", icon: "⚙️" },
   ];
@@ -49,6 +51,7 @@ function App() {
       <main className="main-content">
         {currentView === "jobs" && <JobsView />}
         {currentView === "volumes" && <VolumeView />}
+        {currentView === "presets" && <PresetsView />}
         {currentView === "reports" && <ReportView />}
         {currentView === "settings" && <SettingsView />}
       </main>

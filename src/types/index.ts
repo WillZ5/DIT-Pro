@@ -49,7 +49,7 @@ export interface VolumeInfo {
   isMounted: boolean;
 }
 
-export type ViewType = "jobs" | "volumes" | "reports" | "settings";
+export type ViewType = "jobs" | "volumes" | "presets" | "reports" | "settings";
 
 // ─── Backend Response Types ───────────────────────────────────────────────
 
@@ -217,4 +217,22 @@ export interface AppSettings {
   offload: OffloadDefaults;
   ioScheduling: IoSchedulingSettings;
   email: EmailSettings;
+}
+
+// ─── Workflow Preset Types ──────────────────────────────────────────────
+
+export interface WorkflowPreset {
+  id: string;
+  name: string;
+  description: string;
+  hashAlgorithms: string[];
+  sourceVerify: boolean;
+  postVerify: boolean;
+  generateMhl: boolean;
+  bufferSize: number;
+  maxRetries: number;
+  cascade: boolean;
+  defaultDestPaths: string[];
+  createdAt: string;
+  updatedAt: string;
 }

@@ -13,6 +13,7 @@ use tauri::{Emitter, State};
 
 use crate::checkpoint::{self, JobProgress};
 use crate::config::{self, AppSettings};
+use crate::preset::{self, WorkflowPreset};
 use crate::hash_engine::{self, HashAlgorithm, HashEngineConfig, HashResult};
 use crate::io_scheduler::IoScheduler;
 use crate::mhl::{self, MhlConfig, MhlProcessType};
@@ -631,6 +632,62 @@ pub fn save_settings(
     *current = settings;
 
     Ok(CommandResult::ok(true))
+}
+
+// ─── Preset Commands ──────────────────────────────────────────────────────
+
+/// List all workflow presets (user + builtin)
+#[tauri::command]
+pub fn list_presets(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<Vec<WorkflowPreset>>, String> {
+    let mut store = preset::load_presets(&state.app_data_dir)
+        .map_err(|e| e.to_string())?;
+
+    // If no presets exist, seed with built-in defaults
+    if store.presets.is_empty() {
+        store.presets = preset::builtin_presets();
+        preset::save_presets(&state.app_data_dir, &store)
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(CommandResult::ok(store.presets))
+}
+
+/// Create a new workflow preset
+#[tauri::command]
+pub fn create_preset(
+    state: State<'_, AppState>,
+    preset_data: WorkflowPreset,
+) -> Result<CommandResult<WorkflowPreset>, String> {
+    match preset::create_preset(&state.app_data_dir, preset_data) {
+        Ok(p) => Ok(CommandResult::ok(p)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+/// Update an existing workflow preset
+#[tauri::command]
+pub fn update_preset(
+    state: State<'_, AppState>,
+    preset_data: WorkflowPreset,
+) -> Result<CommandResult<WorkflowPreset>, String> {
+    match preset::update_preset(&state.app_data_dir, preset_data) {
+        Ok(p) => Ok(CommandResult::ok(p)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+/// Delete a workflow preset by ID
+#[tauri::command]
+pub fn delete_preset(
+    state: State<'_, AppState>,
+    preset_id: String,
+) -> Result<CommandResult<bool>, String> {
+    match preset::delete_preset(&state.app_data_dir, &preset_id) {
+        Ok(_) => Ok(CommandResult::ok(true)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

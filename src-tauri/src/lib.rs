@@ -11,6 +11,7 @@ pub mod mhl;
 pub mod notify;
 pub mod report;
 pub mod volume;
+pub mod workflow;
 
 use std::sync::Mutex;
 use tauri::Manager;

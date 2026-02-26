@@ -1,6 +1,6 @@
 [package]
 name = "mhl-verify"
-version = "0.1.0"
+version = "1.0.0"
 description = "Standalone ASC MHL verification CLI tool — zero-dependency, cross-platform"
 authors = ["William Zhao"]
 license = "MIT"

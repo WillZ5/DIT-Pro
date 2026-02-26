@@ -160,6 +160,18 @@ pub enum OffloadEvent {
     Error {
         message: String,
     },
+    FileSkipped {
+        rel_path: String,
+        reason: String,
+    },
+    DuplicateConflict {
+        rel_path: String,
+        source_hash: String,
+        dest_hash: String,
+    },
+    Paused,
+    Resumed,
+    Terminated,
 }
 
 // ─── Result ──────────────────────────────────────────────────────────────
@@ -208,9 +220,47 @@ impl CancelToken {
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::SeqCst)
     }
+
+    /// Get a reference to the inner AtomicBool (for passing to copy_engine).
+    pub fn as_atomic(&self) -> &AtomicBool {
+        &self.0
+    }
 }
 
 impl Default for CancelToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Pause token for suspending/resuming a running workflow.
+/// Clone this and call `pause()` / `resume()` to control suspension.
+pub struct PauseToken(Arc<AtomicBool>);
+
+impl PauseToken {
+    pub fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+    pub fn pause(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+    pub fn resume(&self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+    pub fn is_paused(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+    pub fn clone_token(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+
+    /// Get a reference to the inner AtomicBool (for passing to copy_engine).
+    pub fn as_atomic(&self) -> &AtomicBool {
+        &self.0
+    }
+}
+
+impl Default for PauseToken {
     fn default() -> Self {
         Self::new()
     }
@@ -224,6 +274,7 @@ pub struct OffloadWorkflow {
     db: Arc<std::sync::Mutex<Connection>>,
     event_tx: mpsc::UnboundedSender<OffloadEvent>,
     cancel: CancelToken,
+    pause: PauseToken,
 }
 
 impl OffloadWorkflow {
@@ -232,7 +283,7 @@ impl OffloadWorkflow {
         db: Arc<std::sync::Mutex<Connection>>,
         event_tx: mpsc::UnboundedSender<OffloadEvent>,
     ) -> Self {
-        Self { config, db, event_tx, cancel: CancelToken::new() }
+        Self { config, db, event_tx, cancel: CancelToken::new(), pause: PauseToken::new() }
     }
 
     pub fn with_cancel(
@@ -241,7 +292,17 @@ impl OffloadWorkflow {
         event_tx: mpsc::UnboundedSender<OffloadEvent>,
         cancel: CancelToken,
     ) -> Self {
-        Self { config, db, event_tx, cancel }
+        Self { config, db, event_tx, cancel, pause: PauseToken::new() }
+    }
+
+    pub fn with_cancel_and_pause(
+        config: OffloadConfig,
+        db: Arc<std::sync::Mutex<Connection>>,
+        event_tx: mpsc::UnboundedSender<OffloadEvent>,
+        cancel: CancelToken,
+        pause: PauseToken,
+    ) -> Self {
+        Self { config, db, event_tx, cancel, pause }
     }
 
     /// Check if the workflow has been cancelled and bail if so.
@@ -250,6 +311,15 @@ impl OffloadWorkflow {
             bail!("Offload cancelled by user");
         }
         Ok(())
+    }
+
+    /// Wait while paused, checking for cancellation every 200ms.
+    async fn check_paused(&self) -> Result<()> {
+        while self.pause.is_paused() {
+            self.check_cancelled()?;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+        self.check_cancelled()
     }
 
     /// Send an event (silently ignores if receiver dropped)
@@ -538,6 +608,7 @@ impl OffloadWorkflow {
     // ── Internal: PreFlight ──────────────────────────────────────────
 
     /// Scan source directory recursively, respecting MHL ignore patterns.
+    /// Uses `file_type()` (lstat) to avoid following symlinks and prevent infinite loops.
     async fn scan_source(&self) -> Result<Vec<SourceFile>> {
         let root = &self.config.source_path;
         let mut files = Vec::new();
@@ -555,7 +626,9 @@ impl OffloadWorkflow {
 
             while let Some(entry) = entries.next_entry().await? {
                 let path = entry.path();
-                let metadata = entry.metadata().await?;
+                // Use file_type() (lstat) instead of metadata() (stat) to avoid
+                // following symlinks, which could cause infinite loops with circular links.
+                let file_type = entry.file_type().await?;
                 let rel_path = path
                     .strip_prefix(root)
                     .unwrap_or(&path)
@@ -566,9 +639,14 @@ impl OffloadWorkflow {
                     continue;
                 }
 
-                if metadata.is_dir() {
+                if file_type.is_symlink() {
+                    // Skip symlinks to avoid circular references
+                    continue;
+                } else if file_type.is_dir() {
                     stack.push(path);
-                } else if metadata.is_file() {
+                } else if file_type.is_file() {
+                    // Get metadata for file size (safe: we know it's a regular file)
+                    let metadata = entry.metadata().await?;
                     files.push(SourceFile {
                         rel_path,
                         abs_path: path,
@@ -614,7 +692,7 @@ impl OffloadWorkflow {
             &conn,
             &self.config.job_id,
             &self.config.job_name,
-            self.config.source_path.to_str().unwrap_or(""),
+            self.config.source_path.to_string_lossy().as_ref(),
         )?;
 
         for file in files {
@@ -625,8 +703,8 @@ impl OffloadWorkflow {
                     &conn,
                     &task_id,
                     &self.config.job_id,
-                    file.abs_path.to_str().unwrap_or(""),
-                    dest_file.to_str().unwrap_or(""),
+                    file.abs_path.to_string_lossy().as_ref(),
+                    dest_file.to_string_lossy().as_ref(),
                     file.size,
                 )?;
             }
@@ -667,6 +745,7 @@ impl OffloadWorkflow {
     // ── Internal: Copy ───────────────────────────────────────────────
 
     /// Copy every source file to all destinations. Returns inline hashes.
+    /// Supports chunk-level pause/cancel and intra-file progress reporting.
     async fn copy_all_files(
         &self,
         files: &[SourceFile],
@@ -682,6 +761,7 @@ impl OffloadWorkflow {
             max_retries: self.config.max_retries,
             cascading_enabled: false,
             hash_algorithms: self.config.hash_algorithms.clone(),
+            conflict_policy: copy_engine::FileConflictPolicy::SkipIfSameSize,
         };
 
         for (i, file) in files.iter().enumerate() {
@@ -708,57 +788,145 @@ impl OffloadWorkflow {
                         rusqlite::params![
                             STATUS_COPYING,
                             self.config.job_id,
-                            file.abs_path.to_str().unwrap_or(""),
-                            dest.to_str().unwrap_or(""),
+                            file.abs_path.to_string_lossy().as_ref(),
+                            dest.to_string_lossy().as_ref(),
                         ],
                     )?;
                 }
             } // lock released
 
+            // Set up intra-file progress reporting (throttled to 500ms)
+            let event_tx = self.event_tx.clone();
+            let file_completed_bytes = completed_bytes;
+            let progress_total_files = total_files;
+            let progress_file_index = i;
+            let progress_start = *start;
+            let last_progress_emit = std::sync::Mutex::new(Instant::now());
+            let progress_callback = move |file_bytes_written: u64, _file_total: u64| {
+                let mut last = last_progress_emit.lock().unwrap_or_else(|e| e.into_inner());
+                if last.elapsed() >= std::time::Duration::from_millis(500) {
+                    let current_total = file_completed_bytes + file_bytes_written;
+                    event_tx
+                        .send(OffloadEvent::JobProgress {
+                            completed_files: progress_file_index,
+                            total_files: progress_total_files,
+                            completed_bytes: current_total,
+                            total_bytes,
+                            phase: OffloadPhase::Copying,
+                            elapsed_secs: progress_start.elapsed().as_secs_f64(),
+                        })
+                        .ok();
+                    *last = Instant::now();
+                }
+            };
+
+            let control = copy_engine::CopyControl {
+                cancel_flag: Some(self.cancel.as_atomic()),
+                pause_flag: Some(self.pause.as_atomic()),
+                on_progress: Some(Box::new(progress_callback)),
+            };
+
             // Read source once → write to all destinations
-            match copy_engine::copy_file_multi(&file.abs_path, &dest_files, &copy_config).await {
+            match copy_engine::copy_file_multi(&file.abs_path, &dest_files, &copy_config, &control).await {
                 Ok(results) => {
-                    if let Some(first) = results.first() {
-                        copy_hashes.insert(file.rel_path.clone(), first.hash_results.clone());
-                    }
+                    // Check if all results are skipped
+                    let all_skipped = results.iter().all(|r| r.skipped);
 
-                    // Update each per-destination task in DB
-                    let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                    for r in &results {
-                        let xxh64 = r.hash_results.iter()
-                            .find(|h| h.algorithm == HashAlgorithm::XXH64)
-                            .map(|h| h.hex_digest.as_str());
-                        let sha256 = r.hash_results.iter()
-                            .find(|h| h.algorithm == HashAlgorithm::SHA256)
-                            .map(|h| h.hex_digest.as_str());
+                    if all_skipped {
+                        // All destinations already had this file — emit skip event
+                        self.emit(OffloadEvent::FileSkipped {
+                            rel_path: file.rel_path.clone(),
+                            reason: "destination file exists with matching size".into(),
+                        });
+                        // Mark tasks as completed (already existed)
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        for r in &results {
+                            let task_id: Option<String> = conn
+                                .query_row(
+                                    "SELECT id FROM copy_tasks
+                                     WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                                    rusqlite::params![
+                                        self.config.job_id,
+                                        file.abs_path.to_string_lossy().as_ref(),
+                                        r.dest_path.to_string_lossy().as_ref(),
+                                    ],
+                                    |row| row.get(0),
+                                )
+                                .ok();
+                            if let Some(tid) = task_id {
+                                checkpoint::update_task_completed(&conn, &tid, None, None)?;
+                            }
+                        }
+                    } else {
+                        // At least some files were actually copied
+                        if let Some(first_copied) = results.iter().find(|r| !r.skipped) {
+                            copy_hashes.insert(file.rel_path.clone(), first_copied.hash_results.clone());
+                        }
 
-                        let task_id: Option<String> = conn
-                            .query_row(
-                                "SELECT id FROM copy_tasks
-                                 WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
-                                rusqlite::params![
-                                    self.config.job_id,
-                                    file.abs_path.to_str().unwrap_or(""),
-                                    r.dest_path.to_str().unwrap_or(""),
-                                ],
-                                |row| row.get(0),
-                            )
-                            .ok();
+                        // Update each per-destination task in DB
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        for r in &results {
+                            if r.skipped {
+                                // Mark skipped task as completed
+                                let task_id: Option<String> = conn
+                                    .query_row(
+                                        "SELECT id FROM copy_tasks
+                                         WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                                        rusqlite::params![
+                                            self.config.job_id,
+                                            file.abs_path.to_string_lossy().as_ref(),
+                                            r.dest_path.to_string_lossy().as_ref(),
+                                        ],
+                                        |row| row.get(0),
+                                    )
+                                    .ok();
+                                if let Some(tid) = task_id {
+                                    checkpoint::update_task_completed(&conn, &tid, None, None)?;
+                                }
+                                continue;
+                            }
 
-                        if let Some(tid) = task_id {
-                            if r.success {
-                                checkpoint::update_task_completed(&conn, &tid, xxh64, sha256)?;
-                            } else {
-                                checkpoint::update_task_failed(
-                                    &conn,
-                                    &tid,
-                                    r.error.as_deref().unwrap_or("Unknown copy error"),
-                                )?;
+                            let xxh64 = r.hash_results.iter()
+                                .find(|h| h.algorithm == HashAlgorithm::XXH64)
+                                .map(|h| h.hex_digest.as_str());
+                            let sha256 = r.hash_results.iter()
+                                .find(|h| h.algorithm == HashAlgorithm::SHA256)
+                                .map(|h| h.hex_digest.as_str());
+
+                            let task_id: Option<String> = conn
+                                .query_row(
+                                    "SELECT id FROM copy_tasks
+                                     WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                                    rusqlite::params![
+                                        self.config.job_id,
+                                        file.abs_path.to_string_lossy().as_ref(),
+                                        r.dest_path.to_string_lossy().as_ref(),
+                                    ],
+                                    |row| row.get(0),
+                                )
+                                .ok();
+
+                            if let Some(tid) = task_id {
+                                if r.success {
+                                    checkpoint::update_task_completed(&conn, &tid, xxh64, sha256)?;
+                                } else {
+                                    checkpoint::update_task_failed(
+                                        &conn,
+                                        &tid,
+                                        r.error.as_deref().unwrap_or("Unknown copy error"),
+                                    )?;
+                                }
                             }
                         }
                     }
                 }
                 Err(e) => {
+                    // If cancelled, propagate the error immediately
+                    let err_str = e.to_string();
+                    if err_str.contains("cancelled by user") {
+                        return Err(e);
+                    }
+
                     self.emit(OffloadEvent::Warning {
                         message: format!("Copy failed for {}: {}", file.rel_path, e),
                     });
@@ -771,8 +939,8 @@ impl OffloadWorkflow {
                                  WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
                                 rusqlite::params![
                                     self.config.job_id,
-                                    file.abs_path.to_str().unwrap_or(""),
-                                    dest.to_str().unwrap_or(""),
+                                    file.abs_path.to_string_lossy().as_ref(),
+                                    dest.to_string_lossy().as_ref(),
                                 ],
                                 |row| row.get(0),
                             )
@@ -802,6 +970,9 @@ impl OffloadWorkflow {
                 phase: OffloadPhase::Copying,
                 elapsed_secs: start.elapsed().as_secs_f64(),
             });
+
+            // Check for pause/cancel after each file (chunk-level checks also in copy_engine)
+            self.check_paused().await?;
         }
 
         Ok(copy_hashes)
@@ -827,6 +998,7 @@ impl OffloadWorkflow {
             max_retries: self.config.max_retries,
             cascading_enabled: true,
             hash_algorithms: self.config.hash_algorithms.clone(),
+            conflict_policy: copy_engine::FileConflictPolicy::SkipIfSameSize,
         };
 
         for (i, file) in files.iter().enumerate() {
@@ -847,13 +1019,19 @@ impl OffloadWorkflow {
                     rusqlite::params![
                         STATUS_COPYING,
                         self.config.job_id,
-                        file.abs_path.to_str().unwrap_or(""),
-                        dest_file.to_str().unwrap_or(""),
+                        file.abs_path.to_string_lossy().as_ref(),
+                        dest_file.to_string_lossy().as_ref(),
                     ],
                 )?;
             }
 
-            match copy_engine::copy_file_single(&file.abs_path, &dest_file, &copy_config).await {
+            let control = copy_engine::CopyControl {
+                cancel_flag: Some(self.cancel.as_atomic()),
+                pause_flag: Some(self.pause.as_atomic()),
+                on_progress: None, // cascade doesn't need intra-file progress
+            };
+
+            match copy_engine::copy_file_single(&file.abs_path, &dest_file, &copy_config, &control).await {
                 Ok(result) => {
                     copy_hashes.insert(file.rel_path.clone(), result.hash_results.clone());
 
@@ -871,8 +1049,8 @@ impl OffloadWorkflow {
                              WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
                             rusqlite::params![
                                 self.config.job_id,
-                                file.abs_path.to_str().unwrap_or(""),
-                                dest_file.to_str().unwrap_or(""),
+                                file.abs_path.to_string_lossy().as_ref(),
+                                dest_file.to_string_lossy().as_ref(),
                             ],
                             |row| row.get(0),
                         )
@@ -893,8 +1071,8 @@ impl OffloadWorkflow {
                              WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
                             rusqlite::params![
                                 self.config.job_id,
-                                file.abs_path.to_str().unwrap_or(""),
-                                dest_file.to_str().unwrap_or(""),
+                                file.abs_path.to_string_lossy().as_ref(),
+                                dest_file.to_string_lossy().as_ref(),
                             ],
                             |row| row.get(0),
                         )
@@ -923,6 +1101,9 @@ impl OffloadWorkflow {
                 phase: OffloadPhase::Copying,
                 elapsed_secs: start.elapsed().as_secs_f64(),
             });
+
+            // Check for pause/cancel after each file
+            self.check_paused().await?;
         }
 
         Ok(copy_hashes)
@@ -946,6 +1127,7 @@ impl OffloadWorkflow {
             max_retries: self.config.max_retries,
             cascading_enabled: true,
             hash_algorithms: self.config.hash_algorithms.clone(),
+            conflict_policy: copy_engine::FileConflictPolicy::SkipIfSameSize,
         };
 
         for (i, file) in files.iter().enumerate() {
@@ -971,15 +1153,21 @@ impl OffloadWorkflow {
                         rusqlite::params![
                             STATUS_COPYING,
                             self.config.job_id,
-                            file.abs_path.to_str().unwrap_or(""),
-                            dest.to_str().unwrap_or(""),
+                            file.abs_path.to_string_lossy().as_ref(),
+                            dest.to_string_lossy().as_ref(),
                         ],
                     )?;
                 }
             }
 
+            let control = copy_engine::CopyControl {
+                cancel_flag: Some(self.cancel.as_atomic()),
+                pause_flag: Some(self.pause.as_atomic()),
+                on_progress: None, // cascade doesn't need intra-file progress
+            };
+
             // Read from primary copy → write to all secondary destinations
-            match copy_engine::copy_file_multi(&primary_file, &secondary_files, &copy_config).await
+            match copy_engine::copy_file_multi(&primary_file, &secondary_files, &copy_config, &control).await
             {
                 Ok(results) => {
                     let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -997,8 +1185,8 @@ impl OffloadWorkflow {
                                  WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
                                 rusqlite::params![
                                     self.config.job_id,
-                                    file.abs_path.to_str().unwrap_or(""),
-                                    r.dest_path.to_str().unwrap_or(""),
+                                    file.abs_path.to_string_lossy().as_ref(),
+                                    r.dest_path.to_string_lossy().as_ref(),
                                 ],
                                 |row| row.get(0),
                             )
@@ -1029,8 +1217,8 @@ impl OffloadWorkflow {
                                  WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
                                 rusqlite::params![
                                     self.config.job_id,
-                                    file.abs_path.to_str().unwrap_or(""),
-                                    dest.to_str().unwrap_or(""),
+                                    file.abs_path.to_string_lossy().as_ref(),
+                                    dest.to_string_lossy().as_ref(),
                                 ],
                                 |row| row.get(0),
                             )
@@ -1060,6 +1248,9 @@ impl OffloadWorkflow {
                 phase: OffloadPhase::Cascading,
                 elapsed_secs: start.elapsed().as_secs_f64(),
             });
+
+            // Check for pause/cancel after each file
+            self.check_paused().await?;
         }
 
         Ok(())

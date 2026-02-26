@@ -1,18 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { safeInvoke } from "../../utils/tauriCompat";
+import { safeInvoke, isTauri } from "../../utils/tauriCompat";
 import { useI18n, type Locale } from "../../i18n";
+import { SystemLog } from "../../components/SystemLog";
 import type { CommandResult, AppSettings, DeviceIoConfig } from "../../types";
 
 export function SettingsView() {
   const { t, locale, setLocale } = useI18n();
-
-  const AVAILABLE_ALGORITHMS = [
-    { id: "XXH64", label: "XXH64", desc: t.settings.algoXxh64Desc },
-    { id: "XXH3", label: "XXH3", desc: t.settings.algoXxh3Desc },
-    { id: "XXH128", label: "XXH128", desc: t.settings.algoXxh128Desc },
-    { id: "SHA256", label: "SHA-256", desc: t.settings.algoSha256Desc },
-    { id: "MD5", label: "MD5", desc: t.settings.algoMd5Desc },
-  ];
 
   const DEVICE_TYPES: { key: keyof AppSettings["ioScheduling"]; label: string; desc: string }[] = [
     { key: "hdd", label: "HDD", desc: t.settings.deviceHdd },
@@ -26,6 +19,11 @@ export function SettingsView() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [clearLogsDays, setClearLogsDays] = useState(30);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [exportingBundle, setExportingBundle] = useState(false);
+  const [bundlePath, setBundlePath] = useState<string | null>(null);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -64,16 +62,6 @@ export function SettingsView() {
     }
   };
 
-  const toggleAlgorithm = (algoId: string) => {
-    if (!settings) return;
-    const current = settings.hashAlgorithms;
-    const next = current.includes(algoId)
-      ? current.filter((a) => a !== algoId)
-      : [...current, algoId];
-    if (next.length === 0) return;
-    setSettings({ ...settings, hashAlgorithms: next });
-  };
-
   const updateOffload = (key: string, value: boolean | number) => {
     if (!settings) return;
     setSettings({
@@ -106,6 +94,42 @@ export function SettingsView() {
       ...settings,
       email: { ...settings.email, [key]: value },
     });
+  };
+
+  const updateReport = (key: string, value: string | boolean) => {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      report: { ...settings.report, [key]: value },
+    });
+  };
+
+  const handleBrowseExportPath = async () => {
+    if (isTauri()) {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const path = await open({ directory: true, title: t.settings.defaultExportPath });
+      if (path) updateReport("defaultExportPath", path as string);
+    } else {
+      updateReport("defaultExportPath", "/Users/demo/DIT-Reports");
+    }
+  };
+
+  const handleClearLogs = async () => {
+    setClearing(true);
+    try {
+      const result = await safeInvoke<CommandResult<number>>("clear_logs", {
+        olderThanDays: clearLogsDays,
+      });
+      if (result.success) {
+        setShowClearConfirm(false);
+      } else {
+        setError(result.error || "Failed to clear logs");
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setClearing(false);
+    }
   };
 
   if (!settings) {
@@ -165,28 +189,6 @@ export function SettingsView() {
                   onChange={() => setLocale(lang.id)}
                 />
                 <span className="algo-name">{lang.label}</span>
-              </label>
-            ))}
-          </div>
-        </section>
-
-        {/* Hash Algorithms */}
-        <section className="settings-section">
-          <h3>{t.settings.hashAlgorithmsTitle}</h3>
-          <p>{t.settings.hashAlgorithmsDesc}</p>
-          <div className="algo-grid">
-            {AVAILABLE_ALGORITHMS.map((algo) => (
-              <label
-                key={algo.id}
-                className={`algo-chip ${settings.hashAlgorithms.includes(algo.id) ? "algo-chip--active" : ""}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={settings.hashAlgorithms.includes(algo.id)}
-                  onChange={() => toggleAlgorithm(algo.id)}
-                />
-                <span className="algo-name">{algo.label}</span>
-                <span className="algo-desc">{algo.desc}</span>
               </label>
             ))}
           </div>
@@ -331,6 +333,112 @@ export function SettingsView() {
           </div>
         </section>
 
+        {/* Report Export */}
+        <section className="settings-section">
+          <h3>{t.settings.reportTitle}</h3>
+          <p>{t.settings.reportDesc}</p>
+          <div className="settings-grid">
+            <div className="field-row">
+              <label className="field-label">{t.settings.defaultExportPath}</label>
+              <div className="path-selector">
+                <input
+                  type="text"
+                  className="settings-input"
+                  value={settings.report.defaultExportPath}
+                  onChange={(e) => updateReport("defaultExportPath", e.target.value)}
+                  placeholder="/path/to/reports"
+                />
+                <button className="btn-secondary" onClick={handleBrowseExportPath}>
+                  {t.common.browse}
+                </button>
+              </div>
+            </div>
+
+            <div className="number-row">
+              <span className="toggle-label">{t.settings.exportFormat}</span>
+              <div className="algo-grid algo-grid--compact">
+                {(["html", "txt"] as const).map((fmt) => (
+                  <label
+                    key={fmt}
+                    className={`algo-chip ${settings.report.exportFormat === fmt ? "algo-chip--active" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="exportFormat"
+                      checked={settings.report.exportFormat === fmt}
+                      onChange={() => updateReport("exportFormat", fmt)}
+                    />
+                    <span className="algo-name">{fmt.toUpperCase()}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <label className="toggle-row">
+              <span className="toggle-label">{t.settings.askPathEachTime}</span>
+              <input
+                type="checkbox"
+                className="toggle-input"
+                checked={settings.report.askPathEachTime}
+                onChange={(e) => updateReport("askPathEachTime", e.target.checked)}
+              />
+              <span className="toggle-switch" />
+            </label>
+
+            <label className="toggle-row">
+              <span className="toggle-label">{t.settings.askFormatEachTime}</span>
+              <input
+                type="checkbox"
+                className="toggle-input"
+                checked={settings.report.askFormatEachTime}
+                onChange={(e) => updateReport("askFormatEachTime", e.target.checked)}
+              />
+              <span className="toggle-switch" />
+            </label>
+          </div>
+
+          {/* Clear Logs */}
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #27272a" }}>
+            <h4 style={{ margin: "0 0 4px", fontSize: 13, color: "#a1a1aa" }}>{t.settings.clearLogs}</h4>
+            <p style={{ margin: "0 0 8px", fontSize: 12, color: "#71717a" }}>{t.settings.clearLogsDesc}</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: "#a1a1aa" }}>{t.settings.clearLogsDays}:</span>
+              <select
+                className="settings-select"
+                value={clearLogsDays}
+                onChange={(e) => setClearLogsDays(Number(e.target.value))}
+                style={{ width: 80 }}
+              >
+                <option value={7}>7</option>
+                <option value={14}>14</option>
+                <option value={30}>30</option>
+                <option value={60}>60</option>
+                <option value={90}>90</option>
+              </select>
+              {!showClearConfirm ? (
+                <button className="btn-secondary btn-sm" onClick={() => setShowClearConfirm(true)}>
+                  {t.settings.clearLogsBtn}
+                </button>
+              ) : (
+                <>
+                  <span style={{ fontSize: 12, color: "#ef4444" }}>{t.settings.clearLogsConfirm}</span>
+                  <button
+                    className="btn-confirm-terminate"
+                    style={{ fontSize: 11, padding: "3px 10px" }}
+                    onClick={handleClearLogs}
+                    disabled={clearing}
+                  >
+                    {clearing ? "..." : t.settings.clearLogsBtn}
+                  </button>
+                  <button className="btn-secondary btn-sm" onClick={() => setShowClearConfirm(false)}>
+                    {t.common.cancel}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+
         {/* Email Notifications */}
         <section className="settings-section">
           <h3>{t.settings.emailTitle}</h3>
@@ -413,6 +521,45 @@ export function SettingsView() {
               </div>
             </div>
           )}
+        </section>
+
+        {/* ─── Diagnostics ──────────────────────────────────────── */}
+        <section className="settings-section">
+          <h3 className="section-title">{t.settings.diagnosticsTitle}</h3>
+          <p className="section-desc">{t.settings.diagnosticsDesc}</p>
+          <button
+            className="btn-secondary"
+            disabled={exportingBundle}
+            onClick={async () => {
+              setExportingBundle(true);
+              setBundlePath(null);
+              try {
+                const result = await safeInvoke<CommandResult<string>>("export_debug_bundle");
+                if (result.success && result.data) {
+                  setBundlePath(result.data);
+                } else {
+                  setError(result.error || "Export failed");
+                }
+              } catch (err) {
+                setError(String(err));
+              }
+              setExportingBundle(false);
+            }}
+          >
+            {exportingBundle ? t.settings.exportingBundle : t.settings.exportDebugBundle}
+          </button>
+          {bundlePath && (
+            <p className="bundle-path" style={{ marginTop: 8, fontSize: 13, color: "#9ca3af" }}>
+              {t.settings.bundleSavedTo} <code>{bundlePath}</code>
+            </p>
+          )}
+        </section>
+
+        {/* ─── System Log ──────────────────────────────────────── */}
+        <section className="settings-section">
+          <h3 className="section-title">{t.systemLog.title}</h3>
+          <p className="section-desc">{t.systemLog.desc}</p>
+          <SystemLog />
         </section>
       </div>
     </div>

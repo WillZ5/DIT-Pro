@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { safeInvoke } from "../../utils/tauriCompat";
+import { safeInvoke, isTauri } from "../../utils/tauriCompat";
 import { useI18n, type TranslationKeys } from "../../i18n";
-import type { CommandResult, DayReport, JobReport } from "../../types";
+import type { CommandResult, DayReport, JobReport, AppSettings } from "../../types";
 
 /** Translate backend status string to localized display text */
 function translateStatus(status: string, t: TranslationKeys): string {
@@ -13,15 +13,18 @@ function translateStatus(status: string, t: TranslationKeys): string {
     failed: t.jobs.statusFailed,
     pending: t.jobs.statusPending,
     error: t.jobs.statusError,
+    paused: t.jobs.statusPaused,
+    terminated: t.jobs.statusTerminated,
+    skipped: t.jobs.skippedFiles,
   };
   return map[status] || status.toUpperCase();
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
+  if (!bytes || bytes <= 0) return "0 B";
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
@@ -33,20 +36,25 @@ export function ReportView() {
   const [jobReport, setJobReport] = useState<JobReport | null>(null);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copiedHash, setCopiedHash] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const loadDates = useCallback(async () => {
     try {
+      setLoading(true);
       const result = await safeInvoke<CommandResult<string[]>>("get_report_dates");
       if (result.success && result.data) {
         setDates(result.data);
-        if (result.data.length > 0 && !selectedDate) {
-          setSelectedDate(result.data[0]);
+        if (result.data.length > 0) {
+          setSelectedDate((prev) => prev ?? result.data![0]);
         }
       }
     } catch (err) {
       console.error("Failed to load report dates:", err);
+    } finally {
+      setLoading(false);
     }
-  }, [selectedDate]);
+  }, []);
 
   useEffect(() => {
     loadDates();
@@ -70,6 +78,11 @@ export function ReportView() {
   }, [selectedDate]);
 
   const handleViewJobDetail = async (jobId: string) => {
+    // Toggle: clicking same job's detail button closes it
+    if (jobReport && jobReport.summary.jobId === jobId) {
+      setJobReport(null);
+      return;
+    }
     try {
       const result = await safeInvoke<CommandResult<JobReport>>("get_job_report", {
         jobId,
@@ -82,13 +95,55 @@ export function ReportView() {
     }
   };
 
+  const handleCopyHash = (hash: string) => {
+    navigator.clipboard.writeText(hash).then(() => {
+      setCopiedHash(hash);
+      setTimeout(() => setCopiedHash(null), 1500);
+    }).catch(() => {
+      // Clipboard API may be unavailable in some webview contexts
+      console.warn("Clipboard write failed");
+    });
+  };
+
+  const chooseExportPath = async (defaultName: string): Promise<string | null> => {
+    if (isTauri()) {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({
+        title: t.reports.chooseLocation,
+        defaultPath: defaultName,
+        filters: [
+          { name: "HTML", extensions: ["html"] },
+          { name: "Text", extensions: ["txt"] },
+        ],
+      });
+      return path || null;
+    }
+    // Browser demo: return a mock path
+    return `/tmp/${defaultName}`;
+  };
+
   const handleExportDay = async () => {
     if (!selectedDate) return;
     setExporting(true);
     setError(null);
     try {
+      // Load settings to check export preferences
+      const settingsResult = await safeInvoke<CommandResult<AppSettings>>("get_settings");
+      const reportSettings = settingsResult.success ? settingsResult.data?.report : null;
+
+      let outputPath = reportSettings?.defaultExportPath || "";
+      const format = reportSettings?.exportFormat || "html";
+
+      if (!outputPath || reportSettings?.askPathEachTime) {
+        const chosen = await chooseExportPath(`dit-day-report-${selectedDate}.${format}`);
+        if (!chosen) { setExporting(false); return; }
+        outputPath = chosen;
+      }
+
       const result = await safeInvoke<CommandResult<string>>("export_day_report", {
         date: selectedDate,
+        format,
+        outputPath,
       });
       if (result.success && result.data) {
         setError(null);
@@ -107,8 +162,22 @@ export function ReportView() {
     setExporting(true);
     setError(null);
     try {
+      const settingsResult = await safeInvoke<CommandResult<AppSettings>>("get_settings");
+      const reportSettings = settingsResult.success ? settingsResult.data?.report : null;
+
+      let outputPath = reportSettings?.defaultExportPath || "";
+      const format = reportSettings?.exportFormat || "html";
+
+      if (!outputPath || reportSettings?.askPathEachTime) {
+        const chosen = await chooseExportPath(`dit-job-report-${jobId.slice(0, 8)}.${format}`);
+        if (!chosen) { setExporting(false); return; }
+        outputPath = chosen;
+      }
+
       const result = await safeInvoke<CommandResult<string>>("export_job_report", {
         jobId,
+        format,
+        outputPath,
       });
       if (result.success && result.data) {
         alert(`${t.reports.reportSavedTo}\n${result.data}`);
@@ -121,6 +190,19 @@ export function ReportView() {
       setExporting(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="settings-view">
+        <div className="view-header">
+          <h2>{t.reports.title}</h2>
+        </div>
+        <div className="empty-state">
+          <p>{t.common.loading}</p>
+        </div>
+      </div>
+    );
+  }
 
   if (dates.length === 0) {
     return (
@@ -163,7 +245,7 @@ export function ReportView() {
             onClick={handleExportDay}
             disabled={exporting || !selectedDate}
           >
-            {exporting ? t.reports.exporting : t.reports.exportHtml}
+            {exporting ? t.reports.exporting : t.reports.exportReport}
           </button>
         </div>
       </div>
@@ -227,11 +309,13 @@ export function ReportView() {
                           className={`report-status ${
                             job.status === "completed"
                               ? "report-status--ok"
-                              : job.status === "completed_with_errors" || job.status === "failed" || job.status === "error"
+                              : job.status === "completed_with_errors" || job.status === "failed" || job.status === "error" || job.status === "terminated"
                                 ? "report-status--error"
                                 : job.status === "copying" || job.status === "verifying"
                                   ? "report-status--active"
-                                  : "report-status--pending"
+                                  : job.status === "paused"
+                                    ? "report-status--paused"
+                                    : "report-status--pending"
                           }`}
                         >
                           {translateStatus(job.status, t)}
@@ -265,16 +349,12 @@ export function ReportView() {
 
           {/* Job Detail */}
           {jobReport && (
-            <section className="settings-section">
+            <section className="settings-section" style={{ position: "relative" }}>
+              <button className="detail-close-btn" onClick={() => setJobReport(null)} title={t.common.close}>
+                &times;
+              </button>
               <h3>
                 {t.reports.jobDetail} — {jobReport.summary.jobName}
-                <button
-                  className="btn-small"
-                  style={{ marginLeft: 12 }}
-                  onClick={() => setJobReport(null)}
-                >
-                  {t.common.close}
-                </button>
               </h3>
               <div className="report-stats">
                 <div className="report-stat">
@@ -331,21 +411,49 @@ export function ReportView() {
                               className={`report-status ${
                                 task.status === "completed"
                                   ? "report-status--ok"
-                                  : task.status === "pending"
+                                  : task.status === "pending" || task.status === "skipped"
                                     ? "report-status--pending"
                                     : task.status === "copying" || task.status === "verifying"
                                       ? "report-status--active"
-                                      : "report-status--error"
+                                      : task.status === "paused"
+                                        ? "report-status--paused"
+                                        : "report-status--error"
                               }`}
                             >
                               {translateStatus(task.status, t)}
                             </span>
                           </td>
-                          <td className="report-hash">{task.hashXxh64 || "\u2014"}</td>
                           <td className="report-hash">
-                            {task.hashSha256
-                              ? task.hashSha256.slice(0, 16) + "..."
-                              : "\u2014"}
+                            {task.hashXxh64 ? (
+                              <span
+                                className="hash-copy"
+                                onClick={() => handleCopyHash(task.hashXxh64!)}
+                                title={task.hashXxh64}
+                              >
+                                {task.hashXxh64.slice(0, 12)}…
+                                {copiedHash === task.hashXxh64 && (
+                                  <span className="hash-copy-toast">{t.common.copiedToClipboard}</span>
+                                )}
+                              </span>
+                            ) : (
+                              "\u2014"
+                            )}
+                          </td>
+                          <td className="report-hash">
+                            {task.hashSha256 ? (
+                              <span
+                                className="hash-copy"
+                                onClick={() => handleCopyHash(task.hashSha256!)}
+                                title={task.hashSha256}
+                              >
+                                {task.hashSha256.slice(0, 12)}…
+                                {copiedHash === task.hashSha256 && (
+                                  <span className="hash-copy-toast">{t.common.copiedToClipboard}</span>
+                                )}
+                              </span>
+                            ) : (
+                              "\u2014"
+                            )}
                           </td>
                         </tr>
                       );

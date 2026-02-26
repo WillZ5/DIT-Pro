@@ -6,7 +6,10 @@ export type CopyTaskStatus =
   | "verifying"
   | "completed"
   | "failed"
-  | "skipped";
+  | "paused"
+  | "terminated"
+  | "skipped"
+  | "conflict";
 
 export type DeviceType = "HDD" | "SSD" | "NVMe" | "RAID" | "Network" | "Unknown";
 
@@ -53,11 +56,68 @@ export type ViewType = "jobs" | "volumes" | "presets" | "reports" | "settings";
 
 // ─── Backend Response Types ───────────────────────────────────────────────
 
+/** Structured error info from Rust backend */
+export interface ErrorInfo {
+  code: string; // "E1001"
+  category: string; // "COPY"
+  severity: string; // "critical" | "error" | "warning" | "info"
+  message: string;
+  context?: Record<string, unknown> | null;
+}
+
 /** Standard command result from Rust backend */
 export interface CommandResult<T> {
   success: boolean;
   data: T | null;
   error: string | null;
+  errorInfo?: ErrorInfo | null;
+}
+
+/** Version info from Rust backend */
+export interface VersionInfo {
+  version: string;
+  preRelease: string | null;
+  buildMeta: string | null;
+  channel: "dev" | "alpha" | "beta" | "rc" | "stable";
+  fullString: string;
+  gitHash: string | null;
+  buildTime: string | null;
+}
+
+/** Error log entry from database */
+export interface ErrorLogEntry {
+  id: number;
+  timestamp: string;
+  errorCode: string;
+  severity: string;
+  category: string;
+  module: string;
+  message: string;
+  contextJson: string | null;
+  jobId: string | null;
+  resolved: boolean;
+  resolvedAt: string | null;
+  appVersion: string | null;
+}
+
+/** Error log summary counts */
+export interface ErrorLogSummary {
+  total: number;
+  critical: number;
+  error: number;
+  warning: number;
+  info: number;
+  unresolved: number;
+}
+
+/** Error log query filter */
+export interface ErrorLogFilter {
+  severity?: string;
+  category?: string;
+  jobId?: string;
+  resolved?: boolean;
+  limit?: number;
+  offset?: number;
 }
 
 /** Job info from backend */
@@ -169,7 +229,12 @@ export type OffloadEvent =
       durationSecs: number;
       mhlPaths: string[];
     }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "fileSkipped"; relPath: string; reason: string }
+  | { type: "duplicateConflict"; relPath: string; sourceHash: string; destHash: string }
+  | { type: "paused" }
+  | { type: "resumed" }
+  | { type: "terminated" };
 
 /** Request to start an offload workflow */
 export interface StartOffloadRequest {
@@ -218,11 +283,18 @@ export interface EmailSettings {
   useTls: boolean;
 }
 
+export interface ReportSettings {
+  defaultExportPath: string;
+  exportFormat: string;
+  askPathEachTime: boolean;
+  askFormatEachTime: boolean;
+}
+
 export interface AppSettings {
-  hashAlgorithms: string[];
   offload: OffloadDefaults;
   ioScheduling: IoSchedulingSettings;
   email: EmailSettings;
+  report: ReportSettings;
 }
 
 // ─── Workflow Preset Types ──────────────────────────────────────────────

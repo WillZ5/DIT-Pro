@@ -21,6 +21,10 @@ function ok<T>(data: T): CommandResult<T> {
   return { success: true, data, error: null };
 }
 
+function fail<T>(msg: string): CommandResult<T> {
+  return { success: false, data: null, error: msg };
+}
+
 /** In-memory mutable store for demo mode */
 const demoStore = {
   presets: [...MOCK_PRESETS],
@@ -31,7 +35,15 @@ const demoStore = {
 function mockInvoke<T>(cmd: string, args?: Record<string, any>): T {
   switch (cmd) {
     case "get_app_version":
-      return "0.4.0-demo" as T;
+      return {
+        version: "1.0.0",
+        preRelease: "demo",
+        buildMeta: null,
+        channel: "dev",
+        fullString: "1.0.0-demo",
+        gitHash: null,
+        buildTime: null,
+      } as T;
     case "list_jobs":
       return ok(MOCK_JOBS) as T;
     case "list_volumes":
@@ -63,8 +75,9 @@ function mockInvoke<T>(cmd: string, args?: Record<string, any>): T {
       const idx = demoStore.presets.findIndex((p) => p.id === args?.presetData?.id);
       if (idx >= 0) {
         demoStore.presets[idx] = { ...args!.presetData, updatedAt: new Date().toISOString() };
+        return ok(demoStore.presets[idx]) as T;
       }
-      return ok(demoStore.presets[idx]) as T;
+      return fail("Preset not found") as T;
     }
     case "delete_preset":
       demoStore.presets = demoStore.presets.filter((p) => p.id !== args?.presetId);
@@ -78,6 +91,34 @@ function mockInvoke<T>(cmd: string, args?: Record<string, any>): T {
     case "export_day_report":
     case "export_job_report":
       return ok("/tmp/dit-report-demo.html") as T;
+    case "pause_offload":
+      return ok(true) as T;
+    case "resume_paused_offload":
+      return ok(true) as T;
+    case "terminate_offload":
+      return ok(true) as T;
+    case "batch_pause":
+      return ok(true) as T;
+    case "batch_terminate":
+      return ok(true) as T;
+    case "clear_logs":
+      return ok(0) as T;
+    case "reveal_in_finder":
+      return ok(true) as T;
+    case "delete_job":
+      return ok(true) as T;
+    case "batch_delete":
+      return ok(args?.jobIds?.length ?? 0) as T;
+    case "get_error_log":
+      return ok([]) as T;
+    case "get_error_log_summary":
+      return ok({ total: 0, critical: 0, error: 0, warning: 0, info: 0, unresolved: 0 }) as T;
+    case "resolve_error_entry":
+      return ok(true) as T;
+    case "clear_error_log_entries":
+      return ok(0) as T;
+    case "export_debug_bundle":
+      return ok("/tmp/dit-debug-demo.json") as T;
     default:
       return ok(null) as T;
   }

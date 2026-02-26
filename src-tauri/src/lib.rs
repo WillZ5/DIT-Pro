@@ -6,6 +6,9 @@ pub mod commands;
 pub mod config;
 pub mod copy_engine;
 pub mod db;
+pub mod debug_bundle;
+pub mod error;
+pub mod error_log;
 pub mod hash_engine;
 pub mod io_scheduler;
 pub mod mhl;
@@ -13,19 +16,21 @@ pub mod notify;
 pub mod preset;
 pub mod report;
 pub mod tray;
+pub mod version;
 pub mod volume;
 pub mod workflow;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
 use commands::AppState;
 use io_scheduler::IoScheduler;
 
-/// Tauri command: get application version
+/// Tauri command: get application version info
 #[tauri::command]
-fn get_app_version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
+fn get_app_version() -> version::VersionInfo {
+    version::VersionInfo::current()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,25 +41,30 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Always enable logging — Warn in release, Info in debug
+            let log_level = if cfg!(debug_assertions) {
+                log::LevelFilter::Info
+            } else {
+                log::LevelFilter::Warn
+            };
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log_level)
+                    .build(),
+            )?;
 
             // Initialize database
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
             let db_path = app_data_dir.join("dit-system.db");
-            let conn = db::init_database(db_path.to_str().unwrap_or("dit-system.db"))?;
+            let conn = db::init_database(&db_path.to_string_lossy())?;
             log::info!("Database initialized at {:?}", db_path);
 
             // Load settings
             let settings = config::load_settings(&app_data_dir)
                 .unwrap_or_default();
-            log::info!("Settings loaded (hash: {:?})", settings.hash_algorithms);
+            log::info!("Settings loaded (offload defaults: src_verify={}, post_verify={})",
+                settings.offload.source_verify, settings.offload.post_verify);
 
             // Initialize app state
             let state = AppState {
@@ -62,6 +72,7 @@ pub fn run() {
                 io_scheduler: Mutex::new(IoScheduler::new()),
                 app_data_dir: app_data_dir.clone(),
                 settings: Mutex::new(settings),
+                active_workflows: Arc::new(Mutex::new(HashMap::new())),
             };
             app.manage(state);
 
@@ -99,6 +110,7 @@ pub fn run() {
             // Volumes
             commands::list_volumes,
             commands::get_space_info,
+            commands::reveal_in_finder,
             commands::preflight_check,
             // Hash
             commands::hash_file,
@@ -111,6 +123,14 @@ pub fn run() {
             // Workflow
             commands::start_offload,
             commands::resume_offload,
+            commands::pause_offload,
+            commands::resume_paused_offload,
+            commands::terminate_offload,
+            commands::batch_pause,
+            commands::batch_terminate,
+            commands::delete_job,
+            commands::batch_delete,
+            commands::clear_logs,
             // Settings
             commands::get_settings,
             commands::save_settings,
@@ -128,6 +148,12 @@ pub fn run() {
             // Notifications
             commands::send_test_email,
             commands::save_smtp_password,
+            // Error Log & Diagnostics
+            commands::get_error_log,
+            commands::get_error_log_summary,
+            commands::resolve_error_entry,
+            commands::clear_error_log_entries,
+            commands::export_debug_bundle,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

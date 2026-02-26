@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
-import { safeInvoke, isTauri } from "../../utils/tauriCompat";
+import { safeInvoke } from "../../utils/tauriCompat";
 import { useI18n } from "../../i18n";
 import type { CommandResult, VolumeInfoResponse } from "../../types";
 
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
+  if (!bytes || bytes <= 0) return "0 B";
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
@@ -100,13 +100,10 @@ export function VolumeView() {
   };
 
   const handleOpenInFinder = async (mountPoint: string) => {
-    if (isTauri()) {
-      try {
-        const { Command } = await import("@tauri-apps/plugin-shell");
-        await Command.create("open", [mountPoint]).execute();
-      } catch (err) {
-        console.error("Failed to open in Finder:", err);
-      }
+    try {
+      await safeInvoke("reveal_in_finder", { path: mountPoint });
+    } catch (err) {
+      console.error("Failed to open in Finder:", err);
     }
   };
 
@@ -138,9 +135,9 @@ export function VolumeView() {
             <div
               key={vol.id}
               className={`volume-card ${!vol.isMounted ? "unmounted" : ""} ${vol.isCritical ? "critical" : vol.isLow ? "low" : ""}`}
-              onClick={() => handleOpenInFinder(vol.mountPoint)}
-              style={{ cursor: "pointer" }}
-              title={t.volumes.openInFinder}
+              onClick={() => vol.isMounted && handleOpenInFinder(vol.mountPoint)}
+              style={{ cursor: vol.isMounted ? "pointer" : "default" }}
+              title={vol.isMounted ? t.volumes.openInFinder : ""}
             >
               <div className="volume-header">
                 <span className="volume-icon">

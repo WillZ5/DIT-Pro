@@ -98,7 +98,7 @@ pub fn get_volume_space(path: &Path) -> Result<VolumeSpaceInfo> {
     use std::ffi::CString;
     use std::mem::MaybeUninit;
 
-    let c_path = CString::new(path.to_str().unwrap_or("."))
+    let c_path = CString::new(path.to_string_lossy().as_ref())
         .context("Invalid path for statvfs")?;
 
     let mut stat = MaybeUninit::<libc::statvfs>::uninit();
@@ -109,7 +109,7 @@ pub fn get_volume_space(path: &Path) -> Result<VolumeSpaceInfo> {
     }
 
     let stat = unsafe { stat.assume_init() };
-    let block_size = stat.f_frsize as u64;
+    let block_size = stat.f_frsize;
     let total_bytes = (stat.f_blocks as u64) * block_size;
     let available_bytes = (stat.f_bavail as u64) * block_size;
     let used_bytes = total_bytes.saturating_sub((stat.f_bfree as u64) * block_size);
@@ -150,7 +150,7 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
 
     // Check for network filesystem protocols
     if info.contains("Protocol:") {
-        let proto_line = info.lines().find(|l| l.contains("Protocol:")).unwrap_or("");
+        let proto_line = info.lines().find(|l| l.contains("Protocol:")).unwrap_or_default();
         let proto = proto_line.to_lowercase();
         if proto.contains("smb") || proto.contains("nfs") || proto.contains("afp") {
             return DeviceType::Network;
@@ -212,11 +212,10 @@ pub async fn list_mounted_volumes() -> Result<Vec<VolumeInfo>> {
 
         let name = path
             .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("Unknown")
-            .to_string();
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
 
-        let mount_point = path.to_str().unwrap_or("").to_string();
+        let mount_point = path.to_string_lossy().to_string();
 
         // Get space info
         let (total_bytes, available_bytes) = match get_volume_space(&path) {

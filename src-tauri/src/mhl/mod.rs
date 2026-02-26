@@ -390,12 +390,12 @@ pub async fn create_generation(
 pub fn should_ignore(rel_path: &str, patterns: &[String]) -> bool {
     let filename = Path::new(rel_path)
         .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
 
     for pattern in patterns {
         // Exact filename match
-        if filename == pattern {
+        if filename == *pattern {
             return true;
         }
         // Directory match (pattern ends with /)
@@ -409,8 +409,7 @@ pub fn should_ignore(rel_path: &str, patterns: &[String]) -> bool {
             }
         }
         // Wildcard match (*.ext)
-        if pattern.starts_with('*') {
-            let suffix = &pattern[1..];
+        if let Some(suffix) = pattern.strip_prefix('*') {
             if filename.ends_with(suffix) {
                 return true;
             }

@@ -20,9 +20,15 @@ use crate::hash_engine::{self, HashAlgorithm, HashEngineConfig, HashResult};
 use crate::io_scheduler::IoScheduler;
 use crate::mhl::{self, MhlConfig, MhlProcessType};
 use crate::volume::{self, DeviceType, VolumeSpaceInfo};
-use crate::workflow;
+use crate::workflow::{self, CancelToken, PauseToken};
 
 // ─── App State ────────────────────────────────────────────────────────────
+
+/// Handle for controlling a running offload workflow
+pub struct WorkflowHandle {
+    pub cancel: CancelToken,
+    pub pause: PauseToken,
+}
 
 /// Shared application state managed by Tauri
 pub struct AppState {
@@ -30,6 +36,7 @@ pub struct AppState {
     pub io_scheduler: Mutex<IoScheduler>,
     pub app_data_dir: PathBuf,
     pub settings: Mutex<AppSettings>,
+    pub active_workflows: Arc<Mutex<HashMap<String, WorkflowHandle>>>,
 }
 
 // ─── Event Envelope ──────────────────────────────────────────────────────
@@ -47,18 +54,41 @@ pub struct OffloadEventEnvelope {
 
 /// Standard response for Tauri commands
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CommandResult<T: Serialize> {
     pub success: bool,
     pub data: Option<T>,
     pub error: Option<String>,
+    /// Structured error info (new in v0.5.0). None for legacy/unstructured errors.
+    pub error_info: Option<crate::error::ErrorInfo>,
 }
 
 impl<T: Serialize> CommandResult<T> {
     pub fn ok(data: T) -> Self {
-        Self { success: true, data: Some(data), error: None }
+        Self { success: true, data: Some(data), error: None, error_info: None }
     }
     pub fn err(msg: String) -> Self {
-        Self { success: false, data: None, error: Some(msg) }
+        Self { success: false, data: None, error: Some(msg), error_info: None }
+    }
+    /// Create an error result with structured DitError info.
+    pub fn err_structured(dit_err: &crate::error::DitError) -> Self {
+        Self {
+            success: false,
+            data: None,
+            error: Some(dit_err.to_string()),
+            error_info: Some(crate::error::ErrorInfo::from_dit_error(dit_err, None)),
+        }
+    }
+
+    /// Create an error result with structured DitError AND log the error to the database.
+    pub fn err_and_log(
+        conn: &Connection,
+        dit_err: crate::error::DitError,
+        module: &str,
+        job_id: Option<&str>,
+    ) -> Self {
+        let _ = crate::error_log::log_error(conn, &dit_err, module, job_id, None);
+        Self::err_structured(&dit_err)
     }
 }
 
@@ -113,20 +143,34 @@ pub async fn create_job(
     state: State<'_, AppState>,
     request: CreateJobRequest,
 ) -> Result<CommandResult<JobInfo>, String> {
+    use crate::error::DitError;
+
     let job_id = uuid::Uuid::new_v4().to_string();
     let source = PathBuf::from(&request.source_path);
 
     if !source.exists() {
-        return Ok(CommandResult::err(format!(
-            "Source path does not exist: {}",
-            request.source_path
-        )));
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        return Ok(CommandResult::err_and_log(
+            &conn,
+            DitError::CopySourceNotFound { path: request.source_path.clone() },
+            "commands::create_job",
+            None,
+        ));
     }
 
     // Scan source directory for files
     let files = scan_directory(&source).await.map_err(|e| e.to_string())?;
     if files.is_empty() {
-        return Ok(CommandResult::err("No files found in source directory".to_string()));
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        return Ok(CommandResult::err_and_log(
+            &conn,
+            DitError::IoPathNotAccessible {
+                path: request.source_path.clone(),
+                source: anyhow::anyhow!("No files found in source directory"),
+            },
+            "commands::create_job",
+            None,
+        ));
     }
 
     let _total_bytes: u64 = files.iter().map(|(_, size)| size).sum();
@@ -147,8 +191,8 @@ pub async fn create_job(
                 &conn,
                 &task_id,
                 &job_id,
-                source_file.to_str().unwrap_or(""),
-                dest_file.to_str().unwrap_or(""),
+                &source_file.to_string_lossy(),
+                &dest_file.to_string_lossy(),
                 *file_size,
             )
             .map_err(|e| e.to_string())?;
@@ -225,8 +269,8 @@ pub fn list_jobs(
             Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         })
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     let mut result = Vec::new();
     for (id, name, source_path, status) in jobs {
@@ -237,6 +281,7 @@ pub fn list_jobs(
             pending: 0,
             copying: 0,
             failed: 0,
+            skipped: 0,
             total_bytes: 0,
             completed_bytes: 0,
         });
@@ -248,9 +293,7 @@ pub fn list_jobs(
         };
 
         // Derive effective status from checkpoint progress when DB status is stale
-        let effective_status = if status == "pending" && progress.copying > 0 {
-            "copying".to_string()
-        } else if status == "pending" && progress.completed > 0 && progress.completed < progress.total_tasks {
+        let effective_status = if status == "pending" && (progress.copying > 0 || (progress.completed > 0 && progress.completed < progress.total_tasks)) {
             "copying".to_string()
         } else if status == "completed" && progress.failed > 0 {
             "completed_with_errors".to_string()
@@ -355,6 +398,30 @@ pub fn get_space_info(path: String) -> Result<CommandResult<VolumeSpaceInfo>, St
         Ok(info) => Ok(CommandResult::ok(info)),
         Err(e) => Ok(CommandResult::err(e.to_string())),
     }
+}
+
+/// Open a path in the system file manager (Finder on macOS)
+#[tauri::command]
+pub fn reveal_in_finder(path: String) -> Result<CommandResult<bool>, String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Ok(CommandResult::err(format!("Path does not exist: {}", path)));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(CommandResult::ok(true))
 }
 
 /// Pre-flight check: verify all destinations have enough space
@@ -575,7 +642,7 @@ pub async fn start_offload(
 
     let algos: Vec<HashAlgorithm> = request
         .hash_algorithms
-        .unwrap_or_else(|| saved.hash_algorithms.clone())
+        .unwrap_or_else(|| vec!["XXH64".to_string(), "SHA256".to_string()])
         .iter()
         .filter_map(|s| parse_algorithm(s))
         .collect();
@@ -601,14 +668,29 @@ pub async fn start_offload(
     let db = state.db.clone();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
+    // Create cancel/pause tokens and register workflow handle
+    let cancel_token = CancelToken::new();
+    let pause_token = PauseToken::new();
+    {
+        let mut workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+        workflows.insert(job_id.clone(), WorkflowHandle {
+            cancel: cancel_token.clone(),
+            pause: pause_token.clone_token(),
+        });
+    }
+
     // Capture email settings for notification after completion
     let email_settings = state.settings.lock().map_err(|e| e.to_string())?.email.clone();
     let offload_name = config.job_name.clone();
+    let notify_app_data_dir = state.app_data_dir.clone();
+
+    let active_workflows = state.active_workflows.clone();
+    let db_for_status = state.db.clone();
 
     // Spawn the workflow on a background task
     let job_id_for_task = job_id.clone();
     tokio::spawn(async move {
-        let wf = workflow::OffloadWorkflow::new(config, db, tx);
+        let wf = workflow::OffloadWorkflow::with_cancel_and_pause(config, db, tx, cancel_token, pause_token);
         match wf.execute().await {
             Ok(result) => {
                 log::info!(
@@ -629,26 +711,48 @@ pub async fn start_offload(
                         mhl_generated: !result.mhl_paths.is_empty(),
                         warnings: result.errors.clone(),
                     };
-                    if let Err(e) = notify::send_notification(&email_settings, &event).await {
+                    if let Err(e) = notify::send_notification(&email_settings, &event, &notify_app_data_dir).await {
                         log::warn!("Failed to send completion notification: {}", e);
                     }
                 }
             }
             Err(e) => {
-                log::error!("Offload {} failed: {}", job_id_for_task, e);
+                let err_msg = e.to_string();
+                // If cancelled, set status to "terminated" instead of "failed"
+                if err_msg.contains("cancelled by user") {
+                    log::info!("Offload {} terminated by user", job_id_for_task);
+                    if let Ok(conn) = db_for_status.lock() {
+                        // Log cancellation as a warning (not an error)
+                        let dit_err = crate::error::DitError::CopyCancelled;
+                        let _ = crate::error_log::log_error(&conn, &dit_err, "workflow::offload", Some(&job_id_for_task), None);
+                        checkpoint::update_job_status(&conn, &job_id_for_task, checkpoint::STATUS_TERMINATED).ok();
+                    }
+                } else {
+                    log::error!("Offload {} failed: {}", job_id_for_task, e);
 
-                // Send email notification on failure
-                if email_settings.enabled {
-                    let event = NotifyEvent::OffloadFailed {
-                        job_id: job_id_for_task.clone(),
-                        job_name: offload_name.clone(),
-                        error: e.to_string(),
-                    };
-                    if let Err(e) = notify::send_notification(&email_settings, &event).await {
-                        log::warn!("Failed to send failure notification: {}", e);
+                    // Log the error to error_log with structured DitError
+                    if let Ok(conn) = db_for_status.lock() {
+                        let dit_err = crate::error::DitError::from(e);
+                        let _ = crate::error_log::log_error(&conn, &dit_err, "workflow::offload", Some(&job_id_for_task), None);
+                    }
+
+                    // Send email notification on failure
+                    if email_settings.enabled {
+                        let event = NotifyEvent::OffloadFailed {
+                            job_id: job_id_for_task.clone(),
+                            job_name: offload_name.clone(),
+                            error: err_msg,
+                        };
+                        if let Err(e) = notify::send_notification(&email_settings, &event, &notify_app_data_dir).await {
+                            log::warn!("Failed to send failure notification: {}", e);
+                        }
                     }
                 }
             }
+        }
+        // Remove workflow handle on completion
+        if let Ok(mut workflows) = active_workflows.lock() {
+            workflows.remove(&job_id_for_task);
         }
     });
 
@@ -689,17 +793,26 @@ pub async fn resume_offload(
     state: State<'_, AppState>,
     job_id: String,
 ) -> Result<CommandResult<String>, String> {
+    use crate::error::DitError;
+
     // Step 1: Read job info
     let (job_name, source_path) = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let result: (String, String) = conn
-            .query_row(
-                "SELECT name, source_path FROM jobs WHERE id = ?1",
-                rusqlite::params![job_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(|e| format!("Job not found: {}", e))?;
-        result
+        match conn.query_row(
+            "SELECT name, source_path FROM jobs WHERE id = ?1",
+            rusqlite::params![job_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        ) {
+            Ok(result) => result,
+            Err(_) => {
+                return Ok(CommandResult::err_and_log(
+                    &conn,
+                    DitError::DbNotFound { desc: format!("Job {}", job_id) },
+                    "commands::resume_offload",
+                    Some(&job_id),
+                ));
+            }
+        }
     };
 
     // Step 2: Recover interrupted tasks (reset to pending, clean .tmp files)
@@ -731,7 +844,13 @@ pub async fn resume_offload(
     };
 
     if pending_tasks.is_empty() {
-        return Ok(CommandResult::err("No pending tasks to resume".to_string()));
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        return Ok(CommandResult::err_and_log(
+            &conn,
+            DitError::DbNotFound { desc: format!("No pending tasks for job {}", job_id) },
+            "commands::resume_offload",
+            Some(&job_id),
+        ));
     }
 
     // Derive unique destination root paths from task dest_paths relative to source paths
@@ -757,14 +876,20 @@ pub async fn resume_offload(
     };
 
     if dest_roots.is_empty() {
-        return Ok(CommandResult::err("Could not determine destination paths".to_string()));
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        return Ok(CommandResult::err_and_log(
+            &conn,
+            DitError::CopyDestNotWritable { path: "Could not determine destination paths".to_string() },
+            "commands::resume_offload",
+            Some(&job_id),
+        ));
     }
 
     // Step 4: Build config from settings + extracted paths
     let saved = state.settings.lock().map_err(|e| e.to_string())?.clone();
 
-    let algos: Vec<HashAlgorithm> = saved
-        .hash_algorithms
+    let default_algos = ["XXH64", "SHA256"];
+    let algos: Vec<HashAlgorithm> = default_algos
         .iter()
         .filter_map(|s| parse_algorithm(s))
         .collect();
@@ -781,7 +906,7 @@ pub async fn resume_offload(
         },
         buffer_size: saved.offload.buffer_size,
         source_verify: false, // Skip source verify on resume
-        post_verify: saved.offload.post_verify,
+        post_verify: true, // Force: interrupted copies MUST be verified after resume
         generate_mhl: saved.offload.generate_mhl,
         max_retries: saved.offload.max_retries,
         cascade: false, // No cascade on resume
@@ -800,13 +925,28 @@ pub async fn resume_offload(
     let db = state.db.clone();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
+    // Create cancel/pause tokens and register workflow handle
+    let cancel_token = CancelToken::new();
+    let pause_token = PauseToken::new();
+    {
+        let mut workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+        workflows.insert(job_id.clone(), WorkflowHandle {
+            cancel: cancel_token.clone(),
+            pause: pause_token.clone_token(),
+        });
+    }
+
     let email_settings = state.settings.lock().map_err(|e| e.to_string())?.email.clone();
     let offload_name = job_name.clone();
+    let notify_app_data_dir = state.app_data_dir.clone();
+
+    let active_workflows = state.active_workflows.clone();
+    let db_for_status = state.db.clone();
 
     // Step 6: Spawn resume workflow (skips scan & record creation, only processes pending tasks)
     let job_id_for_task = job_id.clone();
     tokio::spawn(async move {
-        let wf = workflow::OffloadWorkflow::new(config, db, tx);
+        let wf = workflow::OffloadWorkflow::with_cancel_and_pause(config, db, tx, cancel_token, pause_token);
         match wf.execute_resume().await {
             Ok(result) => {
                 log::info!(
@@ -826,25 +966,46 @@ pub async fn resume_offload(
                         mhl_generated: !result.mhl_paths.is_empty(),
                         warnings: result.errors.clone(),
                     };
-                    if let Err(e) = notify::send_notification(&email_settings, &event).await {
+                    if let Err(e) = notify::send_notification(&email_settings, &event, &notify_app_data_dir).await {
                         log::warn!("Failed to send completion notification: {}", e);
                     }
                 }
             }
             Err(e) => {
-                log::error!("Resume offload {} failed: {}", job_id_for_task, e);
+                let err_msg = e.to_string();
+                if err_msg.contains("cancelled by user") {
+                    log::info!("Resume offload {} terminated by user", job_id_for_task);
+                    if let Ok(conn) = db_for_status.lock() {
+                        let dit_err = crate::error::DitError::CopyCancelled;
+                        let _ = crate::error_log::log_error(&conn, &dit_err, "workflow::resume", Some(&job_id_for_task), None);
+                        checkpoint::update_job_status(&conn, &job_id_for_task, checkpoint::STATUS_TERMINATED).ok();
+                    }
+                } else {
+                    log::error!("Resume offload {} failed: {}", job_id_for_task, e);
 
-                if email_settings.enabled {
-                    let event = NotifyEvent::OffloadFailed {
-                        job_id: job_id_for_task.clone(),
-                        job_name: offload_name.clone(),
-                        error: e.to_string(),
-                    };
-                    if let Err(e) = notify::send_notification(&email_settings, &event).await {
-                        log::warn!("Failed to send failure notification: {}", e);
+                    // Log the error to error_log with structured DitError
+                    if let Ok(conn) = db_for_status.lock() {
+                        let dit_err = crate::error::DitError::from(e);
+                        let _ = crate::error_log::log_error(&conn, &dit_err, "workflow::resume", Some(&job_id_for_task), None);
+                    }
+
+                    // Send email notification on failure
+                    if email_settings.enabled {
+                        let event = NotifyEvent::OffloadFailed {
+                            job_id: job_id_for_task.clone(),
+                            job_name: offload_name.clone(),
+                            error: err_msg,
+                        };
+                        if let Err(e) = notify::send_notification(&email_settings, &event, &notify_app_data_dir).await {
+                            log::warn!("Failed to send failure notification: {}", e);
+                        }
                     }
                 }
             }
+        }
+        // Remove workflow handle on completion
+        if let Ok(mut workflows) = active_workflows.lock() {
+            workflows.remove(&job_id_for_task);
         }
     });
 
@@ -999,33 +1160,61 @@ pub fn get_job_report(
     }
 }
 
-/// Generate an HTML day report and save to disk. Returns file path.
+/// Generate a day report and save to disk. Returns file path.
+/// Supports optional `format` ("html" or "txt") and `output_path` params.
 #[tauri::command]
 pub fn export_day_report(
     state: State<'_, AppState>,
     date: String,
+    format: Option<String>,
+    output_path: Option<String>,
 ) -> Result<CommandResult<String>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let data = report::get_day_report(&conn, &date).map_err(|e: anyhow::Error| e.to_string())?;
-    let html = report::render_day_report_html(&data);
-    let filename = format!("day-report-{}.html", date);
-    match report::save_report(&state.app_data_dir, &filename, &html) {
+    let fmt = format.unwrap_or_else(|| "html".to_string());
+    let (content, ext) = if fmt == "txt" {
+        (report::render_day_report_txt(&data), "txt")
+    } else {
+        (report::render_day_report_html(&data), "html")
+    };
+
+    if let Some(out) = output_path {
+        std::fs::write(&out, &content).map_err(|e| e.to_string())?;
+        return Ok(CommandResult::<String>::ok(out));
+    }
+
+    let filename = format!("day-report-{}.{}", date, ext);
+    match report::save_report(&state.app_data_dir, &filename, &content) {
         Ok(path) => Ok(CommandResult::<String>::ok(path.to_string_lossy().to_string())),
         Err(e) => Ok(CommandResult::<String>::err(e.to_string())),
     }
 }
 
-/// Generate an HTML job report and save to disk. Returns file path.
+/// Generate a job report and save to disk. Returns file path.
+/// Supports optional `format` ("html" or "txt") and `output_path` params.
 #[tauri::command]
 pub fn export_job_report(
     state: State<'_, AppState>,
     job_id: String,
+    format: Option<String>,
+    output_path: Option<String>,
 ) -> Result<CommandResult<String>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let data = report::get_job_report(&conn, &job_id).map_err(|e: anyhow::Error| e.to_string())?;
-    let html = report::render_job_report_html(&data);
-    let filename = format!("job-report-{}.html", job_id);
-    match report::save_report(&state.app_data_dir, &filename, &html) {
+    let fmt = format.unwrap_or_else(|| "html".to_string());
+    let (content, ext) = if fmt == "txt" {
+        (report::render_job_report_txt(&data), "txt")
+    } else {
+        (report::render_job_report_html(&data), "html")
+    };
+
+    if let Some(out) = output_path {
+        std::fs::write(&out, &content).map_err(|e| e.to_string())?;
+        return Ok(CommandResult::<String>::ok(out));
+    }
+
+    let filename = format!("job-report-{}.{}", job_id, ext);
+    match report::save_report(&state.app_data_dir, &filename, &content) {
         Ok(path) => Ok(CommandResult::<String>::ok(path.to_string_lossy().to_string())),
         Err(e) => Ok(CommandResult::<String>::err(e.to_string())),
     }
@@ -1043,7 +1232,8 @@ pub async fn send_test_email(
         settings.email.clone()
     }; // MutexGuard dropped here before any await
 
-    match notify::send_test_email(&email_settings).await {
+    let app_data_dir = state.app_data_dir.clone();
+    match notify::send_test_email(&email_settings, &app_data_dir).await {
         Ok(()) => Ok(CommandResult::ok(true)),
         Err(e) => Ok(CommandResult::err(format!("Email test failed: {}", e))),
     }
@@ -1065,6 +1255,175 @@ pub fn save_smtp_password(
     config::save_settings(&state.app_data_dir, &settings).map_err(|e| e.to_string())?;
 
     Ok(CommandResult::ok(true))
+}
+
+// ─── Workflow Control Commands ─────────────────────────────────────────────
+
+/// Pause a running offload workflow
+#[tauri::command]
+pub fn pause_offload(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<CommandResult<bool>, String> {
+    let workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+    if let Some(handle) = workflows.get(&job_id) {
+        handle.pause.pause();
+        drop(workflows); // release lock before DB access
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        checkpoint::update_job_status(&conn, &job_id, checkpoint::STATUS_PAUSED)
+            .map_err(|e| e.to_string())?;
+        Ok(CommandResult::ok(true))
+    } else {
+        Ok(CommandResult::err(format!("No active workflow for job {}", job_id)))
+    }
+}
+
+/// Resume a paused offload workflow
+#[tauri::command]
+pub fn resume_paused_offload(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<CommandResult<bool>, String> {
+    let workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+    if let Some(handle) = workflows.get(&job_id) {
+        handle.pause.resume();
+        drop(workflows);
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        checkpoint::update_job_status(&conn, &job_id, checkpoint::STATUS_COPYING)
+            .map_err(|e| e.to_string())?;
+        Ok(CommandResult::ok(true))
+    } else {
+        Ok(CommandResult::err(format!("No active workflow for job {}", job_id)))
+    }
+}
+
+/// Terminate a running offload workflow (cancel and mark as terminated)
+#[tauri::command]
+pub fn terminate_offload(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<CommandResult<bool>, String> {
+    let workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+    if let Some(handle) = workflows.get(&job_id) {
+        handle.cancel.cancel();
+        drop(workflows);
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        checkpoint::update_job_status(&conn, &job_id, checkpoint::STATUS_TERMINATED)
+            .map_err(|e| e.to_string())?;
+        Ok(CommandResult::ok(true))
+    } else {
+        Ok(CommandResult::err(format!("No active workflow for job {}", job_id)))
+    }
+}
+
+/// Pause multiple workflows at once
+#[tauri::command]
+pub fn batch_pause(
+    state: State<'_, AppState>,
+    job_ids: Vec<String>,
+) -> Result<CommandResult<usize>, String> {
+    // Step 1: Acquire workflow lock, pause tokens, collect affected job IDs
+    let paused_ids: Vec<String> = {
+        let workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+        let mut ids = Vec::new();
+        for job_id in &job_ids {
+            if let Some(handle) = workflows.get(job_id) {
+                handle.pause.pause();
+                ids.push(job_id.clone());
+            }
+        }
+        ids
+    }; // workflow lock released
+
+    // Step 2: Acquire DB lock, update statuses
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    for job_id in &paused_ids {
+        checkpoint::update_job_status(&conn, job_id, checkpoint::STATUS_PAUSED).ok();
+    }
+
+    Ok(CommandResult::ok(paused_ids.len()))
+}
+
+/// Terminate multiple workflows at once
+#[tauri::command]
+pub fn batch_terminate(
+    state: State<'_, AppState>,
+    job_ids: Vec<String>,
+) -> Result<CommandResult<usize>, String> {
+    // Step 1: Acquire workflow lock, cancel tokens, collect affected job IDs
+    let cancelled_ids: Vec<String> = {
+        let workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+        let mut ids = Vec::new();
+        for job_id in &job_ids {
+            if let Some(handle) = workflows.get(job_id) {
+                handle.cancel.cancel();
+                ids.push(job_id.clone());
+            }
+        }
+        ids
+    }; // workflow lock released
+
+    // Step 2: Acquire DB lock, update statuses
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    for job_id in &cancelled_ids {
+        checkpoint::update_job_status(&conn, job_id, checkpoint::STATUS_TERMINATED).ok();
+    }
+
+    Ok(CommandResult::ok(cancelled_ids.len()))
+}
+
+/// Clear old job records from the database
+#[tauri::command]
+pub fn clear_logs(
+    state: State<'_, AppState>,
+    days: u32,
+) -> Result<CommandResult<usize>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    match checkpoint::clear_old_jobs(&conn, days) {
+        Ok(deleted) => Ok(CommandResult::ok(deleted)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+/// Delete a single job and all its tasks from the database
+#[tauri::command]
+pub fn delete_job(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<CommandResult<bool>, String> {
+    // Prevent deleting an active workflow
+    let workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+    if workflows.contains_key(&job_id) {
+        return Ok(CommandResult::err("Cannot delete an active job. Terminate it first.".to_string()));
+    }
+    drop(workflows);
+
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    match checkpoint::delete_job_by_id(&conn, &job_id) {
+        Ok(()) => Ok(CommandResult::ok(true)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+/// Delete multiple jobs and all their tasks from the database
+#[tauri::command]
+pub fn batch_delete(
+    state: State<'_, AppState>,
+    job_ids: Vec<String>,
+) -> Result<CommandResult<usize>, String> {
+    let workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut count = 0;
+    for job_id in &job_ids {
+        // Skip active workflows
+        if workflows.contains_key(job_id) {
+            continue;
+        }
+        if checkpoint::delete_job_by_id(&conn, job_id).is_ok() {
+            count += 1;
+        }
+    }
+    Ok(CommandResult::ok(count))
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -1094,7 +1453,12 @@ async fn scan_directory(root: &Path) -> Result<Vec<(String, u64)>> {
         let mut entries = tokio::fs::read_dir(&dir).await?;
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            let metadata = entry.metadata().await?;
+            let file_type = entry.file_type().await?;
+
+            // Skip symlinks to avoid infinite loops
+            if file_type.is_symlink() {
+                continue;
+            }
 
             // Get relative path
             let rel_path = path
@@ -1108,9 +1472,10 @@ async fn scan_directory(root: &Path) -> Result<Vec<(String, u64)>> {
                 continue;
             }
 
-            if metadata.is_dir() {
+            if file_type.is_dir() {
                 stack.push(path);
-            } else if metadata.is_file() {
+            } else if file_type.is_file() {
+                let metadata = entry.metadata().await?;
                 files.push((rel_path, metadata.len()));
             }
         }
@@ -1118,4 +1483,72 @@ async fn scan_directory(root: &Path) -> Result<Vec<(String, u64)>> {
 
     files.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(files)
+}
+
+// ─── Error Log Commands ──────────────────────────────────────────────────────
+
+/// Query error log with optional filters.
+#[tauri::command]
+pub fn get_error_log(
+    state: State<'_, AppState>,
+    filter: crate::error_log::ErrorLogFilter,
+) -> Result<CommandResult<Vec<crate::error_log::ErrorLogEntry>>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    match crate::error_log::query_error_log(&conn, &filter) {
+        Ok(entries) => Ok(CommandResult::ok(entries)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+/// Get error log summary counts.
+#[tauri::command]
+pub fn get_error_log_summary(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<crate::error_log::ErrorLogSummary>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    match crate::error_log::error_log_summary(&conn) {
+        Ok(summary) => Ok(CommandResult::ok(summary)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+/// Mark an error log entry as resolved.
+#[tauri::command]
+pub fn resolve_error_entry(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<CommandResult<bool>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    match crate::error_log::resolve_error(&conn, id) {
+        Ok(resolved) => Ok(CommandResult::ok(resolved)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+/// Clear error log entries. If `older_than_days` is provided, only clear entries older than that.
+#[tauri::command]
+pub fn clear_error_log_entries(
+    state: State<'_, AppState>,
+    older_than_days: Option<u32>,
+) -> Result<CommandResult<usize>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    match crate::error_log::clear_error_log(&conn, older_than_days) {
+        Ok(count) => Ok(CommandResult::ok(count)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+/// Export a debug bundle (error log + system info + recent jobs) as a JSON file.
+#[tauri::command]
+pub async fn export_debug_bundle(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<String>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let settings = state.settings.lock().map_err(|e| e.to_string())?;
+    let app_data_dir = state.app_data_dir.clone();
+
+    match crate::debug_bundle::create_debug_bundle(&conn, &app_data_dir, &settings) {
+        Ok(path) => Ok(CommandResult::ok(path.to_string_lossy().to_string())),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
 }

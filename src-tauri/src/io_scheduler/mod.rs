@@ -45,11 +45,11 @@ pub struct DeviceSchedulerConfig {
 impl DeviceSchedulerConfig {
     pub fn default_for(device_type: DeviceType) -> Self {
         let (max_concurrent, buffer_size) = match device_type {
-            DeviceType::HDD => (1, 1 * 1024 * 1024),       // 1 concurrent, 1MB buffer
+            DeviceType::HDD => (1, 1024 * 1024),             // 1 concurrent, 1MB buffer
             DeviceType::SSD => (4, 4 * 1024 * 1024),       // 4 concurrent, 4MB buffer
             DeviceType::NVMe => (8, 8 * 1024 * 1024),      // 8 concurrent, 8MB buffer
             DeviceType::RAID => (4, 4 * 1024 * 1024),      // 4 concurrent, 4MB buffer
-            DeviceType::Network => (2, 1 * 1024 * 1024),   // 2 concurrent, 1MB buffer
+            DeviceType::Network => (2, 1024 * 1024),        // 2 concurrent, 1MB buffer
             DeviceType::Unknown => (2, 2 * 1024 * 1024),   // 2 concurrent, 2MB buffer
         };
         Self {
@@ -78,6 +78,23 @@ pub struct TaskResult {
     pub bytes_written: u64,
 }
 
+/// RAII guard that decrements `active_tasks` on drop.
+/// Holds the semaphore permit so the concurrency slot is released together.
+pub struct DevicePermit {
+    _permit: tokio::sync::OwnedSemaphorePermit,
+    active_tasks: Arc<tokio::sync::Mutex<usize>>,
+}
+
+impl Drop for DevicePermit {
+    fn drop(&mut self) {
+        // Use `try_lock` to avoid blocking in drop; on failure
+        // the counter is slightly stale but will recover.
+        if let Ok(mut count) = self.active_tasks.try_lock() {
+            *count = count.saturating_sub(1);
+        }
+    }
+}
+
 /// Per-device queue with concurrency control via semaphore
 pub struct DeviceQueue {
     pub mount_point: PathBuf,
@@ -100,12 +117,16 @@ impl DeviceQueue {
 
     /// Acquire a permit to execute a task on this device.
     /// This will block (async) if the device is at its concurrency limit.
-    pub async fn acquire(&self) -> Result<tokio::sync::SemaphorePermit<'_>> {
-        let permit = self.semaphore.acquire().await
+    /// Returns a `DevicePermit` RAII guard that decrements the counter on drop.
+    pub async fn acquire(&self) -> Result<DevicePermit> {
+        let permit = Arc::clone(&self.semaphore).acquire_owned().await
             .context("Device semaphore closed")?;
         let mut count = self.active_tasks.lock().await;
         *count += 1;
-        Ok(permit)
+        Ok(DevicePermit {
+            _permit: permit,
+            active_tasks: Arc::clone(&self.active_tasks),
+        })
     }
 
     /// Get the current number of active tasks
@@ -132,6 +153,12 @@ pub struct IoScheduler {
     /// Default config for unknown devices
     #[allow(dead_code)]
     default_config: DeviceSchedulerConfig,
+}
+
+impl Default for IoScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl IoScheduler {

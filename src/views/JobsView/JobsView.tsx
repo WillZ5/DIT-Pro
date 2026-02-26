@@ -22,26 +22,32 @@ function translateStatus(status: string, t: TranslationKeys): string {
     failed: t.jobs.statusFailed,
     pending: t.jobs.statusPending,
     error: t.jobs.statusError,
+    paused: t.jobs.statusPaused,
+    terminated: t.jobs.statusTerminated,
+    skipped: t.jobs.skippedFiles,
   };
   return map[status] || status.toUpperCase();
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
+  if (!bytes || bytes <= 0) return "0 B";
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
 function formatSpeed(bytesPerSec: number): string {
+  if (!bytesPerSec || bytesPerSec <= 0) return "0 B/s";
   return `${formatBytes(bytesPerSec)}/s`;
 }
 
 function formatDuration(secs: number): string {
-  if (secs < 60) return `${Math.round(secs)}s`;
-  const m = Math.floor(secs / 60);
-  const s = Math.round(secs % 60);
+  if (!secs || secs < 0) return "0s";
+  const totalSecs = Math.round(secs);
+  if (totalSecs < 60) return `${totalSecs}s`;
+  const m = Math.floor(totalSecs / 60);
+  const s = totalSecs % 60;
   return `${m}m ${s}s`;
 }
 
@@ -137,10 +143,9 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
         setPresets(result.data);
       }
     });
-    // Load default algorithms and offload options from settings
+    // Load default offload options from settings
     safeInvoke<CommandResult<AppSettings>>("get_settings").then((result) => {
       if (result.success && result.data) {
-        setHashAlgorithms(result.data.hashAlgorithms);
         setSourceVerify(result.data.offload.sourceVerify);
         setPostVerify(result.data.offload.postVerify);
         setGenerateMhl(result.data.offload.generateMhl);
@@ -416,6 +421,11 @@ export function JobsView() {
   const [error, setError] = useState<string | null>(null);
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [selectedJobs, setSelectedJobs] = useState<Set<string>>(new Set());
+  const [showTerminateConfirm, setShowTerminateConfirm] = useState(false);
+  const [terminateTarget, setTerminateTarget] = useState<string | string[] | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | string[] | null>(null);
 
   // Report active job count for exit confirmation dialog
   useEffect(() => {
@@ -487,9 +497,10 @@ export function JobsView() {
             case "fileVerified":
               updated.currentFile = `Verify: ${ev.relPath}`;
               if (!ev.verified && ev.mismatchDetail) {
-                updated.warnings.push(
-                  `Verify failed: ${ev.relPath} - ${ev.mismatchDetail}`
-                );
+                updated.warnings = [
+                  ...updated.warnings,
+                  `Verify failed: ${ev.relPath} - ${ev.mismatchDetail}`,
+                ];
               }
               break;
 
@@ -523,7 +534,7 @@ export function JobsView() {
               updated.completedBytes = ev.totalBytes;
               updated.totalBytes = ev.totalBytes;
               updated.durationSecs = ev.durationSecs;
-              updated.mhlPaths = ev.mhlPaths;
+              updated.mhlPaths = ev.mhlPaths ?? [];
               loadJobs();
               break;
 
@@ -531,6 +542,31 @@ export function JobsView() {
               updated.phase = "Failed";
               updated.error = ev.message;
               updated.phaseMessage = ev.message;
+              loadJobs();
+              break;
+
+            case "fileSkipped":
+              updated.warnings = [...updated.warnings, `Skipped: ${ev.relPath} (${ev.reason})`];
+              break;
+
+            case "duplicateConflict":
+              updated.warnings = [
+                ...updated.warnings,
+                `Conflict: ${ev.relPath} — src:${ev.sourceHash.slice(0, 8)}… vs dest:${ev.destHash.slice(0, 8)}…`,
+              ];
+              break;
+
+            case "paused":
+              updated.phaseMessage = "Paused";
+              break;
+
+            case "resumed":
+              updated.phaseMessage = "Resumed";
+              break;
+
+            case "terminated":
+              updated.phase = "Failed";
+              updated.phaseMessage = "Terminated by user";
               loadJobs();
               break;
           }
@@ -578,23 +614,36 @@ export function JobsView() {
   const handleRecover = async (jobId: string) => {
     try {
       setError(null);
-      // Resume offload: recovers tasks + restarts the workflow
+      // 1. Register ActiveOffload FIRST so the event listener can match events
+      //    from the moment the backend starts emitting (fixes race condition where
+      //    events were dropped because ActiveOffload wasn't in the map yet)
+      const job = jobs.find((j) => j.id === jobId);
+      setActiveOffloads((prev) => {
+        const next = new Map(prev);
+        next.set(jobId, createActiveOffload(jobId, job?.name || "Resumed Offload"));
+        return next;
+      });
+      // 2. Then call backend resume
       const result = await safeInvoke<CommandResult<string>>("resume_offload", {
         jobId,
       });
-      if (result.success && result.data) {
-        // Track as active offload for real-time events
-        const job = jobs.find((j) => j.id === jobId);
+      if (!result.success) {
+        // Failed — remove the ActiveOffload we pre-registered
         setActiveOffloads((prev) => {
           const next = new Map(prev);
-          next.set(jobId, createActiveOffload(jobId, job?.name || "Resumed Offload"));
+          next.delete(jobId);
           return next;
         });
-        await loadJobs();
-      } else {
         setError(result.error || "Recovery failed");
       }
+      await loadJobs();
     } catch (err) {
+      // On error, clean up the pre-registered ActiveOffload
+      setActiveOffloads((prev) => {
+        const next = new Map(prev);
+        next.delete(jobId);
+        return next;
+      });
       setError(String(err));
     }
   };
@@ -610,7 +659,10 @@ export function JobsView() {
       case "completed_with_errors":
         return "#ef4444";
       case "pending":
+      case "paused":
         return "#f59e0b";
+      case "terminated":
+        return "#dc2626";
       default:
         return "#71717a";
     }
@@ -628,6 +680,10 @@ export function JobsView() {
         return "status-badge status-badge--failed";
       case "pending":
         return "status-badge status-badge--pending";
+      case "paused":
+        return "status-badge status-badge--paused";
+      case "terminated":
+        return "status-badge status-badge--terminated";
       default:
         return "status-badge";
     }
@@ -641,6 +697,131 @@ export function JobsView() {
   // Filter out DB jobs that already have an active offload tracker
   const activeJobIds = new Set(activeList.map((o) => o.jobId));
   const dbOnlyJobs = jobs.filter((j) => !activeJobIds.has(j.id));
+
+  // ─── Selection & Action Handlers ─────────────────────────────────────
+
+  const allJobIds = [
+    ...activeList.map((o) => o.jobId),
+    ...dbOnlyJobs.map((j) => j.id),
+  ];
+
+  const toggleSelectJob = (jobId: string) => {
+    setSelectedJobs((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) next.delete(jobId);
+      else next.add(jobId);
+      return next;
+    });
+  };
+
+  const selectAllJobs = () => setSelectedJobs(new Set(allJobIds));
+  const deselectAllJobs = () => setSelectedJobs(new Set());
+
+  const handlePause = async (jobId: string) => {
+    try {
+      await safeInvoke("pause_offload", { jobId });
+      await loadJobs();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const handleResumePaused = async (jobId: string) => {
+    try {
+      await safeInvoke("resume_paused_offload", { jobId });
+      await loadJobs();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const handleTerminateConfirm = (target: string | string[]) => {
+    setTerminateTarget(target);
+    setShowTerminateConfirm(true);
+  };
+
+  const handleTerminateExecute = async () => {
+    if (!terminateTarget) return;
+    try {
+      if (Array.isArray(terminateTarget)) {
+        await safeInvoke("batch_terminate", { jobIds: terminateTarget });
+      } else {
+        await safeInvoke("terminate_offload", { jobId: terminateTarget });
+      }
+      setSelectedJobs(new Set());
+      await loadJobs();
+    } catch (err) {
+      setError(String(err));
+    }
+    setShowTerminateConfirm(false);
+    setTerminateTarget(null);
+  };
+
+  const handleDeleteConfirm = (target: string | string[]) => {
+    setDeleteTarget(target);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteExecute = async () => {
+    if (!deleteTarget) return;
+    try {
+      if (Array.isArray(deleteTarget)) {
+        await safeInvoke("batch_delete", { jobIds: deleteTarget });
+      } else {
+        await safeInvoke("delete_job", { jobId: deleteTarget });
+      }
+      setSelectedJobs(new Set());
+      await loadJobs();
+    } catch (err) {
+      setError(String(err));
+    }
+    setShowDeleteConfirm(false);
+    setDeleteTarget(null);
+  };
+
+  const handleBatchPause = async () => {
+    const ids = Array.from(selectedJobs);
+    if (ids.length === 0) return;
+    try {
+      await safeInvoke("batch_pause", { jobIds: ids });
+      await loadJobs();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const handlePauseAll = async () => {
+    const runningIds = [
+      ...activeList
+        .filter((o) => o.phase !== "Complete" && o.phase !== "Failed")
+        .map((o) => o.jobId),
+      ...dbOnlyJobs
+        .filter((j) => j.status === "copying" || j.status === "verifying")
+        .map((j) => j.id),
+    ];
+    if (runningIds.length === 0) return;
+    try {
+      await safeInvoke("batch_pause", { jobIds: runningIds });
+      await loadJobs();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const handleResumeAll = async () => {
+    const pausedIds = dbOnlyJobs
+      .filter((j) => j.status === "paused")
+      .map((j) => j.id);
+    for (const id of pausedIds) {
+      await safeInvoke("resume_paused_offload", { jobId: id }).catch(() => {});
+    }
+    await loadJobs();
+  };
+
+  const isJobActive = (status: string) =>
+    ["copying", "verifying"].includes(status);
+
+  const isJobPaused = (status: string) => status === "paused";
 
   return (
     <div className="jobs-view">
@@ -668,6 +849,54 @@ export function JobsView() {
           onStart={handleStartOffload}
           onCancel={() => setShowNewDialog(false)}
         />
+      )}
+
+      {/* Job Toolbar */}
+      {(activeList.length > 0 || dbOnlyJobs.length > 0) && (
+        <div className="job-toolbar">
+          <div className="job-toolbar-group">
+            <button className="btn-toolbar" onClick={selectAllJobs}>
+              {t.jobs.selectAll}
+            </button>
+            <button className="btn-toolbar" onClick={deselectAllJobs}>
+              {t.jobs.deselectAll}
+            </button>
+            {selectedJobs.size > 0 && (
+              <>
+                <div className="job-toolbar-divider" />
+                <button className="btn-toolbar btn-toolbar--warning" onClick={handleBatchPause}>
+                  {t.jobs.pauseSelected} ({selectedJobs.size})
+                </button>
+                <button
+                  className="btn-toolbar btn-toolbar--danger"
+                  onClick={() => handleTerminateConfirm(Array.from(selectedJobs))}
+                >
+                  {t.jobs.terminateSelected} ({selectedJobs.size})
+                </button>
+                <button
+                  className="btn-toolbar btn-toolbar--danger"
+                  onClick={() => handleDeleteConfirm(Array.from(selectedJobs))}
+                >
+                  {t.jobs.deleteSelected} ({selectedJobs.size})
+                </button>
+              </>
+            )}
+          </div>
+          <div className="job-toolbar-group">
+            <button className="btn-toolbar" onClick={handlePauseAll}>
+              {t.jobs.pauseAll}
+            </button>
+            <button className="btn-toolbar" onClick={handleResumeAll}>
+              {t.jobs.resumeAll}
+            </button>
+            <button
+              className="btn-toolbar btn-toolbar--danger"
+              onClick={() => handleTerminateConfirm(allJobIds)}
+            >
+              {t.jobs.terminateAll}
+            </button>
+          </div>
+        </div>
       )}
 
       {activeList.length === 0 && dbOnlyJobs.length === 0 ? (
@@ -704,6 +933,12 @@ export function JobsView() {
               >
                 <div className="job-info">
                   <div className="job-header">
+                    <input
+                      type="checkbox"
+                      className="job-checkbox"
+                      checked={selectedJobs.has(offload.jobId)}
+                      onChange={() => toggleSelectJob(offload.jobId)}
+                    />
                     <span className="job-name">{offload.name}</span>
                     <div className="job-header-right">
                       <span
@@ -719,6 +954,16 @@ export function JobsView() {
                         )}
                         {phaseInfo.label}
                       </span>
+                      {isRunning && (
+                        <>
+                          <button className="btn-pause" onClick={() => handlePause(offload.jobId)} title={t.jobs.pause}>
+                            &#x23F8;
+                          </button>
+                          <button className="btn-terminate" onClick={() => handleTerminateConfirm(offload.jobId)} title={t.jobs.terminate}>
+                            &#x23F9;
+                          </button>
+                        </>
+                      )}
                       <button
                         className={`job-expand-btn ${isExpanded ? "job-expand-btn--open" : ""}`}
                         onClick={() => setExpandedJobId(isExpanded ? null : offload.jobId)}
@@ -834,7 +1079,7 @@ export function JobsView() {
                     {offload.totalBytes > 0 && (
                       <> &mdash; {formatBytes(offload.totalBytes)} {t.common.total}</>
                     )}
-                    {offload.mhlPaths.length > 0 && (
+                    {(offload.mhlPaths?.length ?? 0) > 0 && (
                       <span className="mhl-badge">MHL</span>
                     )}
                   </div>
@@ -866,11 +1111,29 @@ export function JobsView() {
               <div key={job.id} className="job-card">
                 <div className="job-info">
                   <div className="job-header">
+                    <input
+                      type="checkbox"
+                      className="job-checkbox"
+                      checked={selectedJobs.has(job.id)}
+                      onChange={() => toggleSelectJob(job.id)}
+                    />
                     <span className="job-name">{job.name}</span>
                     <div className="job-header-right">
                       <span className={getStatusBadgeClass(job.status)}>
                         {translateStatus(job.status, t)}
                       </span>
+                      {isJobActive(job.status) && (
+                        <>
+                          <button className="btn-pause" onClick={() => handlePause(job.id)} title={t.jobs.pause}>&#x23F8;</button>
+                          <button className="btn-terminate" onClick={() => handleTerminateConfirm(job.id)} title={t.jobs.terminate}>&#x23F9;</button>
+                        </>
+                      )}
+                      {isJobPaused(job.status) && (
+                        <>
+                          <button className="btn-resume" onClick={() => handleResumePaused(job.id)} title={t.jobs.resume}>&#x25B6;</button>
+                          <button className="btn-terminate" onClick={() => handleTerminateConfirm(job.id)} title={t.jobs.terminate}>&#x23F9;</button>
+                        </>
+                      )}
                       <button
                         className={`job-expand-btn ${isExpanded ? "job-expand-btn--open" : ""}`}
                         onClick={() => setExpandedJobId(isExpanded ? null : job.id)}
@@ -952,18 +1215,75 @@ export function JobsView() {
                   {job.failedTasks > 0 && (
                     <span className="failed-badge">{job.failedTasks} {t.jobs.failed}</span>
                   )}
-                  {(job.status === "pending" || job.status === "copying" || job.failedTasks > 0) && (
+                  {(job.status === "pending" || job.status === "failed" || job.failedTasks > 0) &&
+                    !isJobPaused(job.status) &&
+                    !isJobActive(job.status) &&
+                    job.status !== "completed" &&
+                    job.status !== "terminated" && (
+                      <button
+                        className="btn-secondary btn-sm"
+                        onClick={() => handleRecover(job.id)}
+                      >
+                        {t.common.recover}
+                      </button>
+                    )}
+                  {!isJobActive(job.status) && (
                     <button
-                      className="btn-secondary btn-sm"
-                      onClick={() => handleRecover(job.id)}
+                      className="btn-delete"
+                      onClick={() => handleDeleteConfirm(job.id)}
+                      title={t.common.delete}
                     >
-                      {t.common.recover}
+                      {t.common.delete}
                     </button>
                   )}
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Terminate Confirmation Dialog */}
+      {showTerminateConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowTerminateConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>{t.jobs.confirmTerminate}</h3>
+            <p>
+              {Array.isArray(terminateTarget)
+                ? t.jobs.confirmTerminateBatchMsg
+                : t.jobs.confirmTerminateMsg}
+            </p>
+            <div className="confirm-actions">
+              <button className="btn-secondary" onClick={() => setShowTerminateConfirm(false)}>
+                {t.common.cancel}
+              </button>
+              <button className="btn-confirm-terminate" onClick={handleTerminateExecute}>
+                {t.jobs.terminateBtn}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>{t.jobs.confirmDelete}</h3>
+            <p>
+              {Array.isArray(deleteTarget)
+                ? t.jobs.confirmDeleteBatchMsg
+                : t.jobs.confirmDeleteMsg}
+            </p>
+            <div className="confirm-actions">
+              <button className="btn-secondary" onClick={() => setShowDeleteConfirm(false)}>
+                {t.common.cancel}
+              </button>
+              <button className="btn-confirm-delete" onClick={handleDeleteExecute}>
+                {t.jobs.deleteBtn}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

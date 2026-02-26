@@ -88,6 +88,30 @@ export const MOCK_JOBS: JobInfo[] = [
     copiedBytes: 0,
     progressPercent: 0,
   },
+  {
+    id: "job-007",
+    name: "Day 13 — B-Cam RED V-RAPTOR",
+    status: "paused",
+    sourcePath: "/Volumes/RED_B002/",
+    totalTasks: 180,
+    completedTasks: 95,
+    failedTasks: 0,
+    totalBytes: 290_000_000_000,
+    copiedBytes: 152_500_000_000,
+    progressPercent: 53,
+  },
+  {
+    id: "job-008",
+    name: "Day 12 — C-Cam Sony VENICE",
+    status: "terminated",
+    sourcePath: "/Volumes/SONY_C001/",
+    totalTasks: 110,
+    completedTasks: 42,
+    failedTasks: 0,
+    totalBytes: 198_000_000_000,
+    copiedBytes: 75_600_000_000,
+    progressPercent: 38,
+  },
 ];
 
 // ─── Mock Volumes ───────────────────────────────────────────────────────────
@@ -184,7 +208,7 @@ export const MOCK_PRESETS: WorkflowPreset[] = [
     sourceVerify: true,
     postVerify: true,
     generateMhl: true,
-    bufferSize: 8,
+    bufferSize: 8388608,
     maxRetries: 3,
     cascade: false,
     defaultDestPaths: [],
@@ -199,7 +223,7 @@ export const MOCK_PRESETS: WorkflowPreset[] = [
     sourceVerify: false,
     postVerify: true,
     generateMhl: true,
-    bufferSize: 16,
+    bufferSize: 16777216,
     maxRetries: 2,
     cascade: false,
     defaultDestPaths: [],
@@ -214,7 +238,7 @@ export const MOCK_PRESETS: WorkflowPreset[] = [
     sourceVerify: true,
     postVerify: true,
     generateMhl: true,
-    bufferSize: 8,
+    bufferSize: 8388608,
     maxRetries: 5,
     cascade: true,
     defaultDestPaths: [],
@@ -226,12 +250,11 @@ export const MOCK_PRESETS: WorkflowPreset[] = [
 // ─── Mock Settings ──────────────────────────────────────────────────────────
 
 export const MOCK_SETTINGS: AppSettings = {
-  hashAlgorithms: ["XXH64", "SHA256"],
   offload: {
     sourceVerify: true,
     postVerify: true,
     generateMhl: true,
-    bufferSize: 8,
+    bufferSize: 4194304,
     maxRetries: 3,
     cascade: false,
   },
@@ -251,6 +274,12 @@ export const MOCK_SETTINGS: AppSettings = {
     fromAddress: "",
     toAddress: "",
     useTls: true,
+  },
+  report: {
+    defaultExportPath: "",
+    exportFormat: "html",
+    askPathEachTime: true,
+    askFormatEachTime: false,
   },
 };
 
@@ -355,6 +384,14 @@ export const MOCK_JOB_REPORT: JobReport = {
       destPath: "/Volumes/RAID_SHUTTLE_01/Day12/A001C005_240215_R1AB.mxf",
       fileSize: 1_610_612_736,
       status: "failed",
+      hashXxh64: "",
+      hashSha256: "",
+    },
+    {
+      sourcePath: "/Volumes/ALEXA_A001/A001C006_240215_R1AB.mxf",
+      destPath: "/Volumes/RAID_SHUTTLE_01/Day12/A001C006_240215_R1AB.mxf",
+      fileSize: 1_073_741_824,
+      status: "skipped",
       hashXxh64: "",
       hashSha256: "",
     },

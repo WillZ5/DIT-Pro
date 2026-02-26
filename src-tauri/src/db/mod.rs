@@ -6,6 +6,7 @@
 //! - Volume tracking info
 //! - Job history
 //! - Hash records
+//! - Error log (structured error tracking)
 
 use anyhow::Result;
 use rusqlite::Connection;
@@ -18,6 +19,9 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
     conn.execute_batch("PRAGMA journal_mode=WAL;")?;
     conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
     conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+
+    // Set busy timeout to avoid hangs on WAL contention (5 seconds)
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
     // Create core tables
     conn.execute_batch(
@@ -66,9 +70,28 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
             created_at  TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS error_log (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp    TEXT NOT NULL DEFAULT (datetime('now')),
+            error_code   TEXT NOT NULL,
+            severity     TEXT NOT NULL,
+            category     TEXT NOT NULL,
+            module       TEXT NOT NULL,
+            message      TEXT NOT NULL,
+            context_json TEXT,
+            job_id       TEXT,
+            resolved     INTEGER NOT NULL DEFAULT 0,
+            resolved_at  TEXT,
+            app_version  TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_copy_tasks_job_id ON copy_tasks(job_id);
         CREATE INDEX IF NOT EXISTS idx_copy_tasks_status ON copy_tasks(status);
         CREATE INDEX IF NOT EXISTS idx_hash_records_task_id ON hash_records(task_id);
+        CREATE INDEX IF NOT EXISTS idx_error_log_timestamp ON error_log(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_error_log_severity ON error_log(severity);
+        CREATE INDEX IF NOT EXISTS idx_error_log_job_id ON error_log(job_id);
+        CREATE INDEX IF NOT EXISTS idx_error_log_code ON error_log(error_code);
         ",
     )?;
 

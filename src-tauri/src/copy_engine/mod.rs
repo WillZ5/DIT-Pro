@@ -6,6 +6,9 @@
 //! - Inline hash verification during copy
 //! - Atomic write (.tmp + rename)
 //! - Pre-copy space validation
+//! - File conflict detection (skip existing files)
+//! - Chunk-level pause/cancel support
+//! - Intra-file progress reporting
 
 pub mod atomic_writer;
 
@@ -14,6 +17,7 @@ use anyhow::{bail, Context, Result};
 use atomic_writer::AtomicWriter;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::AsyncReadExt;
 
 /// Status of a single copy task
@@ -51,6 +55,18 @@ pub struct CopyTask {
     pub hash_results: Vec<HashResult>,
 }
 
+/// Policy for handling existing destination files
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+pub enum FileConflictPolicy {
+    /// Overwrite without checking (original behavior)
+    Overwrite,
+    /// Skip if destination exists and size matches source
+    #[default]
+    SkipIfSameSize,
+    /// Skip if destination exists (regardless of content)
+    SkipAlways,
+}
+
 /// Configuration for the copy engine
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CopyEngineConfig {
@@ -62,6 +78,9 @@ pub struct CopyEngineConfig {
     pub cascading_enabled: bool,
     /// Hash algorithms to use for inline verification
     pub hash_algorithms: Vec<HashAlgorithm>,
+    /// Policy for handling existing destination files
+    #[serde(default)]
+    pub conflict_policy: FileConflictPolicy,
 }
 
 impl Default for CopyEngineConfig {
@@ -71,6 +90,7 @@ impl Default for CopyEngineConfig {
             max_retries: 3,
             cascading_enabled: false,
             hash_algorithms: vec![HashAlgorithm::XXH64],
+            conflict_policy: FileConflictPolicy::SkipIfSameSize,
         }
     }
 }
@@ -83,7 +103,33 @@ pub struct CopyFileResult {
     pub bytes_copied: u64,
     pub hash_results: Vec<HashResult>,
     pub success: bool,
+    /// Whether this file was skipped due to conflict policy
+    #[serde(default)]
+    pub skipped: bool,
     pub error: Option<String>,
+}
+
+/// Runtime control for pause/cancel and progress reporting during copy.
+/// Uses raw AtomicBool references to avoid circular dependency on workflow module.
+pub struct CopyControl<'a> {
+    /// If set and true, abort the copy immediately
+    pub cancel_flag: Option<&'a AtomicBool>,
+    /// If set and true, pause the copy until it becomes false
+    pub pause_flag: Option<&'a AtomicBool>,
+    /// Progress callback: (bytes_written_this_file, total_file_size)
+    /// Called after each buffer write. Callers should throttle UI updates.
+    pub on_progress: Option<Box<dyn Fn(u64, u64) + Send + Sync + 'a>>,
+}
+
+impl<'a> CopyControl<'a> {
+    /// Create a no-op control (no pause, no cancel, no progress)
+    pub fn none() -> Self {
+        Self {
+            cancel_flag: None,
+            pause_flag: None,
+            on_progress: None,
+        }
+    }
 }
 
 /// Check that a destination path has enough space for the source file
@@ -100,11 +146,11 @@ pub async fn check_available_space(dest_path: &Path, required_bytes: u64) -> Res
     #[cfg(unix)]
     {
         use std::ffi::CString;
-        let c_path = CString::new(check_path.to_str().unwrap_or(""))?;
+        let c_path = CString::new(check_path.to_string_lossy().as_ref())?;
         unsafe {
             let mut stat: libc::statvfs = std::mem::zeroed();
             if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
-                let available = stat.f_bavail as u64 * stat.f_frsize as u64;
+                let available = stat.f_bavail as u64 * stat.f_frsize;
                 if available < required_bytes {
                     bail!(
                         "Insufficient space on {:?}: {} available, {} required",
@@ -120,16 +166,79 @@ pub async fn check_available_space(dest_path: &Path, required_bytes: u64) -> Res
     Ok(())
 }
 
+/// Check cancel/pause flags at chunk granularity.
+/// If cancelled, bails immediately. If paused, spins until resumed.
+/// Note: .tmp file cleanup is handled by recovery process (`cleanup_tmp_files`).
+async fn check_cancel_pause(
+    cancel_flag: Option<&AtomicBool>,
+    pause_flag: Option<&AtomicBool>,
+) -> Result<()> {
+    // Check cancel first
+    if let Some(c) = cancel_flag {
+        if c.load(Ordering::SeqCst) {
+            bail!("Offload cancelled by user");
+        }
+    }
+    // Check pause — spin until unpaused, checking cancel every 200ms
+    if let Some(p) = pause_flag {
+        while p.load(Ordering::SeqCst) {
+            if let Some(c) = cancel_flag {
+                if c.load(Ordering::SeqCst) {
+                    bail!("Offload cancelled by user");
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }
+    Ok(())
+}
+
+/// Check if a single destination file should be skipped based on conflict policy.
+/// Returns true if the file should be skipped.
+async fn should_skip_conflict(
+    dest: &Path,
+    source_size: u64,
+    policy: FileConflictPolicy,
+) -> bool {
+    if policy == FileConflictPolicy::Overwrite {
+        return false;
+    }
+    if let Ok(meta) = tokio::fs::metadata(dest).await {
+        match policy {
+            FileConflictPolicy::SkipAlways => true,
+            FileConflictPolicy::SkipIfSameSize => meta.len() == source_size,
+            FileConflictPolicy::Overwrite => false,
+        }
+    } else {
+        false // destination doesn't exist, proceed with copy
+    }
+}
+
 /// Copy a single file to one destination with atomic write and inline verification.
+/// Supports chunk-level pause/cancel and intra-file progress reporting.
 pub async fn copy_file_single(
     source: &Path,
     dest: &Path,
     config: &CopyEngineConfig,
+    control: &CopyControl<'_>,
 ) -> Result<CopyFileResult> {
     let file_size = tokio::fs::metadata(source)
         .await
         .with_context(|| format!("Cannot read source file: {:?}", source))?
         .len();
+
+    // Check conflict policy
+    if should_skip_conflict(dest, file_size, config.conflict_policy).await {
+        return Ok(CopyFileResult {
+            source_path: source.to_path_buf(),
+            dest_path: dest.to_path_buf(),
+            bytes_copied: 0,
+            hash_results: vec![],
+            success: true,
+            skipped: true,
+            error: None,
+        });
+    }
 
     check_available_space(dest, file_size).await?;
 
@@ -142,6 +251,9 @@ pub async fn copy_file_single(
     let mut buffer = vec![0u8; config.buffer_size];
 
     loop {
+        // Check cancel/pause before each chunk read
+        check_cancel_pause(control.cancel_flag, control.pause_flag).await?;
+
         let bytes_read = source_file.read(&mut buffer).await?;
         if bytes_read == 0 {
             break;
@@ -149,6 +261,11 @@ pub async fn copy_file_single(
         let chunk = &buffer[..bytes_read];
         hasher.update(chunk);
         writer.write(chunk).await?;
+
+        // Report progress after each write
+        if let Some(ref on_progress) = control.on_progress {
+            on_progress(writer.bytes_written(), file_size);
+        }
     }
 
     let hash_results = hasher.finalize();
@@ -171,16 +288,19 @@ pub async fn copy_file_single(
         bytes_copied,
         hash_results,
         success: true,
+        skipped: false,
         error: None,
     })
 }
 
 /// Copy a single source file to multiple destinations simultaneously.
 /// The source is read once; each chunk goes to all writers + all hashers.
+/// Supports chunk-level pause/cancel and intra-file progress reporting.
 pub async fn copy_file_multi(
     source: &Path,
     destinations: &[PathBuf],
     config: &CopyEngineConfig,
+    control: &CopyControl<'_>,
 ) -> Result<Vec<CopyFileResult>> {
     if destinations.is_empty() {
         bail!("No destinations specified");
@@ -191,35 +311,94 @@ pub async fn copy_file_multi(
         .with_context(|| format!("Cannot read source file: {:?}", source))?
         .len();
 
+    // Check conflict policy for each destination — track which ones to skip
+    let mut skip_flags = Vec::with_capacity(destinations.len());
+    let mut any_needs_copy = false;
     for dest in destinations {
-        check_available_space(dest, file_size).await?;
+        let skip = should_skip_conflict(dest, file_size, config.conflict_policy).await;
+        if !skip {
+            any_needs_copy = true;
+        }
+        skip_flags.push(skip);
+    }
+
+    // If ALL destinations are skipped, return immediately
+    if !any_needs_copy {
+        return Ok(destinations
+            .iter()
+            .map(|dest| CopyFileResult {
+                source_path: source.to_path_buf(),
+                dest_path: dest.clone(),
+                bytes_copied: 0,
+                hash_results: vec![],
+                success: true,
+                skipped: true,
+                error: None,
+            })
+            .collect());
+    }
+
+    // Check space only for non-skipped destinations
+    for (i, dest) in destinations.iter().enumerate() {
+        if !skip_flags[i] {
+            check_available_space(dest, file_size).await?;
+        }
     }
 
     let mut source_file = tokio::fs::File::open(source).await?;
-    let mut writers = Vec::with_capacity(destinations.len());
-    for dest in destinations {
-        writers.push(AtomicWriter::new(dest).await?);
+
+    // Create writers only for non-skipped destinations
+    let mut writers: Vec<Option<AtomicWriter>> = Vec::with_capacity(destinations.len());
+    for (i, dest) in destinations.iter().enumerate() {
+        if skip_flags[i] {
+            writers.push(None);
+        } else {
+            writers.push(Some(AtomicWriter::new(dest).await?));
+        }
     }
 
     let mut hasher = MultiHasher::new(&config.hash_algorithms);
     let mut buffer = vec![0u8; config.buffer_size];
+    let mut total_written: u64 = 0;
 
     loop {
+        // Check cancel/pause before each chunk read
+        check_cancel_pause(control.cancel_flag, control.pause_flag).await?;
+
         let bytes_read = source_file.read(&mut buffer).await?;
         if bytes_read == 0 {
             break;
         }
         let chunk = &buffer[..bytes_read];
         hasher.update(chunk);
-        for writer in &mut writers {
+        for writer in writers.iter_mut().flatten() {
             writer.write(chunk).await?;
+        }
+        total_written += bytes_read as u64;
+
+        // Report progress after each write
+        if let Some(ref on_progress) = control.on_progress {
+            on_progress(total_written, file_size);
         }
     }
 
     let hash_results = hasher.finalize();
     let mut results = Vec::with_capacity(writers.len());
 
-    for (i, writer) in writers.into_iter().enumerate() {
+    for (i, writer_opt) in writers.into_iter().enumerate() {
+        if skip_flags[i] {
+            results.push(CopyFileResult {
+                source_path: source.to_path_buf(),
+                dest_path: destinations[i].clone(),
+                bytes_copied: 0,
+                hash_results: vec![],
+                success: true,
+                skipped: true,
+                error: None,
+            });
+            continue;
+        }
+        let writer = writer_opt.expect("writer should exist for non-skipped destination");
         let bytes_written = writer.bytes_written();
         if bytes_written != file_size {
             writer.abort().await.ok();
@@ -229,6 +408,7 @@ pub async fn copy_file_multi(
                 bytes_copied: bytes_written,
                 hash_results: hash_results.clone(),
                 success: false,
+                skipped: false,
                 error: Some(format!(
                     "Size mismatch: expected {} got {}",
                     file_size, bytes_written
@@ -242,6 +422,7 @@ pub async fn copy_file_multi(
                 bytes_copied: bytes_written,
                 hash_results: hash_results.clone(),
                 success: true,
+                skipped: false,
                 error: None,
             });
         }
@@ -292,8 +473,11 @@ mod tests {
             ..Default::default()
         };
 
-        let result = copy_file_single(&source, &dest, &config).await.unwrap();
+        let result = copy_file_single(&source, &dest, &config, &CopyControl::none())
+            .await
+            .unwrap();
         assert!(result.success);
+        assert!(!result.skipped);
         assert_eq!(result.bytes_copied, 15);
         assert_eq!(result.hash_results.len(), 2);
 
@@ -316,11 +500,14 @@ mod tests {
         ];
 
         let config = CopyEngineConfig::default();
-        let results = copy_file_multi(&source, &dests, &config).await.unwrap();
+        let results = copy_file_multi(&source, &dests, &config, &CopyControl::none())
+            .await
+            .unwrap();
 
         assert_eq!(results.len(), 2);
         for r in &results {
             assert!(r.success);
+            assert!(!r.skipped);
             assert_eq!(r.bytes_copied, 15);
         }
 
@@ -338,9 +525,179 @@ mod tests {
         let dest = dir.path().join("dest.braw");
 
         let config = CopyEngineConfig::default();
-        copy_file_single(&source, &dest, &config).await.unwrap();
+        copy_file_single(&source, &dest, &config, &CopyControl::none())
+            .await
+            .unwrap();
 
         assert!(!AtomicWriter::temp_path_for(&dest).exists());
         assert!(dest.exists());
+    }
+
+    #[tokio::test]
+    async fn test_skip_existing_same_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"video data here";
+        let source = create_test_file(dir.path(), "source.mov", content);
+        let dest = dir.path().join("dest.mov");
+        // Pre-create dest with same size
+        {
+            let mut f = std::fs::File::create(&dest).unwrap();
+            f.write_all(content).unwrap();
+        }
+
+        let config = CopyEngineConfig {
+            conflict_policy: FileConflictPolicy::SkipIfSameSize,
+            ..Default::default()
+        };
+        let result = copy_file_single(&source, &dest, &config, &CopyControl::none())
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(result.skipped);
+        assert_eq!(result.bytes_copied, 0);
+    }
+
+    #[tokio::test]
+    async fn test_overwrite_existing_different_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = create_test_file(dir.path(), "source.mov", b"new video data here!");
+        let dest = dir.path().join("dest.mov");
+        // Pre-create dest with different size
+        {
+            let mut f = std::fs::File::create(&dest).unwrap();
+            f.write_all(b"old").unwrap();
+        }
+
+        let config = CopyEngineConfig {
+            conflict_policy: FileConflictPolicy::SkipIfSameSize,
+            ..Default::default()
+        };
+        let result = copy_file_single(&source, &dest, &config, &CopyControl::none())
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(!result.skipped);
+        assert_eq!(result.bytes_copied, 20);
+    }
+
+    #[tokio::test]
+    async fn test_skip_always_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = create_test_file(dir.path(), "source.mov", b"new data");
+        let dest = dir.path().join("dest.mov");
+        // Pre-create dest with different size
+        {
+            let mut f = std::fs::File::create(&dest).unwrap();
+            f.write_all(b"old").unwrap();
+        }
+
+        let config = CopyEngineConfig {
+            conflict_policy: FileConflictPolicy::SkipAlways,
+            ..Default::default()
+        };
+        let result = copy_file_single(&source, &dest, &config, &CopyControl::none())
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(result.skipped);
+    }
+
+    #[tokio::test]
+    async fn test_multi_partial_skip() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"raw camera data";
+        let source = create_test_file(dir.path(), "source.r3d", content);
+
+        std::fs::create_dir_all(dir.path().join("backup1")).unwrap();
+        std::fs::create_dir_all(dir.path().join("backup2")).unwrap();
+
+        // Pre-create backup1 with same size (will be skipped)
+        {
+            let dest1 = dir.path().join("backup1").join("source.r3d");
+            let mut f = std::fs::File::create(&dest1).unwrap();
+            f.write_all(content).unwrap();
+        }
+
+        let dests = vec![
+            dir.path().join("backup1").join("source.r3d"),
+            dir.path().join("backup2").join("source.r3d"),
+        ];
+
+        let config = CopyEngineConfig {
+            conflict_policy: FileConflictPolicy::SkipIfSameSize,
+            ..Default::default()
+        };
+        let results = copy_file_multi(&source, &dests, &config, &CopyControl::none())
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].skipped); // backup1 skipped
+        assert!(!results[1].skipped); // backup2 copied
+        assert!(results[1].success);
+        assert_eq!(results[1].bytes_copied, 15);
+    }
+
+    #[tokio::test]
+    async fn test_cancel_during_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create a larger file to ensure we get at least one iteration
+        let data = vec![0xABu8; 1024 * 1024]; // 1MB
+        let source = dir.path().join("large_source.mov");
+        std::fs::write(&source, &data).unwrap();
+        let dest = dir.path().join("large_dest.mov");
+
+        let cancel = AtomicBool::new(true); // pre-cancelled
+        let config = CopyEngineConfig {
+            buffer_size: 4096, // small buffer to test cancel between chunks
+            ..Default::default()
+        };
+        let control = CopyControl {
+            cancel_flag: Some(&cancel),
+            pause_flag: None,
+            on_progress: None,
+        };
+
+        let result = copy_file_single(&source, &dest, &config, &control).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cancelled by user"));
+    }
+
+    #[tokio::test]
+    async fn test_progress_callback() {
+        use std::sync::atomic::AtomicU64;
+        use std::sync::Arc;
+
+        let dir = tempfile::tempdir().unwrap();
+        let data = vec![0xABu8; 64 * 1024]; // 64KB
+        let source = dir.path().join("progress_source.mov");
+        std::fs::write(&source, &data).unwrap();
+        let dest = dir.path().join("progress_dest.mov");
+
+        let progress_count = Arc::new(AtomicU64::new(0));
+        let last_bytes = Arc::new(AtomicU64::new(0));
+        let pc = progress_count.clone();
+        let lb = last_bytes.clone();
+
+        let config = CopyEngineConfig {
+            buffer_size: 4096, // small buffer = many progress callbacks
+            ..Default::default()
+        };
+        let control = CopyControl {
+            cancel_flag: None,
+            pause_flag: None,
+            on_progress: Some(Box::new(move |written, total| {
+                pc.fetch_add(1, Ordering::SeqCst);
+                lb.store(written, Ordering::SeqCst);
+                assert_eq!(total, 64 * 1024);
+            })),
+        };
+
+        let result = copy_file_single(&source, &dest, &config, &control)
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(progress_count.load(Ordering::SeqCst) > 1); // multiple progress calls
+        assert_eq!(last_bytes.load(Ordering::SeqCst), 64 * 1024); // final = total
     }
 }

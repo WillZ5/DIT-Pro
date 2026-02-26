@@ -23,6 +23,9 @@ pub const STATUS_VERIFYING: &str = "verifying";
 pub const STATUS_COMPLETED: &str = "completed";
 pub const STATUS_FAILED: &str = "failed";
 pub const STATUS_SKIPPED: &str = "skipped";
+pub const STATUS_PAUSED: &str = "paused";
+pub const STATUS_TERMINATED: &str = "terminated";
+pub const STATUS_CONFLICT: &str = "conflict";
 
 /// A checkpoint-managed copy task record
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +98,30 @@ pub fn update_task_failed(conn: &Connection, task_id: &str, error_msg: &str) -> 
         "UPDATE copy_tasks SET status = 'failed', error_msg = ?1,
          retry_count = retry_count + 1, updated_at = datetime('now') WHERE id = ?2",
         params![error_msg, task_id],
+    )?;
+    Ok(())
+}
+
+/// Update job-level status directly
+pub fn update_job_status(conn: &Connection, job_id: &str, status: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE jobs SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
+        params![status, job_id],
+    )?;
+    Ok(())
+}
+
+/// Mark task as skipped (existing file verified identical)
+pub fn update_task_skipped(
+    conn: &Connection,
+    task_id: &str,
+    hash_xxh64: Option<&str>,
+    hash_sha256: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE copy_tasks SET status = 'skipped', hash_xxh64 = ?1, hash_sha256 = ?2,
+         updated_at = datetime('now') WHERE id = ?3",
+        params![hash_xxh64, hash_sha256, task_id],
     )?;
     Ok(())
 }
@@ -198,6 +225,7 @@ pub struct JobProgress {
     pub pending: usize,
     pub copying: usize,
     pub failed: usize,
+    pub skipped: usize,
     pub total_bytes: u64,
     pub completed_bytes: u64,
 }
@@ -233,6 +261,12 @@ pub fn get_job_progress(conn: &Connection, job_id: &str) -> Result<JobProgress> 
         |row| row.get(0),
     )?;
 
+    let skipped: usize = conn.query_row(
+        "SELECT COUNT(*) FROM copy_tasks WHERE job_id = ?1 AND status = 'skipped'",
+        params![job_id],
+        |row| row.get(0),
+    )?;
+
     let total_bytes: i64 = conn.query_row(
         "SELECT COALESCE(SUM(file_size), 0) FROM copy_tasks WHERE job_id = ?1",
         params![job_id],
@@ -245,6 +279,12 @@ pub fn get_job_progress(conn: &Connection, job_id: &str) -> Result<JobProgress> 
         |row| row.get(0),
     )?;
 
+    let skipped_bytes: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(file_size), 0) FROM copy_tasks WHERE job_id = ?1 AND status = 'skipped'",
+        params![job_id],
+        |row| row.get(0),
+    )?;
+
     Ok(JobProgress {
         job_id: job_id.to_string(),
         total_tasks,
@@ -252,9 +292,41 @@ pub fn get_job_progress(conn: &Connection, job_id: &str) -> Result<JobProgress> 
         pending,
         copying,
         failed,
+        skipped,
         total_bytes: total_bytes as u64,
-        completed_bytes: completed_bytes as u64,
+        completed_bytes: (completed_bytes + skipped_bytes) as u64,
     })
+}
+
+/// Delete a single job and all its tasks by job ID
+pub fn delete_job_by_id(conn: &Connection, job_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM copy_tasks WHERE job_id = ?1",
+        params![job_id],
+    )?;
+    let deleted = conn.execute(
+        "DELETE FROM jobs WHERE id = ?1",
+        params![job_id],
+    )?;
+    if deleted == 0 {
+        anyhow::bail!("Job not found: {}", job_id);
+    }
+    Ok(())
+}
+
+/// Clear job records older than the given number of days
+pub fn clear_old_jobs(conn: &Connection, days: u32) -> Result<usize> {
+    let _deleted_tasks: usize = conn.execute(
+        "DELETE FROM copy_tasks WHERE job_id IN (
+            SELECT id FROM jobs WHERE created_at < datetime('now', ?1)
+        )",
+        params![format!("-{} days", days)],
+    )?;
+    let deleted_jobs: usize = conn.execute(
+        "DELETE FROM jobs WHERE created_at < datetime('now', ?1)",
+        params![format!("-{} days", days)],
+    )?;
+    Ok(deleted_jobs)
 }
 
 #[cfg(test)]
@@ -330,6 +402,24 @@ mod tests {
 
         let progress = get_job_progress(&conn, "job-1").unwrap();
         assert_eq!(progress.failed, 1);
+    }
+
+    #[test]
+    fn test_delete_job_by_id() {
+        let conn = setup_test_db();
+        create_job(&conn, "job-1", "To Delete", "/src").unwrap();
+        insert_task(&conn, "t-1", "job-1", "/src/a.mov", "/dst/a.mov", 100).unwrap();
+        insert_task(&conn, "t-2", "job-1", "/src/b.mov", "/dst/b.mov", 200).unwrap();
+
+        // Delete should remove both tasks and the job
+        delete_job_by_id(&conn, "job-1").unwrap();
+
+        let progress = get_job_progress(&conn, "job-1");
+        assert!(progress.is_ok());
+        assert_eq!(progress.unwrap().total_tasks, 0);
+
+        // Deleting again should fail
+        assert!(delete_job_by_id(&conn, "job-1").is_err());
     }
 
     #[tokio::test]

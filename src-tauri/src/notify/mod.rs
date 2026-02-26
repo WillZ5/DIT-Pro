@@ -190,11 +190,23 @@ impl NotifyEvent {
     }
 }
 
+/// Read the SMTP password from the credential file in app_data_dir.
+/// Returns empty string if file doesn't exist or can't be read.
+fn read_smtp_password(app_data_dir: &std::path::Path) -> String {
+    let path = app_data_dir.join(".smtp_credential");
+    std::fs::read_to_string(&path).unwrap_or_default().trim().to_string()
+}
+
 /// Send an email notification for the given event.
 ///
 /// Returns Ok(()) if email was sent, or an error if sending failed.
 /// If email is not enabled in settings, returns Ok(()) silently.
-pub async fn send_notification(settings: &EmailSettings, event: &NotifyEvent) -> Result<()> {
+/// The SMTP password is read from `{app_data_dir}/.smtp_credential`.
+pub async fn send_notification(
+    settings: &EmailSettings,
+    event: &NotifyEvent,
+    app_data_dir: &std::path::Path,
+) -> Result<()> {
     if !settings.enabled {
         return Ok(());
     }
@@ -219,9 +231,10 @@ pub async fn send_notification(settings: &EmailSettings, event: &NotifyEvent) ->
         .body(event.body_html())
         .context("Failed to build email message")?;
 
+    let password = read_smtp_password(app_data_dir);
     let creds = Credentials::new(
         settings.smtp_username.clone(),
-        String::new(), // Password handled via stored credentials
+        password,
     );
 
     let mailer = if settings.use_tls {
@@ -246,7 +259,10 @@ pub async fn send_notification(settings: &EmailSettings, event: &NotifyEvent) ->
 }
 
 /// Send a test email to verify SMTP configuration.
-pub async fn send_test_email(settings: &EmailSettings) -> Result<()> {
+pub async fn send_test_email(
+    settings: &EmailSettings,
+    app_data_dir: &std::path::Path,
+) -> Result<()> {
     let test_event = NotifyEvent::OffloadCompleted {
         job_id: "test-000".to_string(),
         job_name: "Test Notification".to_string(),
@@ -257,7 +273,7 @@ pub async fn send_test_email(settings: &EmailSettings) -> Result<()> {
         warnings: vec!["This is a test notification from DIT System.".to_string()],
     };
 
-    send_notification(settings, &test_event).await
+    send_notification(settings, &test_event, app_data_dir).await
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -267,6 +283,7 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -289,7 +306,7 @@ fn format_bytes(bytes: u64) -> String {
 }
 
 fn format_duration(secs: f64) -> String {
-    let total = secs as u64;
+    let total = secs.max(0.0) as u64;
     if total >= 3600 {
         let h = total / 3600;
         let m = (total % 3600) / 60;
@@ -367,7 +384,7 @@ mod tests {
     #[test]
     fn test_html_escape() {
         assert_eq!(html_escape("<script>alert('xss')</script>"),
-            "&lt;script&gt;alert('xss')&lt;/script&gt;");
+            "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;");
     }
 
     #[test]

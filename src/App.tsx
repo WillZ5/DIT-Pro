@@ -6,13 +6,15 @@ import { PresetsView } from "./views/PresetsView/PresetsView";
 import { SettingsView } from "./views/SettingsView/SettingsView";
 import { safeInvoke, IS_DEMO, isTauri } from "./utils/tauriCompat";
 import { useI18n } from "./i18n";
-import type { ViewType } from "./types";
+import type { ViewType, VersionInfo } from "./types";
 import "./App.css";
 
 /** Global ref for active job count — updated by JobsView, read by App */
 let _activeJobCount = 0;
+let _activeJobCountListener: ((count: number) => void) | null = null;
 export function setActiveJobCount(count: number) {
   _activeJobCount = count;
+  _activeJobCountListener?.(count);
 }
 export function getActiveJobCount(): number {
   return _activeJobCount;
@@ -79,9 +81,17 @@ function IconSettings({ active }: { active: boolean }) {
 
 function App() {
   const [currentView, setCurrentView] = useState<ViewType>("jobs");
-  const [appVersion, setAppVersion] = useState("");
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
   const [showQuitDialog, setShowQuitDialog] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
+  const [activeJobCount, setActiveJobCountState] = useState(0);
   const { t } = useI18n();
+
+  // Sync the global _activeJobCount into React state for reactive quit dialog
+  useEffect(() => {
+    _activeJobCountListener = (count) => setActiveJobCountState(count);
+    return () => { _activeJobCountListener = null; };
+  }, []);
 
   const navItems: { id: ViewType; label: string; Icon: React.FC<{ active: boolean }> }[] = [
     { id: "jobs", label: t.nav.jobs, Icon: IconJobs },
@@ -92,7 +102,7 @@ function App() {
   ];
 
   useEffect(() => {
-    safeInvoke<string>("get_app_version").then(setAppVersion).catch(console.error);
+    safeInvoke<VersionInfo>("get_app_version").then(setVersionInfo).catch(console.error);
   }, []);
 
   // Force quit — exit the entire application process
@@ -156,7 +166,19 @@ function App() {
 
         <div className="sidebar-footer">
           {IS_DEMO && <span className="demo-badge">{t.app.demo}</span>}
-          <span className="version">v{appVersion || "\u2014"}</span>
+          {versionInfo && versionInfo.channel !== "stable" && versionInfo.channel !== "dev" && (
+            <span className={`channel-badge channel-${versionInfo.channel}`}>
+              {versionInfo.channel.toUpperCase()}
+            </span>
+          )}
+          <span
+            className="version"
+            title={versionInfo?.fullString || ""}
+            onClick={() => setShowAbout(true)}
+            style={{ cursor: "pointer" }}
+          >
+            v{versionInfo?.version || "\u2014"}
+          </span>
         </div>
       </nav>
 
@@ -173,6 +195,56 @@ function App() {
         {currentView === "settings" && <SettingsView />}
       </main>
 
+      {/* About dialog */}
+      {showAbout && versionInfo && (
+        <div className="dialog-overlay" onClick={() => setShowAbout(false)}>
+          <div className="dialog dialog--sm" onClick={(e) => e.stopPropagation()}>
+            <div className="dialog-header">
+              <h3>{t.about.title}</h3>
+            </div>
+            <div className="dialog-body">
+              <table className="about-table">
+                <tbody>
+                  <tr>
+                    <td className="about-label">{t.about.version}</td>
+                    <td className="about-value">{versionInfo.fullString}</td>
+                  </tr>
+                  <tr>
+                    <td className="about-label">{t.about.channel}</td>
+                    <td className="about-value">
+                      <span className={`channel-badge channel-${versionInfo.channel}`}>
+                        {versionInfo.channel.toUpperCase()}
+                      </span>
+                    </td>
+                  </tr>
+                  {versionInfo.gitHash && (
+                    <tr>
+                      <td className="about-label">{t.about.gitHash}</td>
+                      <td className="about-value"><code>{versionInfo.gitHash}</code></td>
+                    </tr>
+                  )}
+                  {versionInfo.buildTime && (
+                    <tr>
+                      <td className="about-label">{t.about.buildTime}</td>
+                      <td className="about-value">{versionInfo.buildTime}</td>
+                    </tr>
+                  )}
+                  <tr>
+                    <td className="about-label">{t.about.system}</td>
+                    <td className="about-value">{navigator.platform}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="dialog-footer">
+              <button className="btn-secondary" onClick={() => setShowAbout(false)}>
+                {t.about.close}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Quit confirmation dialog — always shown on Cmd+Q / Tray Quit */}
       {showQuitDialog && (
         <div className="dialog-overlay" onClick={() => setShowQuitDialog(false)}>
@@ -182,7 +254,7 @@ function App() {
             </div>
             <div className="dialog-body">
               <p>
-                {_activeJobCount > 0
+                {activeJobCount > 0
                   ? t.app.quitConfirmMessageActive
                   : t.app.quitConfirmMessage}
               </p>

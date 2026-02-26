@@ -425,6 +425,14 @@
   color: #fff;
 }
 
+.status-badge--paused {
+  background: #d97706;
+}
+
+.status-badge--terminated {
+  background: #dc2626;
+}
+
 .job-details {
   display: flex;
   flex-direction: column;
@@ -1338,6 +1346,16 @@
   color: #3b82f6;
 }
 
+.report-status--paused {
+  background: #f59e0b15;
+  color: #f59e0b;
+}
+
+.report-status--terminated {
+  background: #ef444415;
+  color: #ef4444;
+}
+
 .report-hash {
   font-family: 'SF Mono', Monaco, Consolas, monospace;
   font-size: 10px;
@@ -1547,4 +1565,524 @@
   font-size: 12px;
   color: #93c5fd;
   line-height: 1.5;
+}
+
+/* ─── Job Toolbar ─────────────────────────────────────────────────── */
+
+.job-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.job-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.job-toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: #3f3f46;
+  margin: 0 4px;
+}
+
+.btn-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid #3f3f46;
+  background: transparent;
+  color: #a1a1aa;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-toolbar:hover {
+  background: #27272a;
+  color: #e4e4e7;
+}
+
+.btn-toolbar--pause {
+  border-color: #d97706;
+  color: #fbbf24;
+}
+
+.btn-toolbar--pause:hover {
+  background: #d9770615;
+}
+
+.btn-toolbar--resume {
+  border-color: #22c55e;
+  color: #4ade80;
+}
+
+.btn-toolbar--resume:hover {
+  background: #22c55e15;
+}
+
+.btn-toolbar--terminate {
+  border-color: #ef4444;
+  color: #f87171;
+}
+
+.btn-toolbar--terminate:hover {
+  background: #ef444415;
+}
+
+.job-checkbox {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #52525b;
+  border-radius: 4px;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.job-checkbox:checked {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+
+.job-checkbox:checked::after {
+  content: "\2713";
+  position: absolute;
+  top: -1px;
+  left: 2px;
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+/* ─── Hash Copy ───────────────────────────────────────────────────── */
+
+.hash-copy {
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s ease;
+}
+
+.hash-copy:hover {
+  color: #3b82f6;
+}
+
+.hash-copy-toast {
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #22c55e;
+  color: white;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: fadeInOut 1.5s ease forwards;
+  z-index: 10;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ─── Confirm Dialog ──────────────────────────────────────────────── */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.confirm-dialog {
+  background: #1c1c1e;
+  border: 1px solid #3f3f46;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+}
+
+.confirm-dialog h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: #e4e4e7;
+}
+
+.confirm-dialog p {
+  margin: 0 0 20px;
+  color: #a1a1aa;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.btn-confirm-cancel {
+  padding: 8px 20px;
+  border-radius: 6px;
+  border: 1px solid #3f3f46;
+  background: transparent;
+  color: #a1a1aa;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-confirm-cancel:hover {
+  background: #27272a;
+}
+
+.btn-confirm-terminate {
+  padding: 8px 20px;
+  border-radius: 6px;
+  border: none;
+  background: #dc2626;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-confirm-terminate:hover {
+  background: #b91c1c;
+}
+
+.btn-confirm-delete {
+  padding: 8px 20px;
+  border-radius: 6px;
+  border: none;
+  background: #dc2626;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-confirm-delete:hover {
+  background: #b91c1c;
+}
+
+.btn-delete {
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid #dc262640;
+  background: #dc262615;
+  color: #f87171;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-delete:hover {
+  background: #dc262630;
+  border-color: #dc262660;
+}
+
+/* ─── Detail Close Button ─────────────────────────────────────────── */
+
+.detail-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #ef444440;
+  background: #ef444415;
+  color: #f87171;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.detail-close-btn:hover {
+  background: #ef444430;
+  color: #fca5a5;
+}
+
+/* ─── Job Action Buttons (Card Level) ─────────────────────────────── */
+
+.btn-pause {
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid #d97706;
+  background: transparent;
+  color: #fbbf24;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-pause:hover {
+  background: #d9770615;
+}
+
+.btn-resume {
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid #22c55e;
+  background: transparent;
+  color: #4ade80;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-resume:hover {
+  background: #22c55e15;
+}
+
+.btn-terminate {
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid #ef4444;
+  background: transparent;
+  color: #f87171;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-terminate:hover {
+  background: #ef444415;
+}
+
+/* ─── Channel Badge ────────────────────────────────────────────────────── */
+
+.channel-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.06em;
+}
+
+.channel-alpha {
+  background: #8b5cf618;
+  color: #8b5cf6;
+  border: 1px solid #8b5cf630;
+}
+
+.channel-beta {
+  background: #3b82f618;
+  color: #3b82f6;
+  border: 1px solid #3b82f630;
+}
+
+.channel-rc {
+  background: #f59e0b18;
+  color: #f59e0b;
+  border: 1px solid #f59e0b30;
+}
+
+.channel-dev {
+  background: #6b728018;
+  color: #6b7280;
+  border: 1px solid #6b728030;
+}
+
+.channel-stable {
+  background: #22c55e18;
+  color: #22c55e;
+  border: 1px solid #22c55e30;
+}
+
+/* ─── About Dialog ─────────────────────────────────────────────────────── */
+
+.about-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.about-table td {
+  padding: 8px 0;
+  border-bottom: 1px solid #1c1c22;
+}
+
+.about-label {
+  color: #71717a;
+  width: 120px;
+  font-size: 13px;
+}
+
+.about-value {
+  font-size: 13px;
+  color: #e4e4e7;
+}
+
+.about-value code {
+  background: #18181b;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'SF Mono', Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+/* ─── System Log ───────────────────────────────────────────────────────── */
+
+.system-log-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  font-size: 13px;
+  color: #a1a1aa;
+  flex-wrap: wrap;
+}
+
+.system-log-filters {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 12px;
+  flex-wrap: wrap;
+}
+
+.filter-select {
+  background: #18181b;
+  color: #e4e4e7;
+  border: 1px solid #27272a;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.system-log-empty {
+  padding: 32px 0;
+  text-align: center;
+  color: #52525b;
+}
+
+.system-log-empty .hint {
+  font-size: 12px;
+  margin-top: 4px;
+  color: #3f3f46;
+}
+
+.system-log-table-wrap {
+  overflow-x: auto;
+}
+
+.system-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.system-log-table th {
+  text-align: left;
+  padding: 8px 6px;
+  color: #71717a;
+  border-bottom: 1px solid #27272a;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.system-log-table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid #1c1c22;
+  vertical-align: top;
+}
+
+.system-log-table .ts-cell {
+  white-space: nowrap;
+  color: #71717a;
+  font-size: 11px;
+}
+
+.system-log-table .cat-cell {
+  font-family: 'SF Mono', Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.system-log-table .msg-cell {
+  max-width: 400px;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.error-code {
+  background: #27272a;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'SF Mono', Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: #f97316;
+}
+
+.job-tag {
+  margin-left: 6px;
+  font-size: 10px;
+  background: #1e3a5f;
+  color: #60a5fa;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.resolved-row {
+  opacity: 0.5;
+}
+
+.btn-xs {
+  padding: 2px 8px;
+  font-size: 11px;
+  background: #27272a;
+  color: #a1a1aa;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-xs:hover {
+  background: #3f3f46;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn-sm.btn-danger {
+  background: #ef444420;
+  color: #ef4444;
+  border: 1px solid #ef444440;
+}
+
+.btn-sm.btn-danger:hover {
+  background: #ef444430;
+}
+
+.system-log-loading {
+  padding: 24px 0;
+  text-align: center;
+  color: #52525b;
+  font-size: 13px;
 }

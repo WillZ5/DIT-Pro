@@ -123,5 +123,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mhl-verify-cli-macos
-          path: target/release/mhl-verify-cli
+          path: mhl-verify-cli/target/release/mhl-verify
           if-no-files-found: ignore

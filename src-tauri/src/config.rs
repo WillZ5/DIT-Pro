@@ -11,13 +11,9 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Top-level application settings, persisted as `settings.json`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
-    /// Selected hash algorithms for offload (e.g. ["XXH64", "SHA256"])
-    #[serde(default = "default_hash_algorithms")]
-    pub hash_algorithms: Vec<String>,
-
     /// Offload workflow defaults
     #[serde(default)]
     pub offload: OffloadDefaults,
@@ -29,21 +25,10 @@ pub struct AppSettings {
     /// Email notification settings
     #[serde(default)]
     pub email: EmailSettings,
-}
 
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            hash_algorithms: default_hash_algorithms(),
-            offload: OffloadDefaults::default(),
-            io_scheduling: IoSchedulingSettings::default(),
-            email: EmailSettings::default(),
-        }
-    }
-}
-
-fn default_hash_algorithms() -> Vec<String> {
-    vec!["XXH64".to_string(), "SHA256".to_string()]
+    /// Report export settings
+    #[serde(default)]
+    pub report: ReportSettings,
 }
 
 /// Default options for the offload workflow
@@ -183,6 +168,38 @@ fn default_smtp_port() -> u16 {
     587
 }
 
+/// Report export settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportSettings {
+    #[serde(default)]
+    pub default_export_path: String,
+
+    #[serde(default = "default_export_format")]
+    pub export_format: String,
+
+    #[serde(default = "default_true")]
+    pub ask_path_each_time: bool,
+
+    #[serde(default)]
+    pub ask_format_each_time: bool,
+}
+
+impl Default for ReportSettings {
+    fn default() -> Self {
+        Self {
+            default_export_path: String::new(),
+            export_format: default_export_format(),
+            ask_path_each_time: true,
+            ask_format_each_time: false,
+        }
+    }
+}
+
+fn default_export_format() -> String {
+    "html".to_string()
+}
+
 // ─── Persistence ──────────────────────────────────────────────────────────
 
 const SETTINGS_FILE: &str = "settings.json";
@@ -223,7 +240,6 @@ mod tests {
     #[test]
     fn test_default_settings() {
         let settings = AppSettings::default();
-        assert_eq!(settings.hash_algorithms, vec!["XXH64", "SHA256"]);
         assert!(settings.offload.source_verify);
         assert!(settings.offload.post_verify);
         assert!(settings.offload.generate_mhl);
@@ -237,7 +253,6 @@ mod tests {
     fn test_save_and_load_settings() {
         let tmp = TempDir::new().unwrap();
         let mut settings = AppSettings::default();
-        settings.hash_algorithms = vec!["XXH3".to_string(), "MD5".to_string()];
         settings.offload.source_verify = false;
         settings.io_scheduling.ssd.max_concurrent = 6;
         settings.email.enabled = true;
@@ -246,7 +261,6 @@ mod tests {
         save_settings(tmp.path(), &settings).unwrap();
         let loaded = load_settings(tmp.path()).unwrap();
 
-        assert_eq!(loaded.hash_algorithms, vec!["XXH3", "MD5"]);
         assert!(!loaded.offload.source_verify);
         assert_eq!(loaded.io_scheduling.ssd.max_concurrent, 6);
         assert!(loaded.email.enabled);
@@ -257,19 +271,20 @@ mod tests {
     fn test_load_missing_file_returns_defaults() {
         let tmp = TempDir::new().unwrap();
         let settings = load_settings(tmp.path()).unwrap();
-        assert_eq!(settings.hash_algorithms, vec!["XXH64", "SHA256"]);
+        assert!(settings.offload.source_verify);
+        assert_eq!(settings.io_scheduling.hdd.max_concurrent, 1);
     }
 
     #[test]
     fn test_partial_json_fills_defaults() {
         let tmp = TempDir::new().unwrap();
         let path = settings_path(tmp.path());
-        std::fs::write(&path, r#"{"hashAlgorithms": ["MD5"]}"#).unwrap();
+        std::fs::write(&path, r#"{"offload": {"sourceVerify": false}}"#).unwrap();
 
         let settings = load_settings(tmp.path()).unwrap();
-        assert_eq!(settings.hash_algorithms, vec!["MD5"]);
+        assert!(!settings.offload.source_verify);
         // Defaults should fill in the rest
-        assert!(settings.offload.source_verify);
+        assert!(settings.offload.post_verify);
         assert_eq!(settings.io_scheduling.hdd.max_concurrent, 1);
     }
 
@@ -278,10 +293,10 @@ mod tests {
         let settings = AppSettings::default();
         let json = serde_json::to_string(&settings).unwrap();
         let parsed: AppSettings = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.hash_algorithms, settings.hash_algorithms);
         assert_eq!(
             parsed.io_scheduling.nvme.max_concurrent,
             settings.io_scheduling.nvme.max_concurrent
         );
+        assert_eq!(parsed.offload.source_verify, settings.offload.source_verify);
     }
 }

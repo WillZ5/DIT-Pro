@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { JobsView } from "./views/JobsView/JobsView";
 import { VolumeView } from "./views/VolumeView/VolumeView";
 import { ReportView } from "./views/ReportView/ReportView";
@@ -105,60 +105,20 @@ function App() {
     safeInvoke<VersionInfo>("get_app_version").then(setVersionInfo).catch(console.error);
   }, []);
 
-  // Force quit — exit the entire application process
-  const handleForceQuit = useCallback(async () => {
-    if (!isTauri()) return;
-    const { exit } = await import("@tauri-apps/plugin-process");
-    await exit(0);
-  }, []);
-
-  // Edge-style hold ⌘Q to quit — uses keydown/keyup for real hold detection
+  // Hold ⌘Q to quit — Rust detects hold via menu event timing,
+  // frontend just shows/hides the toast via events.
   useEffect(() => {
     if (!isTauri()) return;
-
-    let holdTimer: ReturnType<typeof setTimeout> | null = null;
-    let hideTimer: ReturnType<typeof setTimeout> | null = null;
-    let isHolding = false;
-
-    const HOLD_DURATION = 1000; // 1 second hold to quit
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "q" || e.key === "Q")) {
-        e.preventDefault();
-        if (isHolding) return; // key repeat — already tracking
-
-        isHolding = true;
-        setShowQuitHint(true);
-        if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
-
-        // If held for HOLD_DURATION → quit
-        holdTimer = setTimeout(() => {
-          if (isHolding) handleForceQuit();
-        }, HOLD_DURATION);
-      }
+    let unlistenShow: (() => void) | null = null;
+    let unlistenHide: (() => void) | null = null;
+    const setup = async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlistenShow = await listen("quit-hint-show", () => setShowQuitHint(true));
+      unlistenHide = await listen("quit-hint-hide", () => setShowQuitHint(false));
     };
-
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "q" || e.key === "Q" || e.key === "Meta" || e.key === "Control") {
-        if (!isHolding) return;
-        isHolding = false;
-        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
-
-        // Released early — keep toast visible briefly, then hide
-        hideTimer = setTimeout(() => setShowQuitHint(false), 2000);
-      }
-    };
-
-    document.addEventListener("keydown", onKeyDown, true);
-    document.addEventListener("keyup", onKeyUp, true);
-
-    return () => {
-      document.removeEventListener("keydown", onKeyDown, true);
-      document.removeEventListener("keyup", onKeyUp, true);
-      if (holdTimer) clearTimeout(holdTimer);
-      if (hideTimer) clearTimeout(hideTimer);
-    };
-  }, [handleForceQuit]);
+    setup();
+    return () => { unlistenShow?.(); unlistenHide?.(); };
+  }, []);
 
   return (
     <div className="app">

@@ -21,12 +21,27 @@ pub mod volume;
 pub mod workflow;
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use commands::AppState;
 use io_scheduler::IoScheduler;
+
+/// Monotonic millisecond timestamp for quit hold detection
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// Timestamp of the first ⌘Q press in the current sequence
+static QUIT_FIRST_MS: AtomicU64 = AtomicU64::new(0);
+/// Timestamp of the most recent ⌘Q event (updated on every key repeat)
+static QUIT_LAST_MS: AtomicU64 = AtomicU64::new(0);
 
 /// Tauri command: get application version info
 #[tauri::command]
@@ -98,10 +113,8 @@ pub fn run() {
                 log::warn!("Failed to setup system tray: {}", e);
             }
 
-            // Custom application menu
-            // Quit item has NO Cmd+Q accelerator — clicking it exits directly.
-            // Cmd+Q is handled by frontend JavaScript (keydown/keyup hold-to-quit).
-            let quit_item = MenuItem::with_id(app, "menu-quit", "Quit DIT System", true, None::<&str>)?;
+            // Custom application menu — ⌘Q accelerator with Rust-side hold detection
+            let quit_item = MenuItem::with_id(app, "app-quit", "Quit DIT System", true, Some("CmdOrCtrl+Q"))?;
 
             let app_submenu = Submenu::with_items(app, "DIT System", true, &[
                 &PredefinedMenuItem::about(app, Some("About DIT System"), None)?,
@@ -131,10 +144,49 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&app_submenu, &edit_submenu, &window_submenu])?;
             app.set_menu(menu)?;
 
-            // Menu bar "Quit DIT System" click → direct exit (one click)
-            app.on_menu_event(move |_app_handle, event| {
-                if event.id().as_ref() == "menu-quit" {
-                    std::process::exit(0);
+            // ⌘Q hold-to-quit: Rust-side detection using atomic timestamps.
+            // - Hold ⌘Q for 1s (key repeat events stream in) → quit
+            // - Tap ⌘Q once → show toast → tap again within 3s → quit
+            // - Menu click "Quit" → same as tap (shows toast, click again to quit)
+            app.on_menu_event(move |app_handle, event| {
+                if event.id().as_ref() == "app-quit" {
+                    let now = now_ms();
+                    let first = QUIT_FIRST_MS.load(Ordering::Relaxed);
+                    let last = QUIT_LAST_MS.load(Ordering::Relaxed);
+
+                    if first == 0 || now.saturating_sub(last) > 500 {
+                        // Gap > 500ms from last event → new press (not key repeat)
+                        if first > 0 && now.saturating_sub(first) < 3000 {
+                            // Toast is still showing — deliberate second press → quit
+                            std::process::exit(0);
+                        }
+                        // First press — show toast
+                        QUIT_FIRST_MS.store(now, Ordering::Relaxed);
+                        QUIT_LAST_MS.store(now, Ordering::Relaxed);
+                        if let Some(w) = app_handle.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                        app_handle.emit("quit-hint-show", ()).ok();
+
+                        // Reset state after 3s if no further events
+                        let handle = app_handle.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_secs(3));
+                            let last = QUIT_LAST_MS.load(Ordering::Relaxed);
+                            if now_ms().saturating_sub(last) > 500 {
+                                QUIT_FIRST_MS.store(0, Ordering::Relaxed);
+                                handle.emit("quit-hint-hide", ()).ok();
+                            }
+                        });
+                    } else {
+                        // Rapid event (< 500ms gap = key repeat from holding)
+                        QUIT_LAST_MS.store(now, Ordering::Relaxed);
+                        if now.saturating_sub(first) >= 1000 {
+                            // Held for 1+ seconds → quit
+                            std::process::exit(0);
+                        }
+                    }
                 }
             });
 

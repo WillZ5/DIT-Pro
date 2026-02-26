@@ -314,10 +314,15 @@ impl OffloadWorkflow {
     }
 
     /// Wait while paused, checking for cancellation every 200ms.
+    /// Emits Paused event on entry and Resumed event on exit.
     async fn check_paused(&self) -> Result<()> {
-        while self.pause.is_paused() {
-            self.check_cancelled()?;
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        if self.pause.is_paused() {
+            self.emit(OffloadEvent::Paused);
+            while self.pause.is_paused() {
+                self.check_cancelled()?;
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            self.emit(OffloadEvent::Resumed);
         }
         self.check_cancelled()
     }
@@ -715,6 +720,7 @@ impl OffloadWorkflow {
     // ── Internal: Source Verify ───────────────────────────────────────
 
     /// Hash every source file. Returns map: rel_path → hashes.
+    /// Supports pause/cancel checks between files and emits per-file progress.
     async fn hash_source_files(
         &self,
         files: &[SourceFile],
@@ -724,17 +730,37 @@ impl OffloadWorkflow {
             algorithms: self.config.hash_algorithms.clone(),
             buffer_size: self.config.buffer_size,
         };
+        let total_files = files.len();
+        let total_bytes: u64 = files.iter().map(|f| f.size).sum();
+        let mut completed_bytes: u64 = 0;
+        let hash_start = Instant::now();
 
         for (i, file) in files.iter().enumerate() {
+            // Check pause/cancel between files
+            self.check_cancelled()?;
+            self.check_paused().await?;
+
             let hashes = hash_engine::hash_file(&file.abs_path, &cfg)
                 .await
                 .with_context(|| format!("Failed to hash source: {:?}", file.abs_path))?;
+
+            completed_bytes += file.size;
 
             self.emit(OffloadEvent::SourceHashCompleted {
                 rel_path: file.rel_path.clone(),
                 hashes: hashes.clone(),
                 file_index: i,
-                total_files: files.len(),
+                total_files,
+            });
+
+            // Emit JobProgress during hash phase so frontend can show progress
+            self.emit(OffloadEvent::JobProgress {
+                completed_files: i + 1,
+                total_files,
+                completed_bytes,
+                total_bytes,
+                phase: OffloadPhase::SourceVerify,
+                elapsed_secs: hash_start.elapsed().as_secs_f64(),
             });
 
             map.insert(file.rel_path.clone(), hashes);

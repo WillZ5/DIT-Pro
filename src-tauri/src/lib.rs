@@ -76,16 +76,18 @@ pub fn run() {
             };
             app.manage(state);
 
-            // Intercept window close (red X) — hide window instead of closing
+            // Intercept window close (red X) — show quit confirmation dialog
             if let Some(main_window) = app.get_webview_window("main") {
                 let app_handle_close = app.handle().clone();
                 main_window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
-                        // Hide instead of close — app stays in background via tray
+                        // Show window and let frontend handle quit confirmation
                         if let Some(w) = app_handle_close.get_webview_window("main") {
-                            let _ = w.hide();
+                            let _ = w.show();
+                            let _ = w.set_focus();
                         }
+                        app_handle_close.emit("quit-requested", ()).ok();
                     }
                 });
             } else {

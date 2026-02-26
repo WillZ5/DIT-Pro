@@ -86,6 +86,8 @@ interface ActiveOffload {
   lastBytesSnapshot: number;
   lastSnapshotTime: number;
   currentSpeed: number;
+  isPaused: boolean;
+  speedHistory: number[];
 }
 
 function createActiveOffload(jobId: string, name: string): ActiveOffload {
@@ -109,6 +111,8 @@ function createActiveOffload(jobId: string, name: string): ActiveOffload {
     lastBytesSnapshot: 0,
     lastSnapshotTime: now,
     currentSpeed: 0,
+    isPaused: false,
+    speedHistory: [],
   };
 }
 
@@ -480,7 +484,7 @@ export function JobsView() {
 
             case "sourceHashCompleted":
               updated.currentFile = ev.relPath;
-              updated.completedFiles = ev.fileIndex;
+              updated.completedFiles = ev.fileIndex + 1;
               updated.totalFiles = ev.totalFiles;
               break;
 
@@ -490,7 +494,7 @@ export function JobsView() {
 
             case "fileCopyCompleted":
               updated.currentFile = ev.relPath;
-              updated.completedFiles = ev.fileIndex;
+              updated.completedFiles = ev.fileIndex + 1;
               updated.totalFiles = ev.totalFiles;
               break;
 
@@ -511,13 +515,18 @@ export function JobsView() {
               updated.totalBytes = ev.totalBytes;
               updated.phase = ev.phase;
               updated.elapsedSecs = ev.elapsedSecs;
+              updated.isPaused = false;
               // Calculate speed
               const dt = (now - updated.lastSnapshotTime) / 1000;
               if (dt > 0.5) {
                 const db = ev.completedBytes - updated.lastBytesSnapshot;
-                updated.currentSpeed = db / dt;
+                const speed = db / dt;
+                updated.currentSpeed = speed;
                 updated.lastBytesSnapshot = ev.completedBytes;
                 updated.lastSnapshotTime = now;
+                // Track speed history (keep last 60 samples for waveform)
+                const hist = [...updated.speedHistory, speed];
+                updated.speedHistory = hist.length > 60 ? hist.slice(-60) : hist;
               }
               break;
             }
@@ -557,10 +566,13 @@ export function JobsView() {
               break;
 
             case "paused":
+              updated.isPaused = true;
               updated.phaseMessage = "Paused";
+              updated.currentSpeed = 0;
               break;
 
             case "resumed":
+              updated.isPaused = false;
               updated.phaseMessage = "Resumed";
               break;
 
@@ -719,6 +731,15 @@ export function JobsView() {
 
   const handlePause = async (jobId: string) => {
     try {
+      // Immediately update local state for instant UI feedback
+      setActiveOffloads((prev) => {
+        const next = new Map(prev);
+        const offload = next.get(jobId);
+        if (offload) {
+          next.set(jobId, { ...offload, isPaused: true, phaseMessage: "Paused", currentSpeed: 0 });
+        }
+        return next;
+      });
       await safeInvoke("pause_offload", { jobId });
       await loadJobs();
     } catch (err) {
@@ -728,7 +749,36 @@ export function JobsView() {
 
   const handleResumePaused = async (jobId: string) => {
     try {
-      await safeInvoke("resume_paused_offload", { jobId });
+      // Immediately update local state for instant UI feedback
+      setActiveOffloads((prev) => {
+        const next = new Map(prev);
+        const offload = next.get(jobId);
+        if (offload) {
+          next.set(jobId, { ...offload, isPaused: false, phaseMessage: "Resuming..." });
+        }
+        return next;
+      });
+      const result = await safeInvoke<CommandResult<boolean>>("resume_paused_offload", { jobId });
+      if (!result.success) {
+        // Workflow handle gone (e.g., app restarted) — fall back to resume_offload
+        // which creates a new workflow from pending DB tasks
+        setActiveOffloads((prev) => {
+          const next = new Map(prev);
+          const job = jobs.find((j) => j.id === jobId);
+          next.set(jobId, createActiveOffload(jobId, job?.name || "Resumed Offload"));
+          return next;
+        });
+        const resumeResult = await safeInvoke<CommandResult<string>>("resume_offload", { jobId });
+        if (!resumeResult.success) {
+          // Both resume methods failed — clean up and show error
+          setActiveOffloads((prev) => {
+            const next = new Map(prev);
+            next.delete(jobId);
+            return next;
+          });
+          setError(resumeResult.error || "Resume failed");
+        }
+      }
       await loadJobs();
     } catch (err) {
       setError(String(err));
@@ -954,10 +1004,20 @@ export function JobsView() {
                         )}
                         {phaseInfo.label}
                       </span>
-                      {isRunning && (
+                      {isRunning && !offload.isPaused && (
                         <>
                           <button className="btn-pause" onClick={() => handlePause(offload.jobId)} title={t.jobs.pause}>
                             &#x23F8;
+                          </button>
+                          <button className="btn-terminate" onClick={() => handleTerminateConfirm(offload.jobId)} title={t.jobs.terminate}>
+                            &#x23F9;
+                          </button>
+                        </>
+                      )}
+                      {isRunning && offload.isPaused && (
+                        <>
+                          <button className="btn-resume" onClick={() => handleResumePaused(offload.jobId)} title={t.jobs.resume}>
+                            &#x25B6;
                           </button>
                           <button className="btn-terminate" onClick={() => handleTerminateConfirm(offload.jobId)} title={t.jobs.terminate}>
                             &#x23F9;
@@ -1066,6 +1126,32 @@ export function JobsView() {
                     </div>
                     {offload.phaseMessage && (
                       <div className="job-detail-phase-msg">{offload.phaseMessage}</div>
+                    )}
+                    {/* Speed waveform chart */}
+                    {offload.speedHistory.length > 1 && (
+                      <div className="speed-waveform">
+                        <span className="speed-waveform-label">{t.jobs.speed}</span>
+                        <svg viewBox="0 0 240 40" className="speed-waveform-svg" preserveAspectRatio="none">
+                          {(() => {
+                            const data = offload.speedHistory;
+                            const max = Math.max(...data, 1);
+                            const step = 240 / Math.max(data.length - 1, 1);
+                            const points = data.map((v, i) => `${i * step},${40 - (v / max) * 36}`).join(" ");
+                            return (
+                              <>
+                                <polyline points={points} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" />
+                                <polyline points={`0,40 ${points} ${(data.length - 1) * step},40`} fill="url(#speedGrad)" stroke="none" />
+                                <defs>
+                                  <linearGradient id="speedGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.3" />
+                                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.02" />
+                                  </linearGradient>
+                                </defs>
+                              </>
+                            );
+                          })()}
+                        </svg>
+                      </div>
                     )}
                   </div>
                 )}

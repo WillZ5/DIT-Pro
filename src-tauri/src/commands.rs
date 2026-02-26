@@ -885,6 +885,30 @@ pub async fn resume_offload(
         ));
     }
 
+    // Step 3.5: Validate source and destination paths exist before resuming
+    let source_root = Path::new(&source_path);
+    if !source_root.exists() {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        return Ok(CommandResult::err_and_log(
+            &conn,
+            DitError::CopySourceNotFound { path: source_path.clone() },
+            "commands::resume_offload",
+            Some(&job_id),
+        ));
+    }
+
+    for dest in &dest_roots {
+        if !dest.exists() {
+            let conn = state.db.lock().map_err(|e| e.to_string())?;
+            return Ok(CommandResult::err_and_log(
+                &conn,
+                DitError::CopyDestNotWritable { path: dest.to_string_lossy().into() },
+                "commands::resume_offload",
+                Some(&job_id),
+            ));
+        }
+    }
+
     // Step 4: Build config from settings + extracted paths
     let saved = state.settings.lock().map_err(|e| e.to_string())?.clone();
 

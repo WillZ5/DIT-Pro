@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { JobsView } from "./views/JobsView/JobsView";
 import { VolumeView } from "./views/VolumeView/VolumeView";
 import { ReportView } from "./views/ReportView/ReportView";
@@ -86,8 +86,6 @@ function App() {
   const [showAbout, setShowAbout] = useState(false);
   const [activeJobCount, setActiveJobCountState] = useState(0);
   const { t } = useI18n();
-  const lastQuitAttemptRef = useRef(0);
-  const quitHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync the global _activeJobCount into React state for reactive quit dialog
   useEffect(() => {
@@ -114,40 +112,51 @@ function App() {
     await exit(0);
   }, []);
 
-  // Listen for quit-attempt (Cmd+Q / Tray Quit) — Edge-style hold-to-quit
+  // Edge-style hold ⌘Q to quit — uses keydown/keyup for real hold detection
   useEffect(() => {
     if (!isTauri()) return;
-    let unlisten: (() => void) | null = null;
-    const setup = async () => {
-      const { listen } = await import("@tauri-apps/api/event");
-      unlisten = await listen("quit-attempt", () => {
-        const now = Date.now();
-        const elapsed = now - lastQuitAttemptRef.current;
 
-        if (elapsed < 2000 && lastQuitAttemptRef.current > 0) {
-          // Second Cmd+Q within 2 seconds — actually quit
-          if (quitHintTimerRef.current) clearTimeout(quitHintTimerRef.current);
-          setShowQuitHint(false);
-          handleForceQuit();
-          return;
-        }
+    let holdTimer: ReturnType<typeof setTimeout> | null = null;
+    let hideTimer: ReturnType<typeof setTimeout> | null = null;
+    let isHolding = false;
 
-        // First Cmd+Q — show hold hint toast
-        lastQuitAttemptRef.current = now;
+    const HOLD_DURATION = 1000; // 1 second hold to quit
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "q" || e.key === "Q")) {
+        e.preventDefault();
+        if (isHolding) return; // key repeat — already tracking
+
+        isHolding = true;
         setShowQuitHint(true);
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
 
-        // Auto-hide after 2 seconds
-        if (quitHintTimerRef.current) clearTimeout(quitHintTimerRef.current);
-        quitHintTimerRef.current = setTimeout(() => {
-          setShowQuitHint(false);
-          lastQuitAttemptRef.current = 0;
-        }, 2000);
-      });
+        // If held for HOLD_DURATION → quit
+        holdTimer = setTimeout(() => {
+          if (isHolding) handleForceQuit();
+        }, HOLD_DURATION);
+      }
     };
-    setup();
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "q" || e.key === "Q" || e.key === "Meta" || e.key === "Control") {
+        if (!isHolding) return;
+        isHolding = false;
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+
+        // Released early — keep toast visible briefly, then hide
+        hideTimer = setTimeout(() => setShowQuitHint(false), 2000);
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("keyup", onKeyUp, true);
+
     return () => {
-      unlisten?.();
-      if (quitHintTimerRef.current) clearTimeout(quitHintTimerRef.current);
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("keyup", onKeyUp, true);
+      if (holdTimer) clearTimeout(holdTimer);
+      if (hideTimer) clearTimeout(hideTimer);
     };
   }, [handleForceQuit]);
 

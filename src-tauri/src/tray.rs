@@ -9,7 +9,7 @@ use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager,
+    AppHandle, Manager,
 };
 
 /// Initialize the system tray icon and menu.
@@ -73,13 +73,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     "quit" => {
-                        // Show window and emit quit-attempt for hold-to-quit flow
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
-                        }
-                        app_handle.emit("quit-attempt", ()).ok();
+                        // Tray "Quit" click → direct exit
+                        std::process::exit(0);
                     }
                     _ => {}
                 }

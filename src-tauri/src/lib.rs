@@ -23,7 +23,7 @@ pub mod workflow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 use commands::AppState;
 use io_scheduler::IoScheduler;
@@ -98,8 +98,10 @@ pub fn run() {
                 log::warn!("Failed to setup system tray: {}", e);
             }
 
-            // Custom application menu — intercept Cmd+Q to emit event instead of quitting
-            let quit_item = MenuItem::with_id(app, "app-quit", "Quit DIT System", true, Some("CmdOrCtrl+Q"))?;
+            // Custom application menu
+            // Quit item has NO Cmd+Q accelerator — clicking it exits directly.
+            // Cmd+Q is handled by frontend JavaScript (keydown/keyup hold-to-quit).
+            let quit_item = MenuItem::with_id(app, "menu-quit", "Quit DIT System", true, None::<&str>)?;
 
             let app_submenu = Submenu::with_items(app, "DIT System", true, &[
                 &PredefinedMenuItem::about(app, Some("About DIT System"), None)?,
@@ -129,15 +131,10 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&app_submenu, &edit_submenu, &window_submenu])?;
             app.set_menu(menu)?;
 
-            // Handle custom Cmd+Q menu item — emit event for frontend hold-to-quit
-            app.on_menu_event(move |app_handle, event| {
-                if event.id().as_ref() == "app-quit" {
-                    // Show window so user can see the quit hint toast
-                    if let Some(w) = app_handle.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
-                    app_handle.emit("quit-attempt", ()).ok();
+            // Menu bar "Quit DIT System" click → direct exit (one click)
+            app.on_menu_event(move |_app_handle, event| {
+                if event.id().as_ref() == "menu-quit" {
+                    std::process::exit(0);
                 }
             });
 
@@ -204,14 +201,13 @@ pub fn run() {
         .run(|app_handle, event| {
             match &event {
                 tauri::RunEvent::ExitRequested { api, .. } => {
-                    // Safety net — prevent default exit and emit quit-attempt
+                    // Prevent unexpected exit — show window so user can hold ⌘Q
                     api.prevent_exit();
                     if let Some(window) = app_handle.get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.unminimize();
                         let _ = window.set_focus();
                     }
-                    app_handle.emit("quit-attempt", ()).ok();
                 }
                 tauri::RunEvent::Reopen { .. } => {
                     // macOS dock icon clicked — show/focus window

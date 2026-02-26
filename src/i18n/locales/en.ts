@@ -13,6 +13,8 @@ const en = {
       "There are active offload jobs running. Quitting now may result in incomplete copies. Are you sure you want to quit?",
     quitConfirm: "Quit",
     quitCancel: "Cancel",
+    quitHoldHint: "Hold ⌘Q to quit DIT System",
+    quitHoldHintActive: "Hold ⌘Q to quit — active jobs will be interrupted",
   },
 
   // ─── Navigation ─────────────────────────────────────────────────────

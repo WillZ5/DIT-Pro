@@ -22,6 +22,7 @@ pub mod workflow;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
 
 use commands::AppState;
@@ -97,6 +98,49 @@ pub fn run() {
                 log::warn!("Failed to setup system tray: {}", e);
             }
 
+            // Custom application menu — intercept Cmd+Q to emit event instead of quitting
+            let quit_item = MenuItem::with_id(app, "app-quit", "Quit DIT System", true, Some("CmdOrCtrl+Q"))?;
+
+            let app_submenu = Submenu::with_items(app, "DIT System", true, &[
+                &PredefinedMenuItem::about(app, Some("About DIT System"), None)?,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::hide(app, Some("Hide DIT System"))?,
+                &PredefinedMenuItem::hide_others(app, None)?,
+                &PredefinedMenuItem::show_all(app, None)?,
+                &PredefinedMenuItem::separator(app)?,
+                &quit_item,
+            ])?;
+
+            let edit_submenu = Submenu::with_items(app, "Edit", true, &[
+                &PredefinedMenuItem::undo(app, None)?,
+                &PredefinedMenuItem::redo(app, None)?,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::cut(app, None)?,
+                &PredefinedMenuItem::copy(app, None)?,
+                &PredefinedMenuItem::paste(app, None)?,
+                &PredefinedMenuItem::select_all(app, None)?,
+            ])?;
+
+            let window_submenu = Submenu::with_items(app, "Window", true, &[
+                &PredefinedMenuItem::minimize(app, None)?,
+                &PredefinedMenuItem::close_window(app, None)?,
+            ])?;
+
+            let menu = Menu::with_items(app, &[&app_submenu, &edit_submenu, &window_submenu])?;
+            app.set_menu(menu)?;
+
+            // Handle custom Cmd+Q menu item — emit event for frontend hold-to-quit
+            app.on_menu_event(move |app_handle, event| {
+                if event.id().as_ref() == "app-quit" {
+                    // Show window so user can see the quit hint toast
+                    if let Some(w) = app_handle.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                    app_handle.emit("quit-attempt", ()).ok();
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -160,15 +204,14 @@ pub fn run() {
         .run(|app_handle, event| {
             match &event {
                 tauri::RunEvent::ExitRequested { api, .. } => {
-                    // Cmd+Q or last window closed — prevent default exit,
-                    // show window and let frontend handle quit confirmation
+                    // Safety net — prevent default exit and emit quit-attempt
                     api.prevent_exit();
                     if let Some(window) = app_handle.get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.unminimize();
                         let _ = window.set_focus();
                     }
-                    app_handle.emit("quit-requested", ()).ok();
+                    app_handle.emit("quit-attempt", ()).ok();
                 }
                 tauri::RunEvent::Reopen { .. } => {
                     // macOS dock icon clicked — show/focus window

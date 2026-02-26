@@ -14,6 +14,8 @@ const zh: TranslationKeys = {
       "当前有正在进行的拷卡任务，退出可能导致拷贝不完整。确定要退出吗？",
     quitConfirm: "退出",
     quitCancel: "取消",
+    quitHoldHint: "按住 ⌘Q 退出 DIT System",
+    quitHoldHintActive: "按住 ⌘Q 退出 — 进行中的任务将被中断",
   },
 
   // ─── Navigation ─────────────────────────────────────────────────────

@@ -73,13 +73,13 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     "quit" => {
-                        // Show window and emit quit-requested for confirmation dialog
+                        // Show window and emit quit-attempt for hold-to-quit flow
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.unminimize();
                             let _ = window.set_focus();
                         }
-                        app_handle.emit("quit-requested", ()).ok();
+                        app_handle.emit("quit-attempt", ()).ok();
                     }
                     _ => {}
                 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { JobsView } from "./views/JobsView/JobsView";
 import { VolumeView } from "./views/VolumeView/VolumeView";
 import { ReportView } from "./views/ReportView/ReportView";
@@ -82,10 +82,12 @@ function IconSettings({ active }: { active: boolean }) {
 function App() {
   const [currentView, setCurrentView] = useState<ViewType>("jobs");
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
-  const [showQuitDialog, setShowQuitDialog] = useState(false);
+  const [showQuitHint, setShowQuitHint] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [activeJobCount, setActiveJobCountState] = useState(0);
   const { t } = useI18n();
+  const lastQuitAttemptRef = useRef(0);
+  const quitHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync the global _activeJobCount into React state for reactive quit dialog
   useEffect(() => {
@@ -112,19 +114,42 @@ function App() {
     await exit(0);
   }, []);
 
-  // Listen for quit-requested (Cmd+Q / Tray Quit) — always show confirmation
+  // Listen for quit-attempt (Cmd+Q / Tray Quit) — Edge-style hold-to-quit
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | null = null;
     const setup = async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      unlisten = await listen("quit-requested", () => {
-        setShowQuitDialog(true);
+      unlisten = await listen("quit-attempt", () => {
+        const now = Date.now();
+        const elapsed = now - lastQuitAttemptRef.current;
+
+        if (elapsed < 2000 && lastQuitAttemptRef.current > 0) {
+          // Second Cmd+Q within 2 seconds — actually quit
+          if (quitHintTimerRef.current) clearTimeout(quitHintTimerRef.current);
+          setShowQuitHint(false);
+          handleForceQuit();
+          return;
+        }
+
+        // First Cmd+Q — show hold hint toast
+        lastQuitAttemptRef.current = now;
+        setShowQuitHint(true);
+
+        // Auto-hide after 2 seconds
+        if (quitHintTimerRef.current) clearTimeout(quitHintTimerRef.current);
+        quitHintTimerRef.current = setTimeout(() => {
+          setShowQuitHint(false);
+          lastQuitAttemptRef.current = 0;
+        }, 2000);
       });
     };
     setup();
-    return () => { unlisten?.(); };
-  }, []);
+    return () => {
+      unlisten?.();
+      if (quitHintTimerRef.current) clearTimeout(quitHintTimerRef.current);
+    };
+  }, [handleForceQuit]);
 
   return (
     <div className="app">
@@ -245,35 +270,11 @@ function App() {
         </div>
       )}
 
-      {/* Quit confirmation dialog — always shown on Cmd+Q / Tray Quit */}
-      {showQuitDialog && (
-        <div className="dialog-overlay" onClick={() => setShowQuitDialog(false)}>
-          <div className="dialog dialog--sm" onClick={(e) => e.stopPropagation()}>
-            <div className="dialog-header">
-              <h3>{t.app.quitConfirmTitle}</h3>
-            </div>
-            <div className="dialog-body">
-              <p>
-                {activeJobCount > 0
-                  ? t.app.quitConfirmMessageActive
-                  : t.app.quitConfirmMessage}
-              </p>
-            </div>
-            <div className="dialog-footer">
-              <button className="btn-secondary" onClick={() => setShowQuitDialog(false)}>
-                {t.app.quitCancel}
-              </button>
-              <button
-                className="btn-danger"
-                onClick={() => {
-                  setShowQuitDialog(false);
-                  handleForceQuit();
-                }}
-              >
-                {t.app.quitConfirm}
-              </button>
-            </div>
-          </div>
+      {/* Hold-to-quit hint toast — Edge-style Cmd+Q behavior */}
+      {showQuitHint && (
+        <div className="quit-hint-toast">
+          <span className="quit-hint-kbd">⌘Q</span>
+          <span>{activeJobCount > 0 ? t.app.quitHoldHintActive : t.app.quitHoldHint}</span>
         </div>
       )}
     </div>

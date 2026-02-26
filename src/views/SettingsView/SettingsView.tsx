@@ -428,7 +428,7 @@ export function SettingsView() {
                     onClick={handleClearLogs}
                     disabled={clearing}
                   >
-                    {clearing ? "..." : t.settings.clearLogsBtn}
+                    {clearing ? t.common.saving : t.settings.clearLogsBtn}
                   </button>
                   <button className="btn-secondary btn-sm" onClick={() => setShowClearConfirm(false)}>
                     {t.common.cancel}

@@ -333,6 +333,33 @@
   opacity: 1;
 }
 
+.success-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: #22c55e12;
+  border: 1px solid #22c55e25;
+  border-radius: 8px;
+  color: #22c55e;
+  font-size: 13px;
+}
+
+.success-banner button {
+  background: none;
+  border: none;
+  color: #22c55e;
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
+.success-banner button:hover {
+  opacity: 1;
+}
+
 /* ─── Job Cards ──────────────────────────────────────────────────────────── */
 
 .job-card {

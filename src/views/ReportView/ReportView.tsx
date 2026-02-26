@@ -36,6 +36,7 @@ export function ReportView() {
   const [jobReport, setJobReport] = useState<JobReport | null>(null);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -147,7 +148,7 @@ export function ReportView() {
       });
       if (result.success && result.data) {
         setError(null);
-        alert(`${t.reports.reportSavedTo}\n${result.data}`);
+        setSuccessMsg(`${t.reports.reportSavedTo} ${result.data}`);
       } else {
         setError(result.error || "Export failed");
       }
@@ -180,7 +181,7 @@ export function ReportView() {
         outputPath,
       });
       if (result.success && result.data) {
-        alert(`${t.reports.reportSavedTo}\n${result.data}`);
+        setSuccessMsg(`${t.reports.reportSavedTo} ${result.data}`);
       } else {
         setError(result.error || "Export failed");
       }
@@ -254,6 +255,13 @@ export function ReportView() {
         <div className="error-banner">
           <span>{error}</span>
           <button onClick={() => setError(null)}>{t.common.dismiss}</button>
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="success-banner">
+          <span>{successMsg}</span>
+          <button onClick={() => setSuccessMsg(null)}>{t.common.dismiss}</button>
         </div>
       )}
 

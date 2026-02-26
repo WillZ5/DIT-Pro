@@ -195,7 +195,7 @@ export function SystemLog() {
 
       {/* Log entries */}
       {loading ? (
-        <div className="system-log-loading">Loading...</div>
+        <div className="system-log-loading">{t.common.loading}</div>
       ) : entries.length === 0 ? (
         <div className="system-log-empty">
           <p>{t.systemLog.noErrors}</p>

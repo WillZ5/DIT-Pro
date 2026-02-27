@@ -253,7 +253,7 @@ mod tests {
     fn test_default_config_hdd() {
         let config = DeviceSchedulerConfig::default_for(DeviceType::HDD);
         assert_eq!(config.max_concurrent_tasks, 1);
-        assert_eq!(config.buffer_size, 1 * 1024 * 1024);
+        assert_eq!(config.buffer_size, 1024 * 1024);
     }
 
     #[test]

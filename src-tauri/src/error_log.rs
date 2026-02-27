@@ -272,8 +272,7 @@ mod tests {
     use crate::db;
 
     fn setup_db() -> Connection {
-        let conn = db::init_database(":memory:").unwrap();
-        conn
+        db::init_database(":memory:").unwrap()
     }
 
     #[test]

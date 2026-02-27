@@ -1947,8 +1947,6 @@ mod tests {
 
     #[test]
     fn test_all_event_variants_camel_case() {
-        use crate::hash_engine::HashResult;
-
         // Test all variants with multi-word fields
         let events: Vec<(&str, OffloadEvent)> = vec![
             (

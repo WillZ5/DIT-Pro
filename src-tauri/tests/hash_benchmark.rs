@@ -21,8 +21,7 @@ fn benchmark_algorithm(algo: HashAlgorithm, data: &[u8]) -> f64 {
     let elapsed = start.elapsed();
 
     let bytes_per_sec = data.len() as f64 / elapsed.as_secs_f64();
-    let gbps = bytes_per_sec * 8.0 / 1_000_000_000.0;
-    gbps
+    bytes_per_sec * 8.0 / 1_000_000_000.0
 }
 
 fn benchmark_multi(algos: &[HashAlgorithm], data: &[u8]) -> f64 {
@@ -37,8 +36,7 @@ fn benchmark_multi(algos: &[HashAlgorithm], data: &[u8]) -> f64 {
     let elapsed = start.elapsed();
 
     let bytes_per_sec = data.len() as f64 / elapsed.as_secs_f64();
-    let gbps = bytes_per_sec * 8.0 / 1_000_000_000.0;
-    gbps
+    bytes_per_sec * 8.0 / 1_000_000_000.0
 }
 
 #[test]

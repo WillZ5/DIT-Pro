@@ -48,9 +48,9 @@ fn generate_test_file(path: &Path, size: usize, seed: u64) {
     while written < size {
         let remaining = size - written;
         let to_write = remaining.min(chunk_size);
-        for i in 0..to_write {
+        for (i, byte) in buf[..to_write].iter_mut().enumerate() {
             let pos = (written + i) as u64;
-            buf[i] = (pos.wrapping_mul(seed.wrapping_add(7))
+            *byte = (pos.wrapping_mul(seed.wrapping_add(7))
                 ^ pos.wrapping_mul(seed.wrapping_mul(13).wrapping_add(37)))
                 as u8;
         }
@@ -444,6 +444,7 @@ async fn stress_cascade_100_files_3_dests() {
 // ─── Category 5: Interrupt & Resume ──────────────────────────────────────────
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn stress_interrupt_resume_200_files() {
     let tmp = tempdir().unwrap();
     let source = tmp.path().join("source");
@@ -522,11 +523,14 @@ async fn stress_interrupt_resume_200_files() {
 
     // ── Phase 2: Recover and Resume ──
     {
-        let conn = db.lock().unwrap();
-        let _recovered = checkpoint::recover_job(&conn, "stress-interrupt")
-            .await
-            .unwrap();
+        {
+            let conn = db.lock().unwrap();
+            let _recovered = checkpoint::recover_job(&conn, "stress-interrupt")
+                .await
+                .unwrap();
+        }
 
+        let conn = db.lock().unwrap();
         let progress = checkpoint::get_job_progress(&conn, "stress-interrupt").unwrap();
         assert_eq!(
             progress.copying, 0,
@@ -585,7 +589,7 @@ async fn stress_interrupt_resume_200_files() {
     check_no_tmp(&dest);
 
     // All hashes match source
-    assert!(verify_all_files_match(&source, &[dest.clone()]).await);
+    assert!(verify_all_files_match(&source, std::slice::from_ref(&dest)).await);
 
     // DB: all 200 tasks completed or skipped
     {
@@ -655,7 +659,7 @@ async fn stress_throughput_benchmark() {
     let config = make_config(
         "bench",
         &source_dir,
-        &[dest_engine.clone()],
+        std::slice::from_ref(&dest_engine),
         false,
         false,
         false,
@@ -784,8 +788,8 @@ async fn stress_3_concurrent_jobs() {
     }
 
     // Verify no cross-contamination: each dest only has its own 50 files
-    for i in 0..3 {
-        let file_count = std::fs::read_dir(&dests[i])
+    for (i, dest_dir) in dests.iter().enumerate() {
+        let file_count = std::fs::read_dir(dest_dir)
             .unwrap()
             .filter_map(|e| e.ok())
             .filter(|e| e.path().is_file())
@@ -834,7 +838,7 @@ async fn stress_mhl_chain_100_files() {
     let config = make_config(
         "stress-mhl",
         &source,
-        &[dest.clone()],
+        std::slice::from_ref(&dest),
         true,
         true,
         true,

@@ -233,7 +233,7 @@ struct SourceFile {
 
 /// Generate a "keep both" path by appending _copy (or _copy_2, _copy_3, etc.)
 /// Example: photo.mov → photo_copy.mov → photo_copy_2.mov
-fn generate_keep_both_path(dest: &PathBuf) -> PathBuf {
+fn generate_keep_both_path(dest: &Path) -> PathBuf {
     let stem = dest
         .file_stem()
         .unwrap_or_default()

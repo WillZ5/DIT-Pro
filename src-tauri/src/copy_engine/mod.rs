@@ -154,7 +154,7 @@ pub async fn check_available_space(dest_path: &Path, required_bytes: u64) -> Res
                 let block_size = if stat.f_frsize > 0 {
                     stat.f_frsize
                 } else {
-                    stat.f_bsize as u64
+                    stat.f_bsize
                 };
                 let available = stat.f_bavail as u64 * block_size;
                 if available < required_bytes {

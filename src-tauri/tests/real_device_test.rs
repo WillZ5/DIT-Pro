@@ -39,7 +39,7 @@ fn wrap_db(conn: Connection) -> Arc<std::sync::Mutex<Connection>> {
 /// Gather all non-hidden files under a directory (recursive).
 fn walk_files(dir: &Path) -> Vec<PathBuf> {
     let mut result = Vec::new();
-    fn inner(dir: &Path, base: &Path, out: &mut Vec<PathBuf>) {
+    fn inner(dir: &Path, out: &mut Vec<PathBuf>) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -53,14 +53,14 @@ fn walk_files(dir: &Path) -> Vec<PathBuf> {
                     continue;
                 }
                 if path.is_dir() {
-                    inner(&path, base, out);
+                    inner(&path, out);
                 } else {
                     out.push(path);
                 }
             }
         }
     }
-    inner(dir, dir, &mut result);
+    inner(dir, &mut result);
     result.sort();
     result
 }

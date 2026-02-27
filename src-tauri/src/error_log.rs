@@ -148,8 +148,11 @@ pub fn query_error_log(conn: &Connection, filter: &ErrorLogFilter) -> Result<Vec
     let offset = filter.offset.unwrap_or(0);
     sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
 
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|b| b.as_ref()).collect();
-    let mut stmt = conn.prepare(&sql).context("Failed to prepare error_log query")?;
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+        param_values.iter().map(|b| b.as_ref()).collect();
+    let mut stmt = conn
+        .prepare(&sql)
+        .context("Failed to prepare error_log query")?;
 
     let entries = stmt
         .query_map(params_ref.as_slice(), |row| {
@@ -381,10 +384,49 @@ mod tests {
     fn test_error_log_summary() {
         let conn = setup_db();
 
-        log_error(&conn, &DitError::CopyDiskFull { volume: "a".into(), required: 1, available: 0 }, "test", None, None).unwrap();
-        log_error(&conn, &DitError::CopyDiskFull { volume: "b".into(), required: 1, available: 0 }, "test", None, None).unwrap();
-        log_error(&conn, &DitError::CopySourceNotFound { path: "c".into() }, "test", None, None).unwrap();
-        log_error(&conn, &DitError::ConfigInvalidValue { field: "x".into(), value: "y".into() }, "test", None, None).unwrap();
+        log_error(
+            &conn,
+            &DitError::CopyDiskFull {
+                volume: "a".into(),
+                required: 1,
+                available: 0,
+            },
+            "test",
+            None,
+            None,
+        )
+        .unwrap();
+        log_error(
+            &conn,
+            &DitError::CopyDiskFull {
+                volume: "b".into(),
+                required: 1,
+                available: 0,
+            },
+            "test",
+            None,
+            None,
+        )
+        .unwrap();
+        log_error(
+            &conn,
+            &DitError::CopySourceNotFound { path: "c".into() },
+            "test",
+            None,
+            None,
+        )
+        .unwrap();
+        log_error(
+            &conn,
+            &DitError::ConfigInvalidValue {
+                field: "x".into(),
+                value: "y".into(),
+            },
+            "test",
+            None,
+            None,
+        )
+        .unwrap();
 
         let summary = error_log_summary(&conn).unwrap();
         assert_eq!(summary.total, 4);

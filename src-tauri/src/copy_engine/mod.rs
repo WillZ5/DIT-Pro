@@ -151,7 +151,11 @@ pub async fn check_available_space(dest_path: &Path, required_bytes: u64) -> Res
             let mut stat: libc::statvfs = std::mem::zeroed();
             if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
                 // f_frsize can be 0 on some APFS configurations; fall back to f_bsize
-                let block_size = if stat.f_frsize > 0 { stat.f_frsize } else { stat.f_bsize as u64 };
+                let block_size = if stat.f_frsize > 0 {
+                    stat.f_frsize
+                } else {
+                    stat.f_bsize as u64
+                };
                 let available = stat.f_bavail as u64 * block_size;
                 if available < required_bytes {
                     bail!(
@@ -199,11 +203,7 @@ async fn check_cancel_pause(
 
 /// Check if a single destination file should be skipped based on conflict policy.
 /// Returns true if the file should be skipped.
-async fn should_skip_conflict(
-    dest: &Path,
-    source_size: u64,
-    policy: FileConflictPolicy,
-) -> bool {
+async fn should_skip_conflict(dest: &Path, source_size: u64, policy: FileConflictPolicy) -> bool {
     if policy == FileConflictPolicy::Overwrite {
         return false;
     }
@@ -664,7 +664,10 @@ mod tests {
 
         let result = copy_file_single(&source, &dest, &config, &control).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("cancelled by user"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("cancelled by user"));
     }
 
     #[tokio::test]

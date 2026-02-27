@@ -32,14 +32,14 @@ impl AtomicWriter {
 
         // Ensure parent directory exists
         if let Some(parent) = temp_path.parent() {
-            fs::create_dir_all(parent).await.with_context(|| {
-                format!("Failed to create parent directory: {:?}", parent)
-            })?;
+            fs::create_dir_all(parent)
+                .await
+                .with_context(|| format!("Failed to create parent directory: {:?}", parent))?;
         }
 
-        let file = fs::File::create(&temp_path).await.with_context(|| {
-            format!("Failed to create temp file: {:?}", temp_path)
-        })?;
+        let file = fs::File::create(&temp_path)
+            .await
+            .with_context(|| format!("Failed to create temp file: {:?}", temp_path))?;
 
         Ok(Self {
             temp_path,
@@ -52,10 +52,13 @@ impl AtomicWriter {
 
     /// Write a chunk of data to the temporary file
     pub async fn write(&mut self, data: &[u8]) -> Result<()> {
-        let file = self.file.as_mut().context("AtomicWriter already consumed")?;
-        file.write_all(data).await.with_context(|| {
-            format!("Failed to write to temp file: {:?}", self.temp_path)
-        })?;
+        let file = self
+            .file
+            .as_mut()
+            .context("AtomicWriter already consumed")?;
+        file.write_all(data)
+            .await
+            .with_context(|| format!("Failed to write to temp file: {:?}", self.temp_path))?;
         self.bytes_written += data.len() as u64;
         Ok(())
     }
@@ -140,9 +143,9 @@ pub async fn cleanup_tmp_files(dir: &Path) -> Result<Vec<PathBuf>> {
         if path.is_file() {
             if let Some(ext) = path.extension() {
                 if ext == "tmp" {
-                    fs::remove_file(&path).await.with_context(|| {
-                        format!("Failed to clean up tmp file: {:?}", path)
-                    })?;
+                    fs::remove_file(&path)
+                        .await
+                        .with_context(|| format!("Failed to clean up tmp file: {:?}", path))?;
                     cleaned.push(path);
                 }
             }
@@ -206,9 +209,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         // Create some .tmp files and a normal file
-        tokio::fs::write(dir.path().join("file1.mov.tmp"), b"orphan1").await.unwrap();
-        tokio::fs::write(dir.path().join("file2.r3d.tmp"), b"orphan2").await.unwrap();
-        tokio::fs::write(dir.path().join("real_file.mov"), b"keep me").await.unwrap();
+        tokio::fs::write(dir.path().join("file1.mov.tmp"), b"orphan1")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join("file2.r3d.tmp"), b"orphan2")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join("real_file.mov"), b"keep me")
+            .await
+            .unwrap();
 
         let cleaned = cleanup_tmp_files(dir.path()).await.unwrap();
         assert_eq!(cleaned.len(), 2);

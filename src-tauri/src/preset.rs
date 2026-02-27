@@ -101,8 +101,7 @@ pub fn load_presets(app_data_dir: &Path) -> Result<PresetStore> {
 /// Save all presets to disk (pretty-printed JSON).
 pub fn save_presets(app_data_dir: &Path, store: &PresetStore) -> Result<()> {
     let path = presets_path(app_data_dir);
-    let data =
-        serde_json::to_string_pretty(store).context("Failed to serialize presets")?;
+    let data = serde_json::to_string_pretty(store).context("Failed to serialize presets")?;
     std::fs::write(&path, data)
         .with_context(|| format!("Failed to write presets to {:?}", path))?;
     Ok(())

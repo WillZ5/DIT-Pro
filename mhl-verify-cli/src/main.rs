@@ -185,18 +185,12 @@ fn main() -> Result<()> {
 fn verify_directory(root: &Path, args: &Args) -> Result<()> {
     let ascmhl_dir = root.join("ascmhl");
     if !ascmhl_dir.exists() {
-        bail!(
-            "No ascmhl/ directory found in: {}",
-            root.display()
-        );
+        bail!("No ascmhl/ directory found in: {}", root.display());
     }
 
     let chain_path = ascmhl_dir.join("ascmhl_chain.xml");
     if !chain_path.exists() {
-        bail!(
-            "No ascmhl_chain.xml found in: {}",
-            ascmhl_dir.display()
-        );
+        bail!("No ascmhl_chain.xml found in: {}", ascmhl_dir.display());
     }
 
     if !args.quiet {
@@ -232,10 +226,7 @@ fn verify_directory(root: &Path, args: &Args) -> Result<()> {
             Ok(true) => {
                 summary.chain_valid += 1;
                 if !args.quiet {
-                    println!(
-                        "  [PASS] Gen {:04}: {}",
-                        entry.sequence_nr, entry.path
-                    );
+                    println!("  [PASS] Gen {:04}: {}", entry.sequence_nr, entry.path);
                 }
             }
             Ok(false) => {
@@ -263,10 +254,7 @@ fn verify_directory(root: &Path, args: &Args) -> Result<()> {
     if !args.chain_only {
         // Decide which generations to verify
         let gens_to_verify: Vec<&ChainEntry> = if let Some(gen_nr) = args.generation {
-            chain
-                .iter()
-                .filter(|e| e.sequence_nr == gen_nr)
-                .collect()
+            chain.iter().filter(|e| e.sequence_nr == gen_nr).collect()
         } else {
             // By default, verify the latest generation
             chain.last().into_iter().collect()
@@ -533,9 +521,7 @@ fn parse_chain_xml(xml_bytes: &[u8]) -> Result<Vec<ChainEntry>> {
                         let mut seq_nr: u32 = 0;
                         for attr in e.attributes().flatten() {
                             if attr.key.as_ref() == b"sequencenr" {
-                                seq_nr = String::from_utf8_lossy(&attr.value)
-                                    .parse()
-                                    .unwrap_or(0);
+                                seq_nr = String::from_utf8_lossy(&attr.value).parse().unwrap_or(0);
                             }
                         }
                         current_entry = Some(ChainEntry {
@@ -632,9 +618,8 @@ fn parse_manifest_xml(xml_bytes: &[u8]) -> Result<Vec<MhlFileEntry>> {
                         // Extract size attribute
                         for attr in e.attributes().flatten() {
                             if attr.key.as_ref() == b"size" {
-                                current_file_size = String::from_utf8_lossy(&attr.value)
-                                    .parse()
-                                    .unwrap_or(0);
+                                current_file_size =
+                                    String::from_utf8_lossy(&attr.value).parse().unwrap_or(0);
                             }
                         }
                     }
@@ -727,7 +712,10 @@ fn print_summary(summary: &VerifySummary, chain_only: bool) {
             );
         }
         if summary.missing > 0 {
-            println!("        {} MISSING (files not found on disk)", summary.missing);
+            println!(
+                "        {} MISSING (files not found on disk)",
+                summary.missing
+            );
         }
         if summary.errors > 0 {
             println!("        {} errors (could not read files)", summary.errors);

@@ -21,11 +21,9 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .enabled(false)
         .build(app)?;
 
-    let show_item = MenuItemBuilder::with_id("show", "Show Window")
-        .build(app)?;
+    let show_item = MenuItemBuilder::with_id("show", "Show Window").build(app)?;
 
-    let quit_item = MenuItemBuilder::with_id("quit", "Quit")
-        .build(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
     let menu = MenuBuilder::new(app)
         .item(&title_item)

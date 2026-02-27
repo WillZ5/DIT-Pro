@@ -77,10 +77,12 @@ pub fn run() {
             log::info!("Database initialized at {:?}", db_path);
 
             // Load settings
-            let settings = config::load_settings(&app_data_dir)
-                .unwrap_or_default();
-            log::info!("Settings loaded (offload defaults: src_verify={}, post_verify={})",
-                settings.offload.source_verify, settings.offload.post_verify);
+            let settings = config::load_settings(&app_data_dir).unwrap_or_default();
+            log::info!(
+                "Settings loaded (offload defaults: src_verify={}, post_verify={})",
+                settings.offload.source_verify,
+                settings.offload.post_verify
+            );
 
             // Initialize app state
             let state = AppState {
@@ -114,32 +116,48 @@ pub fn run() {
             }
 
             // Custom application menu — ⌘Q accelerator with Rust-side hold detection
-            let quit_item = MenuItem::with_id(app, "app-quit", "Quit DIT Pro", true, Some("CmdOrCtrl+Q"))?;
+            let quit_item =
+                MenuItem::with_id(app, "app-quit", "Quit DIT Pro", true, Some("CmdOrCtrl+Q"))?;
 
-            let app_submenu = Submenu::with_items(app, "DIT Pro", true, &[
-                &PredefinedMenuItem::about(app, Some("About DIT Pro"), None)?,
-                &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::hide(app, Some("Hide DIT Pro"))?,
-                &PredefinedMenuItem::hide_others(app, None)?,
-                &PredefinedMenuItem::show_all(app, None)?,
-                &PredefinedMenuItem::separator(app)?,
-                &quit_item,
-            ])?;
+            let app_submenu = Submenu::with_items(
+                app,
+                "DIT Pro",
+                true,
+                &[
+                    &PredefinedMenuItem::about(app, Some("About DIT Pro"), None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::hide(app, Some("Hide DIT Pro"))?,
+                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::show_all(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &quit_item,
+                ],
+            )?;
 
-            let edit_submenu = Submenu::with_items(app, "Edit", true, &[
-                &PredefinedMenuItem::undo(app, None)?,
-                &PredefinedMenuItem::redo(app, None)?,
-                &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::cut(app, None)?,
-                &PredefinedMenuItem::copy(app, None)?,
-                &PredefinedMenuItem::paste(app, None)?,
-                &PredefinedMenuItem::select_all(app, None)?,
-            ])?;
+            let edit_submenu = Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app, None)?,
+                    &PredefinedMenuItem::redo(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, None)?,
+                    &PredefinedMenuItem::copy(app, None)?,
+                    &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::select_all(app, None)?,
+                ],
+            )?;
 
-            let window_submenu = Submenu::with_items(app, "Window", true, &[
-                &PredefinedMenuItem::minimize(app, None)?,
-                &PredefinedMenuItem::close_window(app, None)?,
-            ])?;
+            let window_submenu = Submenu::with_items(
+                app,
+                "Window",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(app, None)?,
+                    &PredefinedMenuItem::close_window(app, None)?,
+                ],
+            )?;
 
             let menu = Menu::with_items(app, &[&app_submenu, &edit_submenu, &window_submenu])?;
             app.set_menu(menu)?;

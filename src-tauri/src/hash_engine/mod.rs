@@ -183,10 +183,7 @@ impl MultiHasher {
 }
 
 /// Hash a file using multiple algorithms in a single pass (async)
-pub async fn hash_file(
-    path: &Path,
-    config: &HashEngineConfig,
-) -> Result<Vec<HashResult>> {
+pub async fn hash_file(path: &Path, config: &HashEngineConfig) -> Result<Vec<HashResult>> {
     hash_file_with_progress(path, config, None).await
 }
 
@@ -218,10 +215,7 @@ pub async fn hash_file_with_progress(
 }
 
 /// Hash a file synchronously (for use in non-async contexts)
-pub fn hash_file_sync(
-    path: &Path,
-    config: &HashEngineConfig,
-) -> Result<Vec<HashResult>> {
+pub fn hash_file_sync(path: &Path, config: &HashEngineConfig) -> Result<Vec<HashResult>> {
     use std::io::Read;
 
     let mut file = std::fs::File::open(path)?;

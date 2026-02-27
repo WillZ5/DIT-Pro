@@ -300,14 +300,8 @@ pub fn get_job_progress(conn: &Connection, job_id: &str) -> Result<JobProgress> 
 
 /// Delete a single job and all its tasks by job ID
 pub fn delete_job_by_id(conn: &Connection, job_id: &str) -> Result<()> {
-    conn.execute(
-        "DELETE FROM copy_tasks WHERE job_id = ?1",
-        params![job_id],
-    )?;
-    let deleted = conn.execute(
-        "DELETE FROM jobs WHERE id = ?1",
-        params![job_id],
-    )?;
+    conn.execute("DELETE FROM copy_tasks WHERE job_id = ?1", params![job_id])?;
+    let deleted = conn.execute("DELETE FROM jobs WHERE id = ?1", params![job_id])?;
     if deleted == 0 {
         anyhow::bail!("Job not found: {}", job_id);
     }
@@ -332,7 +326,6 @@ pub fn clear_old_jobs(conn: &Connection, days: u32) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -367,8 +360,24 @@ mod tests {
     fn test_create_job_and_tasks() {
         let conn = setup_test_db();
         create_job(&conn, "job-1", "Day 1 Offload", "/Volumes/CARD_A").unwrap();
-        insert_task(&conn, "t-1", "job-1", "/src/clip1.mov", "/dst/clip1.mov", 1000).unwrap();
-        insert_task(&conn, "t-2", "job-1", "/src/clip2.mov", "/dst/clip2.mov", 2000).unwrap();
+        insert_task(
+            &conn,
+            "t-1",
+            "job-1",
+            "/src/clip1.mov",
+            "/dst/clip1.mov",
+            1000,
+        )
+        .unwrap();
+        insert_task(
+            &conn,
+            "t-2",
+            "job-1",
+            "/src/clip2.mov",
+            "/dst/clip2.mov",
+            2000,
+        )
+        .unwrap();
 
         let pending = get_pending_tasks(&conn, "job-1").unwrap();
         assert_eq!(pending.len(), 2);

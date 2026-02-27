@@ -45,12 +45,12 @@ pub struct DeviceSchedulerConfig {
 impl DeviceSchedulerConfig {
     pub fn default_for(device_type: DeviceType) -> Self {
         let (max_concurrent, buffer_size) = match device_type {
-            DeviceType::HDD => (1, 1024 * 1024),             // 1 concurrent, 1MB buffer
-            DeviceType::SSD => (4, 4 * 1024 * 1024),       // 4 concurrent, 4MB buffer
-            DeviceType::NVMe => (8, 8 * 1024 * 1024),      // 8 concurrent, 8MB buffer
-            DeviceType::RAID => (4, 4 * 1024 * 1024),      // 4 concurrent, 4MB buffer
-            DeviceType::Network => (2, 1024 * 1024),        // 2 concurrent, 1MB buffer
-            DeviceType::Unknown => (2, 2 * 1024 * 1024),   // 2 concurrent, 2MB buffer
+            DeviceType::HDD => (1, 1024 * 1024), // 1 concurrent, 1MB buffer
+            DeviceType::SSD => (4, 4 * 1024 * 1024), // 4 concurrent, 4MB buffer
+            DeviceType::NVMe => (8, 8 * 1024 * 1024), // 8 concurrent, 8MB buffer
+            DeviceType::RAID => (4, 4 * 1024 * 1024), // 4 concurrent, 4MB buffer
+            DeviceType::Network => (2, 1024 * 1024), // 2 concurrent, 1MB buffer
+            DeviceType::Unknown => (2, 2 * 1024 * 1024), // 2 concurrent, 2MB buffer
         };
         Self {
             device_type,
@@ -119,7 +119,9 @@ impl DeviceQueue {
     /// This will block (async) if the device is at its concurrency limit.
     /// Returns a `DevicePermit` RAII guard that decrements the counter on drop.
     pub async fn acquire(&self) -> Result<DevicePermit> {
-        let permit = Arc::clone(&self.semaphore).acquire_owned().await
+        let permit = Arc::clone(&self.semaphore)
+            .acquire_owned()
+            .await
             .context("Device semaphore closed")?;
         let mut count = self.active_tasks.lock().await;
         *count += 1;
@@ -264,14 +266,8 @@ mod tests {
     #[test]
     fn test_scheduler_device_registration() {
         let mut scheduler = IoScheduler::new();
-        scheduler.register_device_auto(
-            PathBuf::from("/Volumes/Shuttle_SSD"),
-            DeviceType::SSD,
-        );
-        scheduler.register_device_auto(
-            PathBuf::from("/Volumes/Archive_HDD"),
-            DeviceType::HDD,
-        );
+        scheduler.register_device_auto(PathBuf::from("/Volumes/Shuttle_SSD"), DeviceType::SSD);
+        scheduler.register_device_auto(PathBuf::from("/Volumes/Archive_HDD"), DeviceType::HDD);
 
         assert_eq!(scheduler.registered_devices().len(), 2);
     }
@@ -279,14 +275,8 @@ mod tests {
     #[test]
     fn test_scheduler_route_by_mount_point() {
         let mut scheduler = IoScheduler::new();
-        scheduler.register_device_auto(
-            PathBuf::from("/Volumes/SSD_RAID"),
-            DeviceType::SSD,
-        );
-        scheduler.register_device_auto(
-            PathBuf::from("/Volumes/Shuttle_HDD"),
-            DeviceType::HDD,
-        );
+        scheduler.register_device_auto(PathBuf::from("/Volumes/SSD_RAID"), DeviceType::SSD);
+        scheduler.register_device_auto(PathBuf::from("/Volumes/Shuttle_HDD"), DeviceType::HDD);
 
         // Route to SSD
         let queue = scheduler.get_device_queue(Path::new("/Volumes/SSD_RAID/project/clip.mov"));
@@ -306,14 +296,8 @@ mod tests {
     #[test]
     fn test_scheduler_longest_prefix_match() {
         let mut scheduler = IoScheduler::new();
-        scheduler.register_device_auto(
-            PathBuf::from("/Volumes"),
-            DeviceType::Unknown,
-        );
-        scheduler.register_device_auto(
-            PathBuf::from("/Volumes/Specific_SSD"),
-            DeviceType::SSD,
-        );
+        scheduler.register_device_auto(PathBuf::from("/Volumes"), DeviceType::Unknown);
+        scheduler.register_device_auto(PathBuf::from("/Volumes/Specific_SSD"), DeviceType::SSD);
 
         // Should match the more specific mount point
         let queue = scheduler.get_device_queue(Path::new("/Volumes/Specific_SSD/data/clip.mov"));

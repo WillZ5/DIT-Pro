@@ -98,14 +98,18 @@ pub fn get_volume_space(path: &Path) -> Result<VolumeSpaceInfo> {
     use std::ffi::CString;
     use std::mem::MaybeUninit;
 
-    let c_path = CString::new(path.to_string_lossy().as_ref())
-        .context("Invalid path for statvfs")?;
+    let c_path =
+        CString::new(path.to_string_lossy().as_ref()).context("Invalid path for statvfs")?;
 
     let mut stat = MaybeUninit::<libc::statvfs>::uninit();
     let ret = unsafe { libc::statvfs(c_path.as_ptr(), stat.as_mut_ptr()) };
 
     if ret != 0 {
-        anyhow::bail!("statvfs failed for {:?}: errno {}", path, std::io::Error::last_os_error());
+        anyhow::bail!(
+            "statvfs failed for {:?}: errno {}",
+            path,
+            std::io::Error::last_os_error()
+        );
     }
 
     let stat = unsafe { stat.assume_init() };
@@ -150,7 +154,10 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
 
     // Check for network filesystem protocols
     if info.contains("Protocol:") {
-        let proto_line = info.lines().find(|l| l.contains("Protocol:")).unwrap_or_default();
+        let proto_line = info
+            .lines()
+            .find(|l| l.contains("Protocol:"))
+            .unwrap_or_default();
         let proto = proto_line.to_lowercase();
         if proto.contains("smb") || proto.contains("nfs") || proto.contains("afp") {
             return DeviceType::Network;
@@ -166,7 +173,8 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
     let info_lower = info.to_lowercase();
 
     // Check "Solid State:" field  (Yes = SSD/NVMe)
-    let is_solid_state = info.lines()
+    let is_solid_state = info
+        .lines()
         .find(|l| l.contains("Solid State:"))
         .map(|l| l.contains("Yes"))
         .unwrap_or(false);
@@ -412,7 +420,8 @@ mod tests {
                 available_bytes INTEGER, device_type TEXT,
                 serial_number TEXT, last_seen_at TEXT, last_seen_by TEXT
             );",
-        ).unwrap();
+        )
+        .unwrap();
 
         let volume = VolumeInfo {
             id: "vol-001".to_string(),
@@ -455,7 +464,8 @@ mod tests {
                 available_bytes INTEGER, device_type TEXT,
                 serial_number TEXT, last_seen_at TEXT, last_seen_by TEXT
             );",
-        ).unwrap();
+        )
+        .unwrap();
 
         let vol = VolumeInfo {
             id: "v1".to_string(),

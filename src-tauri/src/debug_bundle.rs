@@ -79,8 +79,7 @@ fn collect_system_info() -> SystemInfo {
 fn gethostname_safe() -> String {
     #[cfg(unix)]
     {
-        let output = std::process::Command::new("hostname")
-            .output();
+        let output = std::process::Command::new("hostname").output();
         if let Ok(o) = output {
             if o.status.success() {
                 return String::from_utf8_lossy(&o.stdout).trim().to_string();
@@ -191,9 +190,7 @@ struct DiskInfo {
 fn collect_disk_info() -> Vec<DiskInfo> {
     #[cfg(unix)]
     {
-        let output = std::process::Command::new("df")
-            .args(["-Hl"])
-            .output();
+        let output = std::process::Command::new("df").args(["-Hl"]).output();
         if let Ok(o) = output {
             if o.status.success() {
                 let text = String::from_utf8_lossy(&o.stdout);
@@ -226,9 +223,11 @@ fn collect_disk_info() -> Vec<DiskInfo> {
 
 fn parse_df_size(s: &str) -> u64 {
     let s = s.trim();
-    if s.is_empty() { return 0; }
+    if s.is_empty() {
+        return 0;
+    }
     let last = s.chars().last().unwrap_or('0');
-    let num: f64 = s[..s.len()-1].parse().unwrap_or(0.0);
+    let num: f64 = s[..s.len() - 1].parse().unwrap_or(0.0);
     match last {
         'T' | 't' => (num * 1_000_000_000_000.0) as u64,
         'G' | 'g' => (num * 1_000_000_000.0) as u64,
@@ -274,33 +273,42 @@ fn collect_recent_jobs(conn: &Connection) -> Vec<RecentJob> {
         Err(_) => return Vec::new(),
     };
 
-    let jobs: Vec<(String, String, String, String, String, String)> = match stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, String>(5)?,
-        ))
-    }) {
-        Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
-        Err(_) => return Vec::new(),
-    };
+    let jobs: Vec<(String, String, String, String, String, String)> =
+        match stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        }) {
+            Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
+            Err(_) => return Vec::new(),
+        };
 
     jobs.into_iter()
         .map(|(id, name, status, source_path, created_at, updated_at)| {
             let task_summary = collect_task_summary(conn, &id);
-            RecentJob { id, name, status, source_path, created_at, updated_at, task_summary }
+            RecentJob {
+                id,
+                name,
+                status,
+                source_path,
+                created_at,
+                updated_at,
+                task_summary,
+            }
         })
         .collect()
 }
 
 fn collect_task_summary(conn: &Connection, job_id: &str) -> TaskSummary {
     let mut summary = TaskSummary::default();
-    let mut stmt = match conn.prepare(
-        "SELECT status, COUNT(*) FROM copy_tasks WHERE job_id = ?1 GROUP BY status"
-    ) {
+    let mut stmt = match conn
+        .prepare("SELECT status, COUNT(*) FROM copy_tasks WHERE job_id = ?1 GROUP BY status")
+    {
         Ok(s) => s,
         Err(_) => return summary,
     };
@@ -345,7 +353,7 @@ fn collect_failed_tasks(conn: &Connection) -> Vec<FailedTask> {
                 retry_count,
                 COALESCE(updated_at, '') as updated_at
          FROM copy_tasks WHERE status = 'failed'
-         ORDER BY updated_at DESC LIMIT 50"
+         ORDER BY updated_at DESC LIMIT 50",
     ) {
         Ok(s) => s,
         Err(_) => return Vec::new(),
@@ -485,10 +493,8 @@ pub fn create_debug_bundle(
     let filename = format!("dit-debug-v{}-{}.json", version.full_string, timestamp);
     let output_path = reports_dir.join(&filename);
 
-    let json = serde_json::to_string_pretty(&bundle)
-        .context("Failed to serialize debug bundle")?;
-    std::fs::write(&output_path, &json)
-        .context("Failed to write debug bundle file")?;
+    let json = serde_json::to_string_pretty(&bundle).context("Failed to serialize debug bundle")?;
+    std::fs::write(&output_path, &json).context("Failed to write debug bundle file")?;
 
     log::info!(
         "Debug bundle exported to {:?} ({} bytes, {} error entries, {} failed tasks)",
@@ -539,7 +545,11 @@ fn collect_log_tail(app_data_dir: &Path) -> Vec<String> {
     if let Some(latest_log) = log_files.first() {
         if let Ok(content) = std::fs::read_to_string(latest_log) {
             let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
-            let start = if lines.len() > 200 { lines.len() - 200 } else { 0 };
+            let start = if lines.len() > 200 {
+                lines.len() - 200
+            } else {
+                0
+            };
             return lines[start..].to_vec();
         }
     }

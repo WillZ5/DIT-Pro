@@ -51,7 +51,8 @@ fn generate_test_file(path: &Path, size: usize, seed: u64) {
         for i in 0..to_write {
             let pos = (written + i) as u64;
             buf[i] = (pos.wrapping_mul(seed.wrapping_add(7))
-                ^ pos.wrapping_mul(seed.wrapping_mul(13).wrapping_add(37))) as u8;
+                ^ pos.wrapping_mul(seed.wrapping_mul(13).wrapping_add(37)))
+                as u8;
         }
         f.write_all(&buf[..to_write]).unwrap();
         written += to_write;
@@ -67,13 +68,13 @@ fn generate_test_files_varied(dir: &Path, count: usize, seed: u64) -> Vec<(Strin
     let mut files = Vec::with_capacity(count);
     for i in 0..count {
         let size: usize = match i % 10 {
-            0 => 10 * 1024 * 1024,  // 10MB
-            1 => 5 * 1024 * 1024,   // 5MB
-            2 => 1024 * 1024,       // 1MB
-            3 | 4 => 500 * 1024,    // 500KB
-            5 | 6 => 100 * 1024,    // 100KB
-            7 | 8 => 10 * 1024,     // 10KB
-            _ => 1024,              // 1KB
+            0 => 10 * 1024 * 1024, // 10MB
+            1 => 5 * 1024 * 1024,  // 5MB
+            2 => 1024 * 1024,      // 1MB
+            3 | 4 => 500 * 1024,   // 500KB
+            5 | 6 => 100 * 1024,   // 100KB
+            7 | 8 => 10 * 1024,    // 10KB
+            _ => 1024,             // 1KB
         };
 
         // Distribute files across subdirectories for realism
@@ -84,7 +85,13 @@ fn generate_test_files_varied(dir: &Path, count: usize, seed: u64) -> Vec<(Strin
             3 => "audio",
             _ => "metadata",
         };
-        let ext = if i % 3 == 0 { "mov" } else if i % 3 == 1 { "wav" } else { "mxf" };
+        let ext = if i % 3 == 0 {
+            "mov"
+        } else if i % 3 == 1 {
+            "wav"
+        } else {
+            "mxf"
+        };
         let rel = format!("{}/clip_{:05}.{}", subdir, i, ext);
 
         generate_test_file(&dir.join(&rel), size, seed.wrapping_add(i as u64));
@@ -137,7 +144,11 @@ async fn verify_all_files_match(source: &Path, dests: &[PathBuf]) -> bool {
                 }
                 walk_files(&path, prefix, out);
             } else {
-                let rel = path.strip_prefix(prefix).unwrap().to_string_lossy().to_string();
+                let rel = path
+                    .strip_prefix(prefix)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
                 // Skip .DS_Store and hidden files
                 if !rel.starts_with('.') {
                     out.push(rel);
@@ -151,7 +162,9 @@ async fn verify_all_files_match(source: &Path, dests: &[PathBuf]) -> bool {
     src_files.sort();
 
     for rel in &src_files {
-        let src_hash = hash_engine::hash_file(&source.join(rel), &hash_cfg).await.unwrap();
+        let src_hash = hash_engine::hash_file(&source.join(rel), &hash_cfg)
+            .await
+            .unwrap();
         let src_digest = &src_hash[0].hex_digest;
 
         for dest in dests {
@@ -206,7 +219,10 @@ async fn stress_1000_files_2_dests() {
         "stress-1000",
         &source,
         &[dest1.clone(), dest2.clone()],
-        true, true, true, false,
+        true,
+        true,
+        true,
+        false,
     );
 
     let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -239,13 +255,18 @@ async fn stress_1000_files_2_dests() {
         let history = mhl::load_or_create_history(dest).await.unwrap();
         let chain_results = mhl::verify_chain(&history).await.unwrap();
         assert!(!chain_results.is_empty());
-        assert!(chain_results.iter().all(|(_, valid)| *valid), "MHL chain must be valid");
+        assert!(
+            chain_results.iter().all(|(_, valid)| *valid),
+            "MHL chain must be valid"
+        );
     }
 
     // Verify Complete event was emitted
     drop(workflow);
     let events = drain_events(rx).await;
-    assert!(events.iter().any(|e| matches!(e, OffloadEvent::Complete { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, OffloadEvent::Complete { .. })));
 }
 
 // ─── Category 2: Large File Size ─────────────────────────────────────────────
@@ -277,7 +298,10 @@ async fn stress_large_files_500mb() {
         "stress-large",
         &source,
         &[dest1.clone(), dest2.clone()],
-        true, true, false, false,
+        true,
+        true,
+        false,
+        false,
     );
 
     let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -308,7 +332,9 @@ async fn stress_large_files_500mb() {
 async fn stress_50_files_4_dests() {
     let tmp = tempdir().unwrap();
     let source = tmp.path().join("source");
-    let dests: Vec<PathBuf> = (0..4).map(|i| tmp.path().join(format!("dest_{}", i))).collect();
+    let dests: Vec<PathBuf> = (0..4)
+        .map(|i| tmp.path().join(format!("dest_{}", i)))
+        .collect();
     std::fs::create_dir_all(&source).unwrap();
 
     let _files = generate_test_files_varied(&source, 50, 77);
@@ -318,12 +344,7 @@ async fn stress_50_files_4_dests() {
     let db = wrap_db(conn);
     let (tx, _rx) = mpsc::unbounded_channel();
 
-    let config = make_config(
-        "stress-4dests",
-        &source,
-        &dests,
-        true, true, true, false,
-    );
+    let config = make_config("stress-4dests", &source, &dests, true, true, true, false);
 
     let workflow = OffloadWorkflow::new(config, db.clone(), tx);
     let result = workflow.execute().await.unwrap();
@@ -345,7 +366,11 @@ async fn stress_50_files_4_dests() {
 
     // MHL generated for all 4 destinations
     for dest in &dests {
-        assert!(dest.join("ascmhl").exists(), "MHL dir must exist for {:?}", dest);
+        assert!(
+            dest.join("ascmhl").exists(),
+            "MHL dir must exist for {:?}",
+            dest
+        );
     }
 }
 
@@ -371,7 +396,10 @@ async fn stress_cascade_100_files_3_dests() {
         "stress-cascade",
         &source,
         &[primary.clone(), secondary1.clone(), secondary2.clone()],
-        true, true, true, true, // cascade=true
+        true,
+        true,
+        true,
+        true, // cascade=true
     );
 
     let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -383,17 +411,25 @@ async fn stress_cascade_100_files_3_dests() {
 
     // All 3 destinations match source
     assert!(
-        verify_all_files_match(&source, &[primary.clone(), secondary1.clone(), secondary2.clone()])
-            .await
+        verify_all_files_match(
+            &source,
+            &[primary.clone(), secondary1.clone(), secondary2.clone()]
+        )
+        .await
     );
 
     // Cascading phase event must have been emitted
     drop(workflow);
     let events = drain_events(rx).await;
-    let has_cascade = events.iter().any(|e| matches!(
-        e,
-        OffloadEvent::PhaseChanged { phase: OffloadPhase::Cascading, .. }
-    ));
+    let has_cascade = events.iter().any(|e| {
+        matches!(
+            e,
+            OffloadEvent::PhaseChanged {
+                phase: OffloadPhase::Cascading,
+                ..
+            }
+        )
+    });
     assert!(has_cascade, "Cascading phase event must be emitted");
 
     // DB: 100 files × 3 dests = 300 tasks
@@ -477,17 +513,25 @@ async fn stress_interrupt_resume_200_files() {
         let conn = db.lock().unwrap();
         let progress = checkpoint::get_job_progress(&conn, "stress-interrupt").unwrap();
         completed_before = progress.completed;
-        assert!(completed_before >= 30, "At least 30 tasks completed before cancel");
+        assert!(
+            completed_before >= 30,
+            "At least 30 tasks completed before cancel"
+        );
         assert!(completed_before < 200, "Not all tasks should be completed");
     }
 
     // ── Phase 2: Recover and Resume ──
     {
         let conn = db.lock().unwrap();
-        let _recovered = checkpoint::recover_job(&conn, "stress-interrupt").await.unwrap();
+        let _recovered = checkpoint::recover_job(&conn, "stress-interrupt")
+            .await
+            .unwrap();
 
         let progress = checkpoint::get_job_progress(&conn, "stress-interrupt").unwrap();
-        assert_eq!(progress.copying, 0, "No tasks stuck in 'copying' after recovery");
+        assert_eq!(
+            progress.copying, 0,
+            "No tasks stuck in 'copying' after recovery"
+        );
     }
 
     let (tx2, _rx2) = mpsc::unbounded_channel();
@@ -515,7 +559,11 @@ async fn stress_interrupt_resume_200_files() {
     // All 200 files must exist in dest
     for i in 0..200 {
         let name = format!("clip_{:04}.mov", i);
-        assert!(dest.join(&name).exists(), "File {} must exist after resume", name);
+        assert!(
+            dest.join(&name).exists(),
+            "File {} must exist after resume",
+            name
+        );
     }
 
     // No .tmp files remain
@@ -579,7 +627,9 @@ async fn stress_throughput_benchmark() {
         let start_raw = Instant::now();
         loop {
             let n = src.read(&mut buf).await.unwrap();
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             dst.write_all(&buf[..n]).await.unwrap();
         }
         dst.flush().await.unwrap();
@@ -606,7 +656,10 @@ async fn stress_throughput_benchmark() {
         "bench",
         &source_dir,
         &[dest_engine.clone()],
-        false, false, false, false, // no verify, no MHL — pure copy+hash
+        false,
+        false,
+        false,
+        false, // no verify, no MHL — pure copy+hash
     );
 
     let start_engine = Instant::now();
@@ -624,10 +677,22 @@ async fn stress_throughput_benchmark() {
     println!("\n╔══════════════════════════════════════════════════════╗");
     println!("║        DIT Pro Copy Throughput Benchmark          ║");
     println!("╠══════════════════════════════════════════════════════╣");
-    println!("║ File size:                 {:>6} MB                  ║", file_size / (1024 * 1024));
-    println!("║ Raw buffered copy:    {:>8.1} MB/s ({:.2}s)          ║", raw_mbps, raw_secs);
-    println!("║ DIT (copy+XXH64+SHA256): {:>6.1} MB/s ({:.2}s)       ║", engine_mbps, engine_secs);
-    println!("║ Efficiency vs raw:       {:>5.1}%                     ║", efficiency);
+    println!(
+        "║ File size:                 {:>6} MB                  ║",
+        file_size / (1024 * 1024)
+    );
+    println!(
+        "║ Raw buffered copy:    {:>8.1} MB/s ({:.2}s)          ║",
+        raw_mbps, raw_secs
+    );
+    println!(
+        "║ DIT (copy+XXH64+SHA256): {:>6.1} MB/s ({:.2}s)       ║",
+        engine_mbps, engine_secs
+    );
+    println!(
+        "║ Efficiency vs raw:       {:>5.1}%                     ║",
+        efficiency
+    );
     println!("║ Target: >= 30% (dual-hash adds significant overhead) ║");
     println!("╚══════════════════════════════════════════════════════╝\n");
 
@@ -640,7 +705,10 @@ async fn stress_throughput_benchmark() {
             engine_mbps
         );
     } else {
-        println!("⚠ Skipping throughput assertion in debug build ({:.1} MB/s)", engine_mbps);
+        println!(
+            "⚠ Skipping throughput assertion in debug build ({:.1} MB/s)",
+            engine_mbps
+        );
     }
 
     // Note: Relative efficiency vs raw will be low because the raw baseline reads
@@ -670,7 +738,9 @@ async fn stress_3_concurrent_jobs() {
         sources.push(src);
     }
 
-    let dests: Vec<PathBuf> = (0..3).map(|i| tmp.path().join(format!("dest_{}", i))).collect();
+    let dests: Vec<PathBuf> = (0..3)
+        .map(|i| tmp.path().join(format!("dest_{}", i)))
+        .collect();
 
     // Shared database (tests WAL concurrent writes)
     let db_path = tmp.path().join("concurrent.db");
@@ -727,7 +797,8 @@ async fn stress_3_concurrent_jobs() {
     {
         let conn = db.lock().unwrap();
         for i in 0..3 {
-            let progress = checkpoint::get_job_progress(&conn, &format!("concurrent-{}", i)).unwrap();
+            let progress =
+                checkpoint::get_job_progress(&conn, &format!("concurrent-{}", i)).unwrap();
             assert_eq!(progress.completed, 50, "Job {} should have 50 completed", i);
             assert_eq!(progress.pending, 0);
             assert_eq!(progress.failed, 0);
@@ -764,7 +835,10 @@ async fn stress_mhl_chain_100_files() {
         "stress-mhl",
         &source,
         &[dest.clone()],
-        true, true, true, false,
+        true,
+        true,
+        true,
+        false,
     );
 
     let workflow = OffloadWorkflow::new(config, db, tx);
@@ -778,7 +852,10 @@ async fn stress_mhl_chain_100_files() {
     // MHL directory exists
     let ascmhl_dir = dest.join("ascmhl");
     assert!(ascmhl_dir.exists(), "ascmhl directory must exist");
-    assert!(ascmhl_dir.join("ascmhl_chain.xml").exists(), "chain file must exist");
+    assert!(
+        ascmhl_dir.join("ascmhl_chain.xml").exists(),
+        "chain file must exist"
+    );
 
     // Load and verify chain
     let history = mhl::load_or_create_history(&dest).await.unwrap();
@@ -793,7 +870,10 @@ async fn stress_mhl_chain_100_files() {
     // Manifest should contain hash entries for all 100 files
     let manifest_path = &result.mhl_paths[0];
     let manifest_content = tokio::fs::read_to_string(manifest_path).await.unwrap();
-    assert!(manifest_content.contains("<hashlist"), "Manifest must be valid XML");
+    assert!(
+        manifest_content.contains("<hashlist"),
+        "Manifest must be valid XML"
+    );
 
     // Count <hash> entries — should be at least 100
     let hash_count = manifest_content.matches("<hash>").count();
@@ -813,7 +893,9 @@ async fn stress_mhl_chain_100_files() {
     assert!(!tamper_results[0].1, "Tampering must be detected");
 
     // Restore original
-    tokio::fs::write(manifest_path, &manifest_content).await.unwrap();
+    tokio::fs::write(manifest_path, &manifest_content)
+        .await
+        .unwrap();
     let restore_results = mhl::verify_chain(&history).await.unwrap();
     assert!(restore_results[0].1, "Restored manifest must validate");
 }

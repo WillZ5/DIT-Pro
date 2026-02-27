@@ -203,7 +203,10 @@ async fn ac3_hash_entries_required_attributes() {
     // Each <hash> block should contain:
     //   <path size="..." lastmodificationdate="...">filename</path>
     //   <xxh64 action="..." hashdate="...">hexvalue</xxh64>
-    assert!(xml.contains("size=\"2048\""), "Hash entry must include file size");
+    assert!(
+        xml.contains("size=\"2048\""),
+        "Hash entry must include file size"
+    );
     assert!(
         xml.contains("lastmodificationdate="),
         "Hash entry must include last modification date"
@@ -222,8 +225,14 @@ async fn ac3_hash_entries_required_attributes() {
     );
 
     // Verify file paths are present
-    assert!(xml.contains("A001C0001.mov"), "Hash entry must include file path");
-    assert!(xml.contains("A001C0002.mov"), "Hash entry must include file path");
+    assert!(
+        xml.contains("A001C0001.mov"),
+        "Hash entry must include file path"
+    );
+    assert!(
+        xml.contains("A001C0002.mov"),
+        "Hash entry must include file path"
+    );
 
     println!("[AC-3.2] PASS: Hash entries contain all required attributes");
 }
@@ -535,10 +544,7 @@ fn ac5_day_report_html_complete_statistics() {
     );
 
     // Must contain status indicators
-    assert!(
-        html.contains("completed"),
-        "Report must show job statuses"
-    );
+    assert!(html.contains("completed"), "Report must show job statuses");
 
     println!("[AC-5.1] PASS: Day report HTML contains complete statistics");
 }
@@ -561,24 +567,31 @@ fn ac5_job_report_html_per_file_hashes() {
 
     // Add copy tasks with hash values
     let files = [
-        ("A001C0001.mov", 1073741824u64, "abc123def456", "e3b0c44298fc1c14"),
-        ("A001C0002.mov", 536870912, "789xyz000111", "9f86d081884c7d65"),
-        ("A001C0003.mov", 268435456, "feedfacecafe", "a591a6d40bf42040"),
+        (
+            "A001C0001.mov",
+            1073741824u64,
+            "abc123def456",
+            "e3b0c44298fc1c14",
+        ),
+        (
+            "A001C0002.mov",
+            536870912,
+            "789xyz000111",
+            "9f86d081884c7d65",
+        ),
+        (
+            "A001C0003.mov",
+            268435456,
+            "feedfacecafe",
+            "a591a6d40bf42040",
+        ),
     ];
 
     for (idx, (name, size, xxh, sha)) in files.iter().enumerate() {
         let source = format!("/Volumes/LUMIX/DCIM/{}", name);
         let dest = format!("/Volumes/A001/DIT_TEST/{}", name);
         let task_id = format!("task-{:03}", idx);
-        checkpoint::insert_task(
-            &conn,
-            &task_id,
-            "test-job-001",
-            &source,
-            &dest,
-            *size,
-        )
-        .unwrap();
+        checkpoint::insert_task(&conn, &task_id, "test-job-001", &source, &dest, *size).unwrap();
 
         // Mark completed with hashes
         conn.execute(
@@ -716,9 +729,11 @@ async fn ac5_report_from_offload_accurate() {
     // Get the job ID from DB
     let conn = db.lock().unwrap();
     let job_id: String = conn
-        .query_row("SELECT id FROM jobs ORDER BY created_at DESC LIMIT 1", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT id FROM jobs ORDER BY created_at DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
 
     // Get job report
@@ -782,10 +797,7 @@ fn ac7_cli_binary_builds() {
         .join("mhl-verify-cli")
         .join("Cargo.toml");
 
-    assert!(
-        cli_cargo.exists(),
-        "mhl-verify-cli/Cargo.toml must exist"
-    );
+    assert!(cli_cargo.exists(), "mhl-verify-cli/Cargo.toml must exist");
 
     let cargo_content = std::fs::read_to_string(&cli_cargo).unwrap();
     assert!(
@@ -982,8 +994,14 @@ fn ac7_hash_cross_verification() {
         .block_on(hash_engine::hash_file(&test_file, &hash_config))
         .unwrap();
 
-    let dit_xxh64 = dit_results.iter().find(|r| r.algorithm == HashAlgorithm::XXH64).unwrap();
-    let dit_sha256 = dit_results.iter().find(|r| r.algorithm == HashAlgorithm::SHA256).unwrap();
+    let dit_xxh64 = dit_results
+        .iter()
+        .find(|r| r.algorithm == HashAlgorithm::XXH64)
+        .unwrap();
+    let dit_sha256 = dit_results
+        .iter()
+        .find(|r| r.algorithm == HashAlgorithm::SHA256)
+        .unwrap();
 
     // Compute hash independently (as the CLI would)
     use sha2::Digest;

@@ -465,39 +465,203 @@ mod tests {
     fn test_all_codes_unique() {
         // Verify all error codes are unique by collecting them
         let errors: Vec<Box<dyn Fn() -> &'static str>> = vec![
-            Box::new(|| DitError::CopyReadFailed { path: String::new(), source: anyhow::anyhow!("") }.code()),
-            Box::new(|| DitError::CopyWriteFailed { path: String::new(), source: anyhow::anyhow!("") }.code()),
-            Box::new(|| DitError::CopyDiskFull { volume: String::new(), required: 0, available: 0 }.code()),
-            Box::new(|| DitError::CopyRenameFailed { path: String::new(), source: anyhow::anyhow!("") }.code()),
-            Box::new(|| DitError::CopySourceNotFound { path: String::new() }.code()),
-            Box::new(|| DitError::CopyDestNotWritable { path: String::new() }.code()),
+            Box::new(|| {
+                DitError::CopyReadFailed {
+                    path: String::new(),
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::CopyWriteFailed {
+                    path: String::new(),
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::CopyDiskFull {
+                    volume: String::new(),
+                    required: 0,
+                    available: 0,
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::CopyRenameFailed {
+                    path: String::new(),
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::CopySourceNotFound {
+                    path: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::CopyDestNotWritable {
+                    path: String::new(),
+                }
+                .code()
+            }),
             Box::new(|| DitError::CopyCancelled.code()),
-            Box::new(|| DitError::HashMismatch { path: String::new(), expected: String::new(), actual: String::new() }.code()),
-            Box::new(|| DitError::HashComputeFailed { path: String::new(), source: anyhow::anyhow!("") }.code()),
-            Box::new(|| DitError::HashUnsupportedAlgorithm { algorithm: String::new() }.code()),
-            Box::new(|| DitError::DbConnectionFailed { source: anyhow::anyhow!("") }.code()),
-            Box::new(|| DitError::DbQueryFailed { query_desc: String::new(), source: anyhow::anyhow!("") }.code()),
-            Box::new(|| DitError::DbMigrationFailed { source: anyhow::anyhow!("") }.code()),
+            Box::new(|| {
+                DitError::HashMismatch {
+                    path: String::new(),
+                    expected: String::new(),
+                    actual: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::HashComputeFailed {
+                    path: String::new(),
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::HashUnsupportedAlgorithm {
+                    algorithm: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::DbConnectionFailed {
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::DbQueryFailed {
+                    query_desc: String::new(),
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::DbMigrationFailed {
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
             Box::new(|| DitError::DbLockTimeout.code()),
-            Box::new(|| DitError::DbNotFound { desc: String::new() }.code()),
-            Box::new(|| DitError::ConfigParseFailed { detail: String::new(), source: anyhow::anyhow!("") }.code()),
-            Box::new(|| DitError::ConfigSaveFailed { source: anyhow::anyhow!("") }.code()),
-            Box::new(|| DitError::ConfigInvalidValue { field: String::new(), value: String::new() }.code()),
-            Box::new(|| DitError::IoDeviceNotFound { device: String::new() }.code()),
-            Box::new(|| DitError::IoPermissionDenied { path: String::new() }.code()),
-            Box::new(|| DitError::IoPathNotAccessible { path: String::new(), source: anyhow::anyhow!("") }.code()),
-            Box::new(|| DitError::IoDiskEjected { volume: String::new() }.code()),
-            Box::new(|| DitError::IoTmpCleanupFailed { path: String::new() }.code()),
-            Box::new(|| DitError::MhlChainCorrupt { path: String::new() }.code()),
-            Box::new(|| DitError::MhlWriteFailed { path: String::new(), source: anyhow::anyhow!("") }.code()),
-            Box::new(|| DitError::MhlVerifyFailed { detail: String::new() }.code()),
-            Box::new(|| DitError::SmtpConnectFailed { host: String::new(), source: anyhow::anyhow!("") }.code()),
-            Box::new(|| DitError::SmtpAuthFailed { username: String::new() }.code()),
-            Box::new(|| DitError::EmailSendFailed { source: anyhow::anyhow!("") }.code()),
+            Box::new(|| {
+                DitError::DbNotFound {
+                    desc: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::ConfigParseFailed {
+                    detail: String::new(),
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::ConfigSaveFailed {
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::ConfigInvalidValue {
+                    field: String::new(),
+                    value: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::IoDeviceNotFound {
+                    device: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::IoPermissionDenied {
+                    path: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::IoPathNotAccessible {
+                    path: String::new(),
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::IoDiskEjected {
+                    volume: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::IoTmpCleanupFailed {
+                    path: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::MhlChainCorrupt {
+                    path: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::MhlWriteFailed {
+                    path: String::new(),
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::MhlVerifyFailed {
+                    detail: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::SmtpConnectFailed {
+                    host: String::new(),
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::SmtpAuthFailed {
+                    username: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::EmailSendFailed {
+                    source: anyhow::anyhow!(""),
+                }
+                .code()
+            }),
             Box::new(|| DitError::SystemOom.code()),
-            Box::new(|| DitError::SystemPanic { detail: String::new() }.code()),
-            Box::new(|| DitError::SystemLockPoisoned { resource: String::new() }.code()),
-            Box::new(|| DitError::SystemUnknown { detail: String::new() }.code()),
+            Box::new(|| {
+                DitError::SystemPanic {
+                    detail: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::SystemLockPoisoned {
+                    resource: String::new(),
+                }
+                .code()
+            }),
+            Box::new(|| {
+                DitError::SystemUnknown {
+                    detail: String::new(),
+                }
+                .code()
+            }),
         ];
         let codes: Vec<&str> = errors.iter().map(|f| f()).collect();
         let mut unique = codes.clone();

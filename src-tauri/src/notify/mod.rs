@@ -44,13 +44,24 @@ impl NotifyEvent {
     /// Generate email subject line for this event.
     fn subject(&self) -> String {
         match self {
-            NotifyEvent::OffloadCompleted { job_name, file_count, .. } => {
-                format!("[DIT] Offload Complete: {} ({} files)", job_name, file_count)
+            NotifyEvent::OffloadCompleted {
+                job_name,
+                file_count,
+                ..
+            } => {
+                format!(
+                    "[DIT] Offload Complete: {} ({} files)",
+                    job_name, file_count
+                )
             }
             NotifyEvent::OffloadFailed { job_name, .. } => {
                 format!("[DIT] OFFLOAD FAILED: {}", job_name)
             }
-            NotifyEvent::VerificationFailed { job_name, failed_files, .. } => {
+            NotifyEvent::VerificationFailed {
+                job_name,
+                failed_files,
+                ..
+            } => {
                 format!(
                     "[DIT] Verification FAILED: {} ({} files)",
                     job_name,
@@ -126,7 +137,9 @@ impl NotifyEvent {
                     warnings_html = warnings_html,
                 )
             }
-            NotifyEvent::OffloadFailed { job_name, error, .. } => {
+            NotifyEvent::OffloadFailed {
+                job_name, error, ..
+            } => {
                 format!(
                     r#"<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:600px;margin:0 auto;background:#1a1a2e;color:#e0e0e0;border-radius:12px;overflow:hidden;">
   <div style="background:#f44336;padding:20px 24px;">
@@ -194,7 +207,10 @@ impl NotifyEvent {
 /// Returns empty string if file doesn't exist or can't be read.
 fn read_smtp_password(app_data_dir: &std::path::Path) -> String {
     let path = app_data_dir.join(".smtp_credential");
-    std::fs::read_to_string(&path).unwrap_or_default().trim().to_string()
+    std::fs::read_to_string(&path)
+        .unwrap_or_default()
+        .trim()
+        .to_string()
 }
 
 /// Send an email notification for the given event.
@@ -232,10 +248,7 @@ pub async fn send_notification(
         .context("Failed to build email message")?;
 
     let password = read_smtp_password(app_data_dir);
-    let creds = Credentials::new(
-        settings.smtp_username.clone(),
-        password,
-    );
+    let creds = Credentials::new(settings.smtp_username.clone(), password);
 
     let mailer = if settings.use_tls {
         AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&settings.smtp_host)
@@ -383,8 +396,10 @@ mod tests {
 
     #[test]
     fn test_html_escape() {
-        assert_eq!(html_escape("<script>alert('xss')</script>"),
-            "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;");
+        assert_eq!(
+            html_escape("<script>alert('xss')</script>"),
+            "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;"
+        );
     }
 
     #[test]

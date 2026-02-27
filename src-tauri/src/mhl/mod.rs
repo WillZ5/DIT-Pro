@@ -232,7 +232,11 @@ impl MhlHistory {
     }
 
     /// Generate the filename for a generation
-    pub fn generation_filename(root_name: &str, generation: u32, timestamp: &DateTime<Utc>) -> String {
+    pub fn generation_filename(
+        root_name: &str,
+        generation: u32,
+        timestamp: &DateTime<Utc>,
+    ) -> String {
         format!(
             "{:04}_{}_{}Z.mhl",
             generation,
@@ -357,7 +361,8 @@ pub async fn create_generation(
 
     // Ensure ascmhl directory exists
     let ascmhl_dir = history.ascmhl_dir();
-    tokio::fs::create_dir_all(&ascmhl_dir).await
+    tokio::fs::create_dir_all(&ascmhl_dir)
+        .await
         .context("Failed to create ascmhl directory")?;
 
     // Write the manifest XML
@@ -459,10 +464,7 @@ fn get_hostname() -> Option<String> {
 }
 
 /// Verify a manifest file's integrity against its chain entry
-pub async fn verify_chain_entry(
-    ascmhl_dir: &Path,
-    entry: &MhlChainEntry,
-) -> Result<bool> {
+pub async fn verify_chain_entry(ascmhl_dir: &Path, entry: &MhlChainEntry) -> Result<bool> {
     let manifest_path = ascmhl_dir.join(&entry.path);
     if !manifest_path.exists() {
         bail!("Manifest file not found: {:?}", manifest_path);
@@ -495,28 +497,40 @@ mod tests {
 
     #[test]
     fn test_should_ignore_ds_store() {
-        let patterns: Vec<String> = DEFAULT_IGNORE_PATTERNS.iter().map(|s| s.to_string()).collect();
+        let patterns: Vec<String> = DEFAULT_IGNORE_PATTERNS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert!(should_ignore(".DS_Store", &patterns));
         assert!(should_ignore("Clips/.DS_Store", &patterns));
     }
 
     #[test]
     fn test_should_ignore_tmp_wildcard() {
-        let patterns: Vec<String> = DEFAULT_IGNORE_PATTERNS.iter().map(|s| s.to_string()).collect();
+        let patterns: Vec<String> = DEFAULT_IGNORE_PATTERNS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert!(should_ignore("file.tmp", &patterns));
         assert!(should_ignore("subdir/data.tmp", &patterns));
     }
 
     #[test]
     fn test_should_ignore_ascmhl_dir() {
-        let patterns: Vec<String> = DEFAULT_IGNORE_PATTERNS.iter().map(|s| s.to_string()).collect();
+        let patterns: Vec<String> = DEFAULT_IGNORE_PATTERNS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert!(should_ignore("ascmhl/0001_test.mhl", &patterns));
         assert!(should_ignore("ascmhl", &patterns));
     }
 
     #[test]
     fn test_should_not_ignore_normal_files() {
-        let patterns: Vec<String> = DEFAULT_IGNORE_PATTERNS.iter().map(|s| s.to_string()).collect();
+        let patterns: Vec<String> = DEFAULT_IGNORE_PATTERNS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert!(!should_ignore("Clips/A001C001.mov", &patterns));
         assert!(!should_ignore("Sidecar.txt", &patterns));
         assert!(!should_ignore("subfolder/data.r3d", &patterns));
@@ -556,8 +570,16 @@ mod tests {
             root_path: PathBuf::from("/tmp/test"),
             root_name: "test".to_string(),
             chain: vec![
-                MhlChainEntry { sequence_nr: 1, path: "0001.mhl".to_string(), reference_hash: "abc".to_string() },
-                MhlChainEntry { sequence_nr: 2, path: "0002.mhl".to_string(), reference_hash: "def".to_string() },
+                MhlChainEntry {
+                    sequence_nr: 1,
+                    path: "0001.mhl".to_string(),
+                    reference_hash: "abc".to_string(),
+                },
+                MhlChainEntry {
+                    sequence_nr: 2,
+                    path: "0002.mhl".to_string(),
+                    reference_hash: "def".to_string(),
+                },
             ],
         };
         assert_eq!(history.next_generation(), 3);
@@ -632,8 +654,12 @@ mod tests {
         tokio::fs::create_dir_all(&root).await.unwrap();
 
         // Create some test files
-        tokio::fs::write(root.join("clip1.mov"), b"video data 1").await.unwrap();
-        tokio::fs::write(root.join("clip2.mov"), b"video data 2").await.unwrap();
+        tokio::fs::write(root.join("clip1.mov"), b"video data 1")
+            .await
+            .unwrap();
+        tokio::fs::write(root.join("clip2.mov"), b"video data 2")
+            .await
+            .unwrap();
 
         let mut history = load_or_create_history(&root).await.unwrap();
         assert_eq!(history.next_generation(), 1);

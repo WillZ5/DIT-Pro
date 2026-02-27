@@ -31,9 +31,7 @@ use std::path::Path;
 
 use crate::hash_engine::HashAlgorithm;
 
-use super::{
-    MhlChainEntry, MhlGeneration, MhlHashEntry, CHAIN_NAMESPACE, MHL_NAMESPACE,
-};
+use super::{MhlChainEntry, MhlGeneration, MhlHashEntry, CHAIN_NAMESPACE, MHL_NAMESPACE};
 
 /// Convert a HashAlgorithm to the ASC MHL XML element name
 fn algorithm_to_xml_name(algo: &HashAlgorithm) -> &'static str {
@@ -196,10 +194,7 @@ fn write_process_info(
 }
 
 /// Write <hashes> section with all file entries
-fn write_hashes(
-    writer: &mut Writer<Cursor<Vec<u8>>>,
-    generation: &MhlGeneration,
-) -> Result<()> {
+fn write_hashes(writer: &mut Writer<Cursor<Vec<u8>>>, generation: &MhlGeneration) -> Result<()> {
     writer.write_event(Event::Start(BytesStart::new("hashes")))?;
 
     // File hash entries
@@ -254,10 +249,7 @@ fn write_hashes(
 }
 
 /// Write a single <hash> entry for a file
-fn write_hash_entry(
-    writer: &mut Writer<Cursor<Vec<u8>>>,
-    entry: &MhlHashEntry,
-) -> Result<()> {
+fn write_hash_entry(writer: &mut Writer<Cursor<Vec<u8>>>, entry: &MhlHashEntry) -> Result<()> {
     writer.write_event(Event::Start(BytesStart::new("hash")))?;
 
     // <path size="..." lastmodificationdate="...">relative/path</path>
@@ -309,11 +301,7 @@ fn write_hash_element(
 }
 
 /// Helper: write a simple <tag>text</tag> element
-fn write_text_element(
-    writer: &mut Writer<Cursor<Vec<u8>>>,
-    tag: &str,
-    text: &str,
-) -> Result<()> {
+fn write_text_element(writer: &mut Writer<Cursor<Vec<u8>>>, tag: &str, text: &str) -> Result<()> {
     writer.write_event(Event::Start(BytesStart::new(tag)))?;
     writer.write_event(Event::Text(BytesText::new(text)))?;
     writer.write_event(Event::End(BytesEnd::new(tag)))?;
@@ -397,9 +385,7 @@ fn parse_chain_xml(xml_bytes: &[u8]) -> Result<Vec<MhlChainEntry>> {
                         let mut seq_nr: u32 = 0;
                         for attr in e.attributes().flatten() {
                             if attr.key.as_ref() == b"sequencenr" {
-                                seq_nr = String::from_utf8_lossy(&attr.value)
-                                    .parse()
-                                    .unwrap_or(0);
+                                seq_nr = String::from_utf8_lossy(&attr.value).parse().unwrap_or(0);
                             }
                         }
                         current_entry = Some(MhlChainEntry {
@@ -435,7 +421,11 @@ fn parse_chain_xml(xml_bytes: &[u8]) -> Result<Vec<MhlChainEntry>> {
             }
             Ok(Event::Eof) => break,
             Err(e) => {
-                anyhow::bail!("Error parsing chain XML at position {}: {:?}", reader.buffer_position(), e);
+                anyhow::bail!(
+                    "Error parsing chain XML at position {}: {:?}",
+                    reader.buffer_position(),
+                    e
+                );
             }
             _ => {}
         }

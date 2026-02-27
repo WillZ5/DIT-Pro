@@ -87,7 +87,8 @@ impl VersionInfo {
             (None, None) => None,
         };
 
-        let full_string = Self::format_full(&version, pre_release.as_deref(), build_meta.as_deref());
+        let full_string =
+            Self::format_full(&version, pre_release.as_deref(), build_meta.as_deref());
 
         Self {
             version,
@@ -153,20 +154,35 @@ mod tests {
 
     #[test]
     fn test_channel_detection() {
-        assert_eq!(VersionInfo::derive_channel("0.5.0", None), ReleaseChannel::Dev);
-        assert_eq!(VersionInfo::derive_channel("1.0.0", None), ReleaseChannel::Stable);
-        assert_eq!(VersionInfo::derive_channel("0.6.0", Some("alpha.1")), ReleaseChannel::Alpha);
-        assert_eq!(VersionInfo::derive_channel("0.6.0", Some("beta.2")), ReleaseChannel::Beta);
-        assert_eq!(VersionInfo::derive_channel("1.0.0", Some("rc.1")), ReleaseChannel::Rc);
-        assert_eq!(VersionInfo::derive_channel("0.5.0", Some("dev")), ReleaseChannel::Dev);
+        assert_eq!(
+            VersionInfo::derive_channel("0.5.0", None),
+            ReleaseChannel::Dev
+        );
+        assert_eq!(
+            VersionInfo::derive_channel("1.0.0", None),
+            ReleaseChannel::Stable
+        );
+        assert_eq!(
+            VersionInfo::derive_channel("0.6.0", Some("alpha.1")),
+            ReleaseChannel::Alpha
+        );
+        assert_eq!(
+            VersionInfo::derive_channel("0.6.0", Some("beta.2")),
+            ReleaseChannel::Beta
+        );
+        assert_eq!(
+            VersionInfo::derive_channel("1.0.0", Some("rc.1")),
+            ReleaseChannel::Rc
+        );
+        assert_eq!(
+            VersionInfo::derive_channel("0.5.0", Some("dev")),
+            ReleaseChannel::Dev
+        );
     }
 
     #[test]
     fn test_full_string_format() {
-        assert_eq!(
-            VersionInfo::format_full("1.0.0", None, None),
-            "1.0.0"
-        );
+        assert_eq!(VersionInfo::format_full("1.0.0", None, None), "1.0.0");
         assert_eq!(
             VersionInfo::format_full("0.6.0", Some("alpha.1"), None),
             "0.6.0-alpha.1"

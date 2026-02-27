@@ -80,13 +80,22 @@ async fn test_power_failure_mid_copy_recovery() {
     // Create 5 source files
     for i in 1..=5 {
         let content = format!("source data for file {}", i);
-        tokio::fs::write(src_dir.path().join(format!("clip{}.mov", i)), content.as_bytes())
-            .await
-            .unwrap();
+        tokio::fs::write(
+            src_dir.path().join(format!("clip{}.mov", i)),
+            content.as_bytes(),
+        )
+        .await
+        .unwrap();
     }
 
     let conn = setup_db();
-    checkpoint::create_job(&conn, "job-power", "Power Failure Test", src_dir.path().to_str().unwrap()).unwrap();
+    checkpoint::create_job(
+        &conn,
+        "job-power",
+        "Power Failure Test",
+        src_dir.path().to_str().unwrap(),
+    )
+    .unwrap();
 
     // Insert 5 tasks
     for i in 1..=5 {
@@ -94,10 +103,19 @@ async fn test_power_failure_mid_copy_recovery() {
             &conn,
             &format!("t-{}", i),
             "job-power",
-            src_dir.path().join(format!("clip{}.mov", i)).to_str().unwrap(),
-            dst_dir.path().join(format!("clip{}.mov", i)).to_str().unwrap(),
+            src_dir
+                .path()
+                .join(format!("clip{}.mov", i))
+                .to_str()
+                .unwrap(),
+            dst_dir
+                .path()
+                .join(format!("clip{}.mov", i))
+                .to_str()
+                .unwrap(),
             100,
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // Simulate: File 1-2 completed
@@ -106,7 +124,9 @@ async fn test_power_failure_mid_copy_recovery() {
         tokio::fs::write(
             dst_dir.path().join(format!("clip{}.mov", i)),
             content.as_bytes(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         let hashes = hash_bytes(content.as_bytes(), &[HashAlgorithm::XXH64]);
         checkpoint::update_task_completed(
@@ -114,14 +134,17 @@ async fn test_power_failure_mid_copy_recovery() {
             &format!("t-{}", i),
             Some(&hashes[0].hex_digest),
             None,
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // Simulate: File 3 was being written when power cut (only .tmp exists)
     checkpoint::update_task_status(&conn, "t-3", STATUS_COPYING).unwrap();
     let dest_3 = dst_dir.path().join("clip3.mov");
     let tmp_3 = AtomicWriter::temp_path_for(&dest_3);
-    tokio::fs::write(&tmp_3, b"partial data - not complete").await.unwrap();
+    tokio::fs::write(&tmp_3, b"partial data - not complete")
+        .await
+        .unwrap();
 
     // File 4-5 still pending (untouched)
 
@@ -176,25 +199,37 @@ async fn test_cable_pull_multi_destination_recovery() {
         .unwrap();
 
     let conn = setup_db();
-    checkpoint::create_job(&conn, "job-cable", "Cable Pull Test", src_dir.path().to_str().unwrap()).unwrap();
+    checkpoint::create_job(
+        &conn,
+        "job-cable",
+        "Cable Pull Test",
+        src_dir.path().to_str().unwrap(),
+    )
+    .unwrap();
 
     // Two copy tasks for the same file to different destinations
     let dst1_path = dst1_dir.path().join("A001C001.R3D");
     let dst2_path = dst2_dir.path().join("A001C001.R3D");
 
     checkpoint::insert_task(
-        &conn, "t-dst1", "job-cable",
+        &conn,
+        "t-dst1",
+        "job-cable",
         src_dir.path().join("A001C001.R3D").to_str().unwrap(),
         dst1_path.to_str().unwrap(),
         source_data.len() as u64,
-    ).unwrap();
+    )
+    .unwrap();
 
     checkpoint::insert_task(
-        &conn, "t-dst2", "job-cable",
+        &conn,
+        "t-dst2",
+        "job-cable",
         src_dir.path().join("A001C001.R3D").to_str().unwrap(),
         dst2_path.to_str().unwrap(),
         source_data.len() as u64,
-    ).unwrap();
+    )
+    .unwrap();
 
     // Simulate: both were actively copying when cable was pulled
     checkpoint::update_task_status(&conn, "t-dst1", STATUS_COPYING).unwrap();
@@ -302,7 +337,15 @@ async fn test_recovery_all_completed_noop() {
 async fn test_repeated_failure_retry_tracking() {
     let conn = setup_db();
     checkpoint::create_job(&conn, "job-retry", "Retry Test", "/src").unwrap();
-    checkpoint::insert_task(&conn, "t-1", "job-retry", "/src/bad.mov", "/dst/bad.mov", 500).unwrap();
+    checkpoint::insert_task(
+        &conn,
+        "t-1",
+        "job-retry",
+        "/src/bad.mov",
+        "/dst/bad.mov",
+        500,
+    )
+    .unwrap();
 
     // Simulate 3 failed attempts
     checkpoint::update_task_failed(&conn, "t-1", "IO error: read failed").unwrap();
@@ -313,19 +356,23 @@ async fn test_repeated_failure_retry_tracking() {
     assert_eq!(progress.failed, 1);
 
     // Verify retry count is 3 in the database
-    let retry_count: i32 = conn.query_row(
-        "SELECT retry_count FROM copy_tasks WHERE id = 't-1'",
-        [],
-        |row| row.get(0),
-    ).unwrap();
+    let retry_count: i32 = conn
+        .query_row(
+            "SELECT retry_count FROM copy_tasks WHERE id = 't-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(retry_count, 3);
 
     // Error message should be the latest
-    let error_msg: String = conn.query_row(
-        "SELECT error_msg FROM copy_tasks WHERE id = 't-1'",
-        [],
-        |row| row.get(0),
-    ).unwrap();
+    let error_msg: String = conn
+        .query_row(
+            "SELECT error_msg FROM copy_tasks WHERE id = 't-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert!(error_msg.contains("retry 3"));
 }
 
@@ -338,12 +385,24 @@ async fn test_orphaned_tmp_cleanup() {
     let dir = tempdir().unwrap();
 
     // Create a mix of files
-    tokio::fs::write(dir.path().join("clip1.mov"), b"good file").await.unwrap();
-    tokio::fs::write(dir.path().join("clip2.mov"), b"good file 2").await.unwrap();
-    tokio::fs::write(dir.path().join("clip3.mov.tmp"), b"orphaned tmp 1").await.unwrap();
-    tokio::fs::write(dir.path().join("clip4.r3d.tmp"), b"orphaned tmp 2").await.unwrap();
-    tokio::fs::write(dir.path().join("clip5.braw.tmp"), b"orphaned tmp 3").await.unwrap();
-    tokio::fs::write(dir.path().join("readme.txt"), b"notes").await.unwrap();
+    tokio::fs::write(dir.path().join("clip1.mov"), b"good file")
+        .await
+        .unwrap();
+    tokio::fs::write(dir.path().join("clip2.mov"), b"good file 2")
+        .await
+        .unwrap();
+    tokio::fs::write(dir.path().join("clip3.mov.tmp"), b"orphaned tmp 1")
+        .await
+        .unwrap();
+    tokio::fs::write(dir.path().join("clip4.r3d.tmp"), b"orphaned tmp 2")
+        .await
+        .unwrap();
+    tokio::fs::write(dir.path().join("clip5.braw.tmp"), b"orphaned tmp 3")
+        .await
+        .unwrap();
+    tokio::fs::write(dir.path().join("readme.txt"), b"notes")
+        .await
+        .unwrap();
 
     let cleaned = atomic_writer::cleanup_tmp_files(dir.path()).await.unwrap();
 
@@ -375,8 +434,7 @@ async fn test_corruption_detection_via_hash() {
 
     // Hashes must be different
     assert_ne!(
-        original_hash[0].hex_digest,
-        corrupted_hash[0].hex_digest,
+        original_hash[0].hex_digest, corrupted_hash[0].hex_digest,
         "Single-byte corruption MUST produce different hash"
     );
 
@@ -420,7 +478,9 @@ async fn test_mhl_chain_detects_manifest_tampering() {
         &file_metadata,
         MhlProcessType::Transfer,
         &MhlConfig::default(),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     // Before tampering: chain is valid
     let results_ok = mhl::verify_chain(&history).await.unwrap();
@@ -433,7 +493,10 @@ async fn test_mhl_chain_detects_manifest_tampering() {
 
     // After tampering: chain should detect the corruption
     let results_tampered = mhl::verify_chain(&history).await.unwrap();
-    assert!(!results_tampered[0].1, "Chain MUST detect manifest tampering");
+    assert!(
+        !results_tampered[0].1,
+        "Chain MUST detect manifest tampering"
+    );
 }
 
 // ─── Scenario 9: Large Job Recovery — Many Files ─────────────────────────
@@ -457,7 +520,8 @@ async fn test_large_job_recovery_100_files() {
             &format!("/src/clip_{:04}.mov", i),
             dest.to_str().unwrap(),
             1_000_000,
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // Complete first 60
@@ -467,7 +531,8 @@ async fn test_large_job_recovery_100_files() {
             &format!("t-{}", i),
             Some(&format!("hash_{}", i)),
             None,
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // Mark tasks 61-65 as in-progress (crash happened here)
@@ -494,7 +559,11 @@ async fn test_large_job_recovery_100_files() {
     // All .tmp files cleaned
     for i in 61..=65 {
         let tmp_path = dst_dir.path().join(format!("clip_{:04}.mov.tmp", i));
-        assert!(!tmp_path.exists(), "tmp file for clip_{:04} should be cleaned", i);
+        assert!(
+            !tmp_path.exists(),
+            "tmp file for clip_{:04} should be cleaned",
+            i
+        );
     }
 
     let progress_after = checkpoint::get_job_progress(&conn, "job-large").unwrap();

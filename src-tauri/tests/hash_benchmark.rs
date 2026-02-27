@@ -50,7 +50,11 @@ fn benchmark_hash_throughput() {
     }
 
     println!("\n=== DIT Pro Hash Engine Throughput Benchmark ===");
-    println!("Data size: {} MB, Chunk size: {} MB\n", BENCHMARK_SIZE / (1024*1024), CHUNK_SIZE / (1024*1024));
+    println!(
+        "Data size: {} MB, Chunk size: {} MB\n",
+        BENCHMARK_SIZE / (1024 * 1024),
+        CHUNK_SIZE / (1024 * 1024)
+    );
 
     // Benchmark individual algorithms
     let algorithms = vec![
@@ -69,10 +73,7 @@ fn benchmark_hash_throughput() {
 
     // Benchmark multi-algorithm (common use case: XXH64 + SHA-256)
     println!();
-    let multi_gbps = benchmark_multi(
-        &[HashAlgorithm::XXH64, HashAlgorithm::SHA256],
-        &data,
-    );
+    let multi_gbps = benchmark_multi(&[HashAlgorithm::XXH64, HashAlgorithm::SHA256], &data);
     println!(
         "XXH64+SHA256 combined : {:.2} Gbps ({:.2} GB/s)",
         multi_gbps,
@@ -80,7 +81,12 @@ fn benchmark_hash_throughput() {
     );
 
     let all_gbps = benchmark_multi(
-        &[HashAlgorithm::XXH64, HashAlgorithm::XXH3, HashAlgorithm::SHA256, HashAlgorithm::MD5],
+        &[
+            HashAlgorithm::XXH64,
+            HashAlgorithm::XXH3,
+            HashAlgorithm::SHA256,
+            HashAlgorithm::MD5,
+        ],
         &data,
     );
     println!(

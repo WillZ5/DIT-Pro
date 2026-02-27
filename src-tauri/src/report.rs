@@ -198,9 +198,8 @@ pub fn get_job_report(conn: &Connection, job_id: &str) -> Result<JobReport> {
 
 /// Get all dates that have jobs (for date picker in frontend).
 pub fn get_report_dates(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT date(created_at) as d FROM jobs ORDER BY d DESC",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT DISTINCT date(created_at) as d FROM jobs ORDER BY d DESC")?;
     let dates: Vec<String> = stmt
         .query_map([], |row| row.get(0))?
         .collect::<std::result::Result<Vec<_>, _>>()
@@ -371,7 +370,11 @@ pub fn render_job_report_html(report: &JobReport) -> String {
             status_class = status_class,
             status = html_escape(&task.status),
             xxh64 = task.hash_xxh64.as_deref().unwrap_or("—"),
-            sha256 = task.hash_sha256.as_deref().map(|s| &s[..16.min(s.len())]).unwrap_or("—"),
+            sha256 = task
+                .hash_sha256
+                .as_deref()
+                .map(|s| &s[..16.min(s.len())])
+                .unwrap_or("—"),
         ));
     }
     html.push_str("</table>\n");
@@ -389,10 +392,7 @@ pub fn render_job_report_html(report: &JobReport) -> String {
 /// Generate a plain-text day report string (aligned text table).
 pub fn render_day_report_txt(report: &DayReport) -> String {
     let mut txt = String::new();
-    txt.push_str(&format!(
-        "DIT Pro — Shooting Day Report: {}\n",
-        report.date
-    ));
+    txt.push_str(&format!("DIT Pro — Shooting Day Report: {}\n", report.date));
     txt.push_str(&"=".repeat(72));
     txt.push('\n');
     txt.push_str(&format!(
@@ -434,10 +434,7 @@ pub fn render_day_report_txt(report: &DayReport) -> String {
 pub fn render_job_report_txt(report: &JobReport) -> String {
     let s = &report.summary;
     let mut txt = String::new();
-    txt.push_str(&format!(
-        "DIT Pro — Job Report: {}\n",
-        s.job_name
-    ));
+    txt.push_str(&format!("DIT Pro — Job Report: {}\n", s.job_name));
     txt.push_str(&"=".repeat(90));
     txt.push('\n');
     txt.push_str(&format!("Source:  {}\n", s.source_path));
@@ -502,8 +499,7 @@ pub fn save_report(app_data_dir: &Path, filename: &str, html: &str) -> Result<Pa
         .with_context(|| format!("Cannot create reports directory: {:?}", report_dir))?;
 
     let path = report_dir.join(filename);
-    std::fs::write(&path, html)
-        .with_context(|| format!("Failed to write report: {:?}", path))?;
+    std::fs::write(&path, html).with_context(|| format!("Failed to write report: {:?}", path))?;
 
     Ok(path)
 }
@@ -541,7 +537,13 @@ fn query_job_stats(conn: &Connection, job_id: &str) -> Result<(usize, usize, usi
         |row| row.get(0),
     )?;
 
-    Ok((total_files, completed_files, failed_files, total_bytes, completed_bytes))
+    Ok((
+        total_files,
+        completed_files,
+        failed_files,
+        total_bytes,
+        completed_bytes,
+    ))
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -642,12 +644,40 @@ mod tests {
     fn test_day_report_with_jobs() {
         let conn = test_db();
         insert_test_job(&conn, "job-1", "Day 1 A-Cam", "completed");
-        insert_test_task(&conn, "job-1", "/src/A001.mov", "/dst/A001.mov", 1000, "completed");
-        insert_test_task(&conn, "job-1", "/src/A002.mov", "/dst/A002.mov", 2000, "completed");
+        insert_test_task(
+            &conn,
+            "job-1",
+            "/src/A001.mov",
+            "/dst/A001.mov",
+            1000,
+            "completed",
+        );
+        insert_test_task(
+            &conn,
+            "job-1",
+            "/src/A002.mov",
+            "/dst/A002.mov",
+            2000,
+            "completed",
+        );
 
         insert_test_job(&conn, "job-2", "Day 1 B-Cam", "completed_with_errors");
-        insert_test_task(&conn, "job-2", "/src/B001.mov", "/dst/B001.mov", 500, "completed");
-        insert_test_task(&conn, "job-2", "/src/B002.mov", "/dst/B002.mov", 500, "failed");
+        insert_test_task(
+            &conn,
+            "job-2",
+            "/src/B001.mov",
+            "/dst/B001.mov",
+            500,
+            "completed",
+        );
+        insert_test_task(
+            &conn,
+            "job-2",
+            "/src/B002.mov",
+            "/dst/B002.mov",
+            500,
+            "failed",
+        );
 
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let report = get_day_report(&conn, &today).unwrap();
@@ -663,8 +693,22 @@ mod tests {
     fn test_job_report_detail() {
         let conn = test_db();
         insert_test_job(&conn, "job-detail", "Detail Test", "completed");
-        insert_test_task(&conn, "job-detail", "/src/clip.mov", "/dst1/clip.mov", 5000, "completed");
-        insert_test_task(&conn, "job-detail", "/src/clip.mov", "/dst2/clip.mov", 5000, "completed");
+        insert_test_task(
+            &conn,
+            "job-detail",
+            "/src/clip.mov",
+            "/dst1/clip.mov",
+            5000,
+            "completed",
+        );
+        insert_test_task(
+            &conn,
+            "job-detail",
+            "/src/clip.mov",
+            "/dst2/clip.mov",
+            5000,
+            "completed",
+        );
 
         let report = get_job_report(&conn, "job-detail").unwrap();
         assert_eq!(report.summary.total_files, 2);
@@ -729,16 +773,14 @@ mod tests {
                 completed_bytes: 2048,
                 created_at: "2026-02-25 09:00:00".to_string(),
             },
-            tasks: vec![
-                TaskDetail {
-                    source_path: "/Volumes/CARD/clip.mov".to_string(),
-                    dest_path: "/Volumes/SSD/clip.mov".to_string(),
-                    file_size: 1024,
-                    status: "completed".to_string(),
-                    hash_xxh64: Some("abc123def456".to_string()),
-                    hash_sha256: Some("0123456789abcdef0123456789abcdef".to_string()),
-                },
-            ],
+            tasks: vec![TaskDetail {
+                source_path: "/Volumes/CARD/clip.mov".to_string(),
+                dest_path: "/Volumes/SSD/clip.mov".to_string(),
+                file_size: 1024,
+                status: "completed".to_string(),
+                hash_xxh64: Some("abc123def456".to_string()),
+                hash_sha256: Some("0123456789abcdef0123456789abcdef".to_string()),
+            }],
             dest_paths: vec!["/Volumes/SSD".to_string()],
         };
 

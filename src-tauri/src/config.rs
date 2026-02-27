@@ -100,11 +100,26 @@ pub struct IoSchedulingSettings {
 impl Default for IoSchedulingSettings {
     fn default() -> Self {
         Self {
-            hdd: DeviceIoConfig { max_concurrent: 1, buffer_size_mb: 1 },
-            ssd: DeviceIoConfig { max_concurrent: 4, buffer_size_mb: 4 },
-            nvme: DeviceIoConfig { max_concurrent: 8, buffer_size_mb: 8 },
-            raid: DeviceIoConfig { max_concurrent: 4, buffer_size_mb: 4 },
-            network: DeviceIoConfig { max_concurrent: 2, buffer_size_mb: 1 },
+            hdd: DeviceIoConfig {
+                max_concurrent: 1,
+                buffer_size_mb: 1,
+            },
+            ssd: DeviceIoConfig {
+                max_concurrent: 4,
+                buffer_size_mb: 4,
+            },
+            nvme: DeviceIoConfig {
+                max_concurrent: 8,
+                buffer_size_mb: 8,
+            },
+            raid: DeviceIoConfig {
+                max_concurrent: 4,
+                buffer_size_mb: 4,
+            },
+            network: DeviceIoConfig {
+                max_concurrent: 2,
+                buffer_size_mb: 1,
+            },
         }
     }
 }
@@ -217,16 +232,15 @@ pub fn load_settings(app_data_dir: &Path) -> Result<AppSettings> {
     }
     let data = std::fs::read_to_string(&path)
         .with_context(|| format!("Failed to read settings from {:?}", path))?;
-    let settings: AppSettings = serde_json::from_str(&data)
-        .with_context(|| "Failed to parse settings JSON")?;
+    let settings: AppSettings =
+        serde_json::from_str(&data).with_context(|| "Failed to parse settings JSON")?;
     Ok(settings)
 }
 
 /// Save settings to disk (pretty-printed JSON).
 pub fn save_settings(app_data_dir: &Path, settings: &AppSettings) -> Result<()> {
     let path = settings_path(app_data_dir);
-    let data = serde_json::to_string_pretty(settings)
-        .context("Failed to serialize settings")?;
+    let data = serde_json::to_string_pretty(settings).context("Failed to serialize settings")?;
     std::fs::write(&path, data)
         .with_context(|| format!("Failed to write settings to {:?}", path))?;
     Ok(())

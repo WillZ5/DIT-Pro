@@ -13,12 +13,12 @@ use tauri::{Emitter, State};
 
 use crate::checkpoint::{self, JobProgress};
 use crate::config::{self, AppSettings};
-use crate::notify::{self, NotifyEvent};
-use crate::preset::{self, WorkflowPreset};
-use crate::report::{self, DayReport, JobReport};
 use crate::hash_engine::{self, HashAlgorithm, HashEngineConfig, HashResult};
 use crate::io_scheduler::IoScheduler;
 use crate::mhl::{self, MhlConfig, MhlProcessType};
+use crate::notify::{self, NotifyEvent};
+use crate::preset::{self, WorkflowPreset};
+use crate::report::{self, DayReport, JobReport};
 use crate::volume::{self, DeviceType, VolumeSpaceInfo};
 use crate::workflow::{self, CancelToken, PauseToken};
 
@@ -65,10 +65,20 @@ pub struct CommandResult<T: Serialize> {
 
 impl<T: Serialize> CommandResult<T> {
     pub fn ok(data: T) -> Self {
-        Self { success: true, data: Some(data), error: None, error_info: None }
+        Self {
+            success: true,
+            data: Some(data),
+            error: None,
+            error_info: None,
+        }
     }
     pub fn err(msg: String) -> Self {
-        Self { success: false, data: None, error: Some(msg), error_info: None }
+        Self {
+            success: false,
+            data: None,
+            error: Some(msg),
+            error_info: None,
+        }
     }
     /// Create an error result with structured DitError info.
     pub fn err_structured(dit_err: &crate::error::DitError) -> Self {
@@ -152,7 +162,9 @@ pub async fn create_job(
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         return Ok(CommandResult::err_and_log(
             &conn,
-            DitError::CopySourceNotFound { path: request.source_path.clone() },
+            DitError::CopySourceNotFound {
+                path: request.source_path.clone(),
+            },
             "commands::create_job",
             None,
         ));
@@ -255,9 +267,7 @@ pub fn get_job_progress(
 
 /// List all jobs
 #[tauri::command]
-pub fn list_jobs(
-    state: State<'_, AppState>,
-) -> Result<CommandResult<Vec<JobInfo>>, String> {
+pub fn list_jobs(state: State<'_, AppState>) -> Result<CommandResult<Vec<JobInfo>>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
@@ -293,7 +303,10 @@ pub fn list_jobs(
         };
 
         // Derive effective status from checkpoint progress when DB status is stale
-        let effective_status = if status == "pending" && (progress.copying > 0 || (progress.completed > 0 && progress.completed < progress.total_tasks)) {
+        let effective_status = if status == "pending"
+            && (progress.copying > 0
+                || (progress.completed > 0 && progress.completed < progress.total_tasks))
+        {
             "copying".to_string()
         } else if status == "completed" && progress.failed > 0 {
             "completed_with_errors".to_string()
@@ -327,8 +340,8 @@ pub async fn recover_job(
     // Step 1: Get interrupted tasks and reset them (sync, release lock before await)
     let interrupted_dest_paths: Vec<String> = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let interrupted = checkpoint::get_interrupted_tasks(&conn, &job_id)
-            .map_err(|e| e.to_string())?;
+        let interrupted =
+            checkpoint::get_interrupted_tasks(&conn, &job_id).map_err(|e| e.to_string())?;
 
         let paths: Vec<String> = interrupted.iter().map(|t| t.dest_path.clone()).collect();
 
@@ -343,9 +356,8 @@ pub async fn recover_job(
 
     // Step 2: Async cleanup of .tmp files (no lock held)
     for dest in &interrupted_dest_paths {
-        let tmp_path = crate::copy_engine::atomic_writer::AtomicWriter::temp_path_for(
-            Path::new(dest),
-        );
+        let tmp_path =
+            crate::copy_engine::atomic_writer::AtomicWriter::temp_path_for(Path::new(dest));
         if tmp_path.exists() {
             tokio::fs::remove_file(&tmp_path).await.ok();
         }
@@ -472,7 +484,9 @@ pub async fn hash_file(
         .collect();
 
     if algos.is_empty() {
-        return Ok(CommandResult::err("No valid hash algorithms specified".to_string()));
+        return Ok(CommandResult::err(
+            "No valid hash algorithms specified".to_string(),
+        ));
     }
 
     let config = HashEngineConfig {
@@ -498,7 +512,10 @@ pub fn register_device(
     let dt = DeviceType::from_str_loose(&device_type);
     let mut scheduler = state.io_scheduler.lock().map_err(|e| e.to_string())?;
     scheduler.register_device_auto(PathBuf::from(&mount_point), dt);
-    Ok(CommandResult::ok(format!("Registered {} as {:?}", mount_point, dt)))
+    Ok(CommandResult::ok(format!(
+        "Registered {} as {:?}",
+        mount_point, dt
+    )))
 }
 
 /// Get IO scheduler status (returns current device queue states)
@@ -513,12 +530,14 @@ pub fn get_scheduler_status(
         .registered_devices()
         .iter()
         .filter_map(|mount| {
-            scheduler.get_device_queue(mount).map(|q| DeviceQueueStatusResponse {
-                mount_point: mount.to_string_lossy().to_string(),
-                device_type: q.config.device_type.to_string(),
-                max_concurrent: q.max_concurrent(),
-                buffer_size: q.buffer_size(),
-            })
+            scheduler
+                .get_device_queue(mount)
+                .map(|q| DeviceQueueStatusResponse {
+                    mount_point: mount.to_string_lossy().to_string(),
+                    device_type: q.config.device_type.to_string(),
+                    max_concurrent: q.max_concurrent(),
+                    buffer_size: q.buffer_size(),
+                })
         })
         .collect();
 
@@ -586,7 +605,9 @@ pub async fn verify_mhl_chain(
         .map_err(|e| e.to_string())?;
 
     if history.chain.is_empty() {
-        return Ok(CommandResult::err("No MHL history found at this path".to_string()));
+        return Ok(CommandResult::err(
+            "No MHL history found at this path".to_string(),
+        ));
     }
 
     let results = mhl::verify_chain(&history)
@@ -662,7 +683,10 @@ pub async fn detect_conflicts(
 ) -> Result<CommandResult<Vec<FileConflict>>, String> {
     let source_root = PathBuf::from(&source_path);
     if !source_root.exists() {
-        return Ok(CommandResult::err(format!("Source path does not exist: {}", source_path)));
+        return Ok(CommandResult::err(format!(
+            "Source path does not exist: {}",
+            source_path
+        )));
     }
 
     let mut conflicts = Vec::new();
@@ -711,7 +735,12 @@ pub async fn detect_conflicts(
             }
         }
     }
-    walk_dir(&source_root, &source_root, &mut source_files, &ignore_patterns);
+    walk_dir(
+        &source_root,
+        &source_root,
+        &mut source_files,
+        &ignore_patterns,
+    );
 
     // Hash config for quick XXH64 comparison
     let hash_cfg = crate::hash_engine::HashEngineConfig {
@@ -754,7 +783,8 @@ pub async fn detect_conflicts(
                             (Ok(sh), Ok(dh)) => {
                                 let src_hex = sh.first().map(|h| h.hex_digest.clone());
                                 let dst_hex = dh.first().map(|h| h.hex_digest.clone());
-                                let matched = src_hex.as_ref() == dst_hex.as_ref() && src_hex.is_some();
+                                let matched =
+                                    src_hex.as_ref() == dst_hex.as_ref() && src_hex.is_some();
                                 (Some(matched), src_hex, dst_hex)
                             }
                             _ => (None, None, None),
@@ -823,15 +853,19 @@ pub async fn start_offload(
         .collect();
 
     // Convert conflict resolutions list to HashMap keyed by "rel_path::dest_path"
-    let conflict_map: std::collections::HashMap<String, workflow::ConflictAction> =
-        request.conflict_resolutions.unwrap_or_default().into_iter().map(|r| {
+    let conflict_map: std::collections::HashMap<String, workflow::ConflictAction> = request
+        .conflict_resolutions
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| {
             let action = match r.action {
                 ConflictAction::Skip => workflow::ConflictAction::Skip,
                 ConflictAction::Overwrite => workflow::ConflictAction::Overwrite,
                 ConflictAction::KeepBoth => workflow::ConflictAction::KeepBoth,
             };
             (format!("{}::{}", r.rel_path, r.dest_path), action)
-        }).collect();
+        })
+        .collect();
 
     let config = workflow::OffloadConfig {
         job_id: job_id.clone(),
@@ -860,14 +894,22 @@ pub async fn start_offload(
     let pause_token = PauseToken::new();
     {
         let mut workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
-        workflows.insert(job_id.clone(), WorkflowHandle {
-            cancel: cancel_token.clone(),
-            pause: pause_token.clone_token(),
-        });
+        workflows.insert(
+            job_id.clone(),
+            WorkflowHandle {
+                cancel: cancel_token.clone(),
+                pause: pause_token.clone_token(),
+            },
+        );
     }
 
     // Capture email settings for notification after completion
-    let email_settings = state.settings.lock().map_err(|e| e.to_string())?.email.clone();
+    let email_settings = state
+        .settings
+        .lock()
+        .map_err(|e| e.to_string())?
+        .email
+        .clone();
     let offload_name = config.job_name.clone();
     let notify_app_data_dir = state.app_data_dir.clone();
 
@@ -877,7 +919,13 @@ pub async fn start_offload(
     // Spawn the workflow on a background task
     let job_id_for_task = job_id.clone();
     tokio::spawn(async move {
-        let wf = workflow::OffloadWorkflow::with_cancel_and_pause(config, db, tx, cancel_token, pause_token);
+        let wf = workflow::OffloadWorkflow::with_cancel_and_pause(
+            config,
+            db,
+            tx,
+            cancel_token,
+            pause_token,
+        );
         match wf.execute().await {
             Ok(result) => {
                 log::info!(
@@ -898,7 +946,10 @@ pub async fn start_offload(
                         mhl_generated: !result.mhl_paths.is_empty(),
                         warnings: result.errors.clone(),
                     };
-                    if let Err(e) = notify::send_notification(&email_settings, &event, &notify_app_data_dir).await {
+                    if let Err(e) =
+                        notify::send_notification(&email_settings, &event, &notify_app_data_dir)
+                            .await
+                    {
                         log::warn!("Failed to send completion notification: {}", e);
                     }
                 }
@@ -913,8 +964,19 @@ pub async fn start_offload(
                     if let Ok(conn) = db_for_status.lock() {
                         // Log cancellation as a warning (not an error)
                         let dit_err = crate::error::DitError::CopyCancelled;
-                        let _ = crate::error_log::log_error(&conn, &dit_err, "workflow::offload", Some(&job_id_for_task), None);
-                        checkpoint::update_job_status(&conn, &job_id_for_task, checkpoint::STATUS_TERMINATED).ok();
+                        let _ = crate::error_log::log_error(
+                            &conn,
+                            &dit_err,
+                            "workflow::offload",
+                            Some(&job_id_for_task),
+                            None,
+                        );
+                        checkpoint::update_job_status(
+                            &conn,
+                            &job_id_for_task,
+                            checkpoint::STATUS_TERMINATED,
+                        )
+                        .ok();
                     }
                 } else {
                     log::error!("Offload {} failed: {}", job_id_for_task, e);
@@ -922,7 +984,13 @@ pub async fn start_offload(
                     // Log the error to error_log with structured DitError
                     if let Ok(conn) = db_for_status.lock() {
                         let dit_err = crate::error::DitError::from(e);
-                        let _ = crate::error_log::log_error(&conn, &dit_err, "workflow::offload", Some(&job_id_for_task), None);
+                        let _ = crate::error_log::log_error(
+                            &conn,
+                            &dit_err,
+                            "workflow::offload",
+                            Some(&job_id_for_task),
+                            None,
+                        );
                     }
 
                     // Send email notification on failure
@@ -932,7 +1000,10 @@ pub async fn start_offload(
                             job_name: offload_name.clone(),
                             error: err_msg,
                         };
-                        if let Err(e) = notify::send_notification(&email_settings, &event, &notify_app_data_dir).await {
+                        if let Err(e) =
+                            notify::send_notification(&email_settings, &event, &notify_app_data_dir)
+                                .await
+                        {
                             log::warn!("Failed to send failure notification: {}", e);
                         }
                     }
@@ -996,7 +1067,9 @@ pub async fn resume_offload(
             Err(_) => {
                 return Ok(CommandResult::err_and_log(
                     &conn,
-                    DitError::DbNotFound { desc: format!("Job {}", job_id) },
+                    DitError::DbNotFound {
+                        desc: format!("Job {}", job_id),
+                    },
                     "commands::resume_offload",
                     Some(&job_id),
                 ));
@@ -1007,8 +1080,8 @@ pub async fn resume_offload(
     // Step 2: Recover interrupted tasks (reset to pending, clean .tmp files)
     let interrupted_dest_paths: Vec<String> = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let interrupted = checkpoint::get_interrupted_tasks(&conn, &job_id)
-            .map_err(|e| e.to_string())?;
+        let interrupted =
+            checkpoint::get_interrupted_tasks(&conn, &job_id).map_err(|e| e.to_string())?;
         let paths: Vec<String> = interrupted.iter().map(|t| t.dest_path.clone()).collect();
         for task in &interrupted {
             checkpoint::update_task_status(&conn, &task.task_id, checkpoint::STATUS_PENDING)
@@ -1018,9 +1091,8 @@ pub async fn resume_offload(
     };
 
     for dest in &interrupted_dest_paths {
-        let tmp_path = crate::copy_engine::atomic_writer::AtomicWriter::temp_path_for(
-            Path::new(dest),
-        );
+        let tmp_path =
+            crate::copy_engine::atomic_writer::AtomicWriter::temp_path_for(Path::new(dest));
         if tmp_path.exists() {
             tokio::fs::remove_file(&tmp_path).await.ok();
         }
@@ -1036,7 +1108,9 @@ pub async fn resume_offload(
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         return Ok(CommandResult::err_and_log(
             &conn,
-            DitError::DbNotFound { desc: format!("No pending tasks for job {}", job_id) },
+            DitError::DbNotFound {
+                desc: format!("No pending tasks for job {}", job_id),
+            },
             "commands::resume_offload",
             Some(&job_id),
         ));
@@ -1068,7 +1142,9 @@ pub async fn resume_offload(
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         return Ok(CommandResult::err_and_log(
             &conn,
-            DitError::CopyDestNotWritable { path: "Could not determine destination paths".to_string() },
+            DitError::CopyDestNotWritable {
+                path: "Could not determine destination paths".to_string(),
+            },
             "commands::resume_offload",
             Some(&job_id),
         ));
@@ -1080,7 +1156,9 @@ pub async fn resume_offload(
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         return Ok(CommandResult::err_and_log(
             &conn,
-            DitError::CopySourceNotFound { path: source_path.clone() },
+            DitError::CopySourceNotFound {
+                path: source_path.clone(),
+            },
             "commands::resume_offload",
             Some(&job_id),
         ));
@@ -1091,7 +1169,9 @@ pub async fn resume_offload(
             let conn = state.db.lock().map_err(|e| e.to_string())?;
             return Ok(CommandResult::err_and_log(
                 &conn,
-                DitError::CopyDestNotWritable { path: dest.to_string_lossy().into() },
+                DitError::CopyDestNotWritable {
+                    path: dest.to_string_lossy().into(),
+                },
                 "commands::resume_offload",
                 Some(&job_id),
             ));
@@ -1119,10 +1199,10 @@ pub async fn resume_offload(
         },
         buffer_size: saved.offload.buffer_size,
         source_verify: false, // Skip source verify on resume
-        post_verify: true, // Force: interrupted copies MUST be verified after resume
+        post_verify: true,    // Force: interrupted copies MUST be verified after resume
         generate_mhl: saved.offload.generate_mhl,
         max_retries: saved.offload.max_retries,
-        cascade: false, // No cascade on resume
+        cascade: false,                                         // No cascade on resume
         conflict_resolutions: std::collections::HashMap::new(), // No conflicts on resume
     };
 
@@ -1144,13 +1224,21 @@ pub async fn resume_offload(
     let pause_token = PauseToken::new();
     {
         let mut workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
-        workflows.insert(job_id.clone(), WorkflowHandle {
-            cancel: cancel_token.clone(),
-            pause: pause_token.clone_token(),
-        });
+        workflows.insert(
+            job_id.clone(),
+            WorkflowHandle {
+                cancel: cancel_token.clone(),
+                pause: pause_token.clone_token(),
+            },
+        );
     }
 
-    let email_settings = state.settings.lock().map_err(|e| e.to_string())?.email.clone();
+    let email_settings = state
+        .settings
+        .lock()
+        .map_err(|e| e.to_string())?
+        .email
+        .clone();
     let offload_name = job_name.clone();
     let notify_app_data_dir = state.app_data_dir.clone();
 
@@ -1160,7 +1248,13 @@ pub async fn resume_offload(
     // Step 6: Spawn resume workflow (skips scan & record creation, only processes pending tasks)
     let job_id_for_task = job_id.clone();
     tokio::spawn(async move {
-        let wf = workflow::OffloadWorkflow::with_cancel_and_pause(config, db, tx, cancel_token, pause_token);
+        let wf = workflow::OffloadWorkflow::with_cancel_and_pause(
+            config,
+            db,
+            tx,
+            cancel_token,
+            pause_token,
+        );
         match wf.execute_resume().await {
             Ok(result) => {
                 log::info!(
@@ -1180,7 +1274,10 @@ pub async fn resume_offload(
                         mhl_generated: !result.mhl_paths.is_empty(),
                         warnings: result.errors.clone(),
                     };
-                    if let Err(e) = notify::send_notification(&email_settings, &event, &notify_app_data_dir).await {
+                    if let Err(e) =
+                        notify::send_notification(&email_settings, &event, &notify_app_data_dir)
+                            .await
+                    {
                         log::warn!("Failed to send completion notification: {}", e);
                     }
                 }
@@ -1191,8 +1288,19 @@ pub async fn resume_offload(
                     log::info!("Resume offload {} terminated by user", job_id_for_task);
                     if let Ok(conn) = db_for_status.lock() {
                         let dit_err = crate::error::DitError::CopyCancelled;
-                        let _ = crate::error_log::log_error(&conn, &dit_err, "workflow::resume", Some(&job_id_for_task), None);
-                        checkpoint::update_job_status(&conn, &job_id_for_task, checkpoint::STATUS_TERMINATED).ok();
+                        let _ = crate::error_log::log_error(
+                            &conn,
+                            &dit_err,
+                            "workflow::resume",
+                            Some(&job_id_for_task),
+                            None,
+                        );
+                        checkpoint::update_job_status(
+                            &conn,
+                            &job_id_for_task,
+                            checkpoint::STATUS_TERMINATED,
+                        )
+                        .ok();
                     }
                 } else {
                     log::error!("Resume offload {} failed: {}", job_id_for_task, e);
@@ -1200,7 +1308,13 @@ pub async fn resume_offload(
                     // Log the error to error_log with structured DitError
                     if let Ok(conn) = db_for_status.lock() {
                         let dit_err = crate::error::DitError::from(e);
-                        let _ = crate::error_log::log_error(&conn, &dit_err, "workflow::resume", Some(&job_id_for_task), None);
+                        let _ = crate::error_log::log_error(
+                            &conn,
+                            &dit_err,
+                            "workflow::resume",
+                            Some(&job_id_for_task),
+                            None,
+                        );
                     }
 
                     // Send email notification on failure
@@ -1210,7 +1324,10 @@ pub async fn resume_offload(
                             job_name: offload_name.clone(),
                             error: err_msg,
                         };
-                        if let Err(e) = notify::send_notification(&email_settings, &event, &notify_app_data_dir).await {
+                        if let Err(e) =
+                            notify::send_notification(&email_settings, &event, &notify_app_data_dir)
+                                .await
+                        {
                             log::warn!("Failed to send failure notification: {}", e);
                         }
                     }
@@ -1254,9 +1371,7 @@ pub async fn resume_offload(
 
 /// Get current application settings
 #[tauri::command]
-pub fn get_settings(
-    state: State<'_, AppState>,
-) -> Result<CommandResult<AppSettings>, String> {
+pub fn get_settings(state: State<'_, AppState>) -> Result<CommandResult<AppSettings>, String> {
     let settings = state.settings.lock().map_err(|e| e.to_string())?;
     Ok(CommandResult::ok(settings.clone()))
 }
@@ -1268,8 +1383,7 @@ pub fn save_settings(
     settings: AppSettings,
 ) -> Result<CommandResult<bool>, String> {
     // Save to disk
-    config::save_settings(&state.app_data_dir, &settings)
-        .map_err(|e| e.to_string())?;
+    config::save_settings(&state.app_data_dir, &settings).map_err(|e| e.to_string())?;
 
     // Update in-memory state
     let mut current = state.settings.lock().map_err(|e| e.to_string())?;
@@ -1285,14 +1399,12 @@ pub fn save_settings(
 pub fn list_presets(
     state: State<'_, AppState>,
 ) -> Result<CommandResult<Vec<WorkflowPreset>>, String> {
-    let mut store = preset::load_presets(&state.app_data_dir)
-        .map_err(|e| e.to_string())?;
+    let mut store = preset::load_presets(&state.app_data_dir).map_err(|e| e.to_string())?;
 
     // If no presets exist, seed with built-in defaults
     if store.presets.is_empty() {
         store.presets = preset::builtin_presets();
-        preset::save_presets(&state.app_data_dir, &store)
-            .map_err(|e| e.to_string())?;
+        preset::save_presets(&state.app_data_dir, &store).map_err(|e| e.to_string())?;
     }
 
     Ok(CommandResult::ok(store.presets))
@@ -1338,9 +1450,7 @@ pub fn delete_preset(
 
 /// Get list of dates that have offload jobs (for report date picker)
 #[tauri::command]
-pub fn get_report_dates(
-    state: State<'_, AppState>,
-) -> Result<CommandResult<Vec<String>>, String> {
+pub fn get_report_dates(state: State<'_, AppState>) -> Result<CommandResult<Vec<String>>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     match report::get_report_dates(&conn) {
         Ok(dates) => Ok(CommandResult::ok(dates)),
@@ -1399,7 +1509,9 @@ pub fn export_day_report(
 
     let filename = format!("day-report-{}.{}", date, ext);
     match report::save_report(&state.app_data_dir, &filename, &content) {
-        Ok(path) => Ok(CommandResult::<String>::ok(path.to_string_lossy().to_string())),
+        Ok(path) => Ok(CommandResult::<String>::ok(
+            path.to_string_lossy().to_string(),
+        )),
         Err(e) => Ok(CommandResult::<String>::err(e.to_string())),
     }
 }
@@ -1429,7 +1541,9 @@ pub fn export_job_report(
 
     let filename = format!("job-report-{}.{}", job_id, ext);
     match report::save_report(&state.app_data_dir, &filename, &content) {
-        Ok(path) => Ok(CommandResult::<String>::ok(path.to_string_lossy().to_string())),
+        Ok(path) => Ok(CommandResult::<String>::ok(
+            path.to_string_lossy().to_string(),
+        )),
         Err(e) => Ok(CommandResult::<String>::err(e.to_string())),
     }
 }
@@ -1438,9 +1552,7 @@ pub fn export_job_report(
 
 /// Send a test email to verify SMTP configuration
 #[tauri::command]
-pub async fn send_test_email(
-    state: State<'_, AppState>,
-) -> Result<CommandResult<bool>, String> {
+pub async fn send_test_email(state: State<'_, AppState>) -> Result<CommandResult<bool>, String> {
     let email_settings = {
         let settings = state.settings.lock().map_err(|e| e.to_string())?;
         settings.email.clone()
@@ -1488,7 +1600,10 @@ pub fn pause_offload(
             .map_err(|e| e.to_string())?;
         Ok(CommandResult::ok(true))
     } else {
-        Ok(CommandResult::err(format!("No active workflow for job {}", job_id)))
+        Ok(CommandResult::err(format!(
+            "No active workflow for job {}",
+            job_id
+        )))
     }
 }
 
@@ -1507,7 +1622,10 @@ pub fn resume_paused_offload(
             .map_err(|e| e.to_string())?;
         Ok(CommandResult::ok(true))
     } else {
-        Ok(CommandResult::err(format!("No active workflow for job {}", job_id)))
+        Ok(CommandResult::err(format!(
+            "No active workflow for job {}",
+            job_id
+        )))
     }
 }
 
@@ -1526,7 +1644,10 @@ pub fn terminate_offload(
             .map_err(|e| e.to_string())?;
         Ok(CommandResult::ok(true))
     } else {
-        Ok(CommandResult::err(format!("No active workflow for job {}", job_id)))
+        Ok(CommandResult::err(format!(
+            "No active workflow for job {}",
+            job_id
+        )))
     }
 }
 
@@ -1588,10 +1709,7 @@ pub fn batch_terminate(
 
 /// Clear old job records from the database
 #[tauri::command]
-pub fn clear_logs(
-    state: State<'_, AppState>,
-    days: u32,
-) -> Result<CommandResult<usize>, String> {
+pub fn clear_logs(state: State<'_, AppState>, days: u32) -> Result<CommandResult<usize>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     match checkpoint::clear_old_jobs(&conn, days) {
         Ok(deleted) => Ok(CommandResult::ok(deleted)),
@@ -1608,7 +1726,9 @@ pub fn delete_job(
     // Prevent deleting an active workflow
     let workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
     if workflows.contains_key(&job_id) {
-        return Ok(CommandResult::err("Cannot delete an active job. Terminate it first.".to_string()));
+        return Ok(CommandResult::err(
+            "Cannot delete an active job. Terminate it first.".to_string(),
+        ));
     }
     drop(workflows);
 
@@ -1794,10 +1914,19 @@ mod tests {
 
         // Verify all expected fields exist with correct camelCase names
         assert!(json.contains("\"jobId\""), "Missing jobId");
-        assert!(json.contains("\"type\": \"jobProgress\""), "Missing type tag");
-        assert!(json.contains("\"completedFiles\""), "Missing completedFiles");
+        assert!(
+            json.contains("\"type\": \"jobProgress\""),
+            "Missing type tag"
+        );
+        assert!(
+            json.contains("\"completedFiles\""),
+            "Missing completedFiles"
+        );
         assert!(json.contains("\"totalFiles\""), "Missing totalFiles");
-        assert!(json.contains("\"completedBytes\""), "Missing completedBytes");
+        assert!(
+            json.contains("\"completedBytes\""),
+            "Missing completedBytes"
+        );
         assert!(json.contains("\"totalBytes\""), "Missing totalBytes");
         assert!(json.contains("\"phase\""), "Missing phase");
         assert!(json.contains("\"elapsedSecs\""), "Missing elapsedSecs");
@@ -1822,45 +1951,66 @@ mod tests {
 
         // Test all variants with multi-word fields
         let events: Vec<(&str, OffloadEvent)> = vec![
-            ("sourceHashCompleted", OffloadEvent::SourceHashCompleted {
-                rel_path: "file.mov".into(),
-                hashes: vec![],
-                file_index: 0,
-                total_files: 10,
-            }),
-            ("fileCopyStarted", OffloadEvent::FileCopyStarted {
-                rel_path: "file.mov".into(),
-                file_size: 1000,
-                dest_count: 2,
-            }),
-            ("fileCopyCompleted", OffloadEvent::FileCopyCompleted {
-                rel_path: "file.mov".into(),
-                file_size: 1000,
-                hashes: vec![],
-                file_index: 0,
-                total_files: 10,
-            }),
-            ("fileVerified", OffloadEvent::FileVerified {
-                rel_path: "file.mov".into(),
-                dest_path: "/dest".into(),
-                verified: true,
-                mismatch_detail: None,
-            }),
-            ("complete", OffloadEvent::Complete {
-                total_files: 10,
-                total_bytes: 5000,
-                duration_secs: 30.5,
-                mhl_paths: vec![],
-            }),
-            ("fileSkipped", OffloadEvent::FileSkipped {
-                rel_path: "file.mov".into(),
-                reason: "test".into(),
-            }),
-            ("duplicateConflict", OffloadEvent::DuplicateConflict {
-                rel_path: "file.mov".into(),
-                source_hash: "abc".into(),
-                dest_hash: "def".into(),
-            }),
+            (
+                "sourceHashCompleted",
+                OffloadEvent::SourceHashCompleted {
+                    rel_path: "file.mov".into(),
+                    hashes: vec![],
+                    file_index: 0,
+                    total_files: 10,
+                },
+            ),
+            (
+                "fileCopyStarted",
+                OffloadEvent::FileCopyStarted {
+                    rel_path: "file.mov".into(),
+                    file_size: 1000,
+                    dest_count: 2,
+                },
+            ),
+            (
+                "fileCopyCompleted",
+                OffloadEvent::FileCopyCompleted {
+                    rel_path: "file.mov".into(),
+                    file_size: 1000,
+                    hashes: vec![],
+                    file_index: 0,
+                    total_files: 10,
+                },
+            ),
+            (
+                "fileVerified",
+                OffloadEvent::FileVerified {
+                    rel_path: "file.mov".into(),
+                    dest_path: "/dest".into(),
+                    verified: true,
+                    mismatch_detail: None,
+                },
+            ),
+            (
+                "complete",
+                OffloadEvent::Complete {
+                    total_files: 10,
+                    total_bytes: 5000,
+                    duration_secs: 30.5,
+                    mhl_paths: vec![],
+                },
+            ),
+            (
+                "fileSkipped",
+                OffloadEvent::FileSkipped {
+                    rel_path: "file.mov".into(),
+                    reason: "test".into(),
+                },
+            ),
+            (
+                "duplicateConflict",
+                OffloadEvent::DuplicateConflict {
+                    rel_path: "file.mov".into(),
+                    source_hash: "abc".into(),
+                    dest_hash: "def".into(),
+                },
+            ),
         ];
 
         for (name, event) in events {
@@ -1869,17 +2019,61 @@ mod tests {
 
             // No snake_case multi-word fields should exist
             assert!(!json.contains("\"rel_path\""), "{}: rel_path leaked", name);
-            assert!(!json.contains("\"file_index\""), "{}: file_index leaked", name);
-            assert!(!json.contains("\"total_files\""), "{}: total_files leaked", name);
-            assert!(!json.contains("\"file_size\""), "{}: file_size leaked", name);
-            assert!(!json.contains("\"dest_count\""), "{}: dest_count leaked", name);
-            assert!(!json.contains("\"dest_path\""), "{}: dest_path leaked", name);
-            assert!(!json.contains("\"mismatch_detail\""), "{}: mismatch_detail leaked", name);
-            assert!(!json.contains("\"total_bytes\""), "{}: total_bytes leaked", name);
-            assert!(!json.contains("\"duration_secs\""), "{}: duration_secs leaked", name);
-            assert!(!json.contains("\"mhl_paths\""), "{}: mhl_paths leaked", name);
-            assert!(!json.contains("\"source_hash\""), "{}: source_hash leaked", name);
-            assert!(!json.contains("\"dest_hash\""), "{}: dest_hash leaked", name);
+            assert!(
+                !json.contains("\"file_index\""),
+                "{}: file_index leaked",
+                name
+            );
+            assert!(
+                !json.contains("\"total_files\""),
+                "{}: total_files leaked",
+                name
+            );
+            assert!(
+                !json.contains("\"file_size\""),
+                "{}: file_size leaked",
+                name
+            );
+            assert!(
+                !json.contains("\"dest_count\""),
+                "{}: dest_count leaked",
+                name
+            );
+            assert!(
+                !json.contains("\"dest_path\""),
+                "{}: dest_path leaked",
+                name
+            );
+            assert!(
+                !json.contains("\"mismatch_detail\""),
+                "{}: mismatch_detail leaked",
+                name
+            );
+            assert!(
+                !json.contains("\"total_bytes\""),
+                "{}: total_bytes leaked",
+                name
+            );
+            assert!(
+                !json.contains("\"duration_secs\""),
+                "{}: duration_secs leaked",
+                name
+            );
+            assert!(
+                !json.contains("\"mhl_paths\""),
+                "{}: mhl_paths leaked",
+                name
+            );
+            assert!(
+                !json.contains("\"source_hash\""),
+                "{}: source_hash leaked",
+                name
+            );
+            assert!(
+                !json.contains("\"dest_hash\""),
+                "{}: dest_hash leaked",
+                name
+            );
         }
     }
 }

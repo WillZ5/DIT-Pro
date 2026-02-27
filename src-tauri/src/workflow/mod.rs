@@ -133,7 +133,11 @@ impl std::fmt::Display for OffloadPhase {
 
 /// Events emitted during the offload workflow for frontend updates
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum OffloadEvent {
     PhaseChanged {
         phase: OffloadPhase,
@@ -346,7 +350,13 @@ impl OffloadWorkflow {
         db: Arc<std::sync::Mutex<Connection>>,
         event_tx: mpsc::UnboundedSender<OffloadEvent>,
     ) -> Self {
-        Self { config, db, event_tx, cancel: CancelToken::new(), pause: PauseToken::new() }
+        Self {
+            config,
+            db,
+            event_tx,
+            cancel: CancelToken::new(),
+            pause: PauseToken::new(),
+        }
     }
 
     pub fn with_cancel(
@@ -355,7 +365,13 @@ impl OffloadWorkflow {
         event_tx: mpsc::UnboundedSender<OffloadEvent>,
         cancel: CancelToken,
     ) -> Self {
-        Self { config, db, event_tx, cancel, pause: PauseToken::new() }
+        Self {
+            config,
+            db,
+            event_tx,
+            cancel,
+            pause: PauseToken::new(),
+        }
     }
 
     pub fn with_cancel_and_pause(
@@ -365,7 +381,13 @@ impl OffloadWorkflow {
         cancel: CancelToken,
         pause: PauseToken,
     ) -> Self {
-        Self { config, db, event_tx, cancel, pause }
+        Self {
+            config,
+            db,
+            event_tx,
+            cancel,
+            pause,
+        }
     }
 
     /// Check if the workflow has been cancelled and bail if so.
@@ -409,7 +431,10 @@ impl OffloadWorkflow {
 
         let source_files = self.scan_source().await?;
         if source_files.is_empty() {
-            bail!("No files found in source directory: {:?}", self.config.source_path);
+            bail!(
+                "No files found in source directory: {:?}",
+                self.config.source_path
+            );
         }
 
         let total_bytes: u64 = source_files.iter().map(|f| f.size).sum();
@@ -451,7 +476,9 @@ impl OffloadWorkflow {
                 ),
             });
 
-            let copy_hashes_primary = self.copy_to_primary(&source_files, &start, total_bytes).await?;
+            let copy_hashes_primary = self
+                .copy_to_primary(&source_files, &start, total_bytes)
+                .await?;
 
             if !self.config.source_verify {
                 source_hashes = copy_hashes_primary;
@@ -467,7 +494,8 @@ impl OffloadWorkflow {
                 ),
             });
 
-            self.cascade_from_primary(&source_files, &start, total_bytes).await?;
+            self.cascade_from_primary(&source_files, &start, total_bytes)
+                .await?;
         } else {
             // Standard: read source once → write all destinations simultaneously
             self.emit(OffloadEvent::PhaseChanged {
@@ -479,7 +507,9 @@ impl OffloadWorkflow {
                 ),
             });
 
-            let copy_hashes = self.copy_all_files(&source_files, &start, total_bytes).await?;
+            let copy_hashes = self
+                .copy_all_files(&source_files, &start, total_bytes)
+                .await?;
 
             if !self.config.source_verify {
                 source_hashes = copy_hashes;
@@ -501,7 +531,9 @@ impl OffloadWorkflow {
                 phase: OffloadPhase::Verifying,
                 message: "Re-reading destination files for verification...".into(),
             });
-            failed_count = self.verify_destinations(&source_files, &source_hashes, &mut errors).await?;
+            failed_count = self
+                .verify_destinations(&source_files, &source_hashes, &mut errors)
+                .await?;
         }
 
         // ── Phase 5: MHL Sealing (optional) ─────────────────────────
@@ -520,7 +552,11 @@ impl OffloadWorkflow {
         // Update job status
         {
             let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-            let status = if success { "completed" } else { "completed_with_errors" };
+            let status = if success {
+                "completed"
+            } else {
+                "completed_with_errors"
+            };
             conn.execute(
                 "UPDATE jobs SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
                 rusqlite::params![status, self.config.job_id],
@@ -528,12 +564,23 @@ impl OffloadWorkflow {
         }
 
         self.emit(OffloadEvent::PhaseChanged {
-            phase: if success { OffloadPhase::Complete } else { OffloadPhase::Failed },
-            message: if success {
-                format!("Offload complete: {} files, {} in {:.1}s",
-                    total_files, format_bytes(total_bytes), duration)
+            phase: if success {
+                OffloadPhase::Complete
             } else {
-                format!("Offload finished with {} error(s)", errors.len() + failed_count)
+                OffloadPhase::Failed
+            },
+            message: if success {
+                format!(
+                    "Offload complete: {} files, {} in {:.1}s",
+                    total_files,
+                    format_bytes(total_bytes),
+                    duration
+                )
+            } else {
+                format!(
+                    "Offload finished with {} error(s)",
+                    errors.len() + failed_count
+                )
             },
         });
 
@@ -541,7 +588,10 @@ impl OffloadWorkflow {
             total_files,
             total_bytes,
             duration_secs: duration,
-            mhl_paths: mhl_paths.iter().map(|p| p.to_string_lossy().into()).collect(),
+            mhl_paths: mhl_paths
+                .iter()
+                .map(|p| p.to_string_lossy().into())
+                .collect(),
         });
 
         Ok(OffloadResult {
@@ -604,7 +654,9 @@ impl OffloadWorkflow {
         });
 
         // Copy pending files
-        let copy_hashes = self.copy_all_files(&source_files, &start, total_bytes).await?;
+        let copy_hashes = self
+            .copy_all_files(&source_files, &start, total_bytes)
+            .await?;
 
         // Post-copy verification (optional)
         let mut failed_count = 0;
@@ -620,7 +672,9 @@ impl OffloadWorkflow {
                 phase: OffloadPhase::Verifying,
                 message: "Re-reading destination files for verification...".into(),
             });
-            failed_count = self.verify_destinations(&source_files, &copy_hashes, &mut errors).await?;
+            failed_count = self
+                .verify_destinations(&source_files, &copy_hashes, &mut errors)
+                .await?;
         }
 
         // Finalize
@@ -636,7 +690,11 @@ impl OffloadWorkflow {
 
         {
             let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-            let status = if success && overall_failed == 0 { "completed" } else { "completed_with_errors" };
+            let status = if success && overall_failed == 0 {
+                "completed"
+            } else {
+                "completed_with_errors"
+            };
             conn.execute(
                 "UPDATE jobs SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
                 rusqlite::params![status, self.config.job_id],
@@ -644,12 +702,23 @@ impl OffloadWorkflow {
         }
 
         self.emit(OffloadEvent::PhaseChanged {
-            phase: if success { OffloadPhase::Complete } else { OffloadPhase::Failed },
-            message: if success {
-                format!("Resume complete: {} files, {} in {:.1}s",
-                    total_files, format_bytes(total_bytes), duration)
+            phase: if success {
+                OffloadPhase::Complete
             } else {
-                format!("Resume finished with {} error(s)", errors.len() + failed_count)
+                OffloadPhase::Failed
+            },
+            message: if success {
+                format!(
+                    "Resume complete: {} files, {} in {:.1}s",
+                    total_files,
+                    format_bytes(total_bytes),
+                    duration
+                )
+            } else {
+                format!(
+                    "Resume finished with {} error(s)",
+                    errors.len() + failed_count
+                )
             },
         });
 
@@ -657,7 +726,10 @@ impl OffloadWorkflow {
             total_files,
             total_bytes,
             duration_secs: duration,
-            mhl_paths: mhl_paths.iter().map(|p| p.to_string_lossy().into()).collect(),
+            mhl_paths: mhl_paths
+                .iter()
+                .map(|p| p.to_string_lossy().into())
+                .collect(),
         });
 
         Ok(OffloadResult {
@@ -812,7 +884,8 @@ impl OffloadWorkflow {
             let progress_file_index = i;
             let progress_start = hash_start;
             let progress_msg = file_msg.clone();
-            let last_progress_emit = std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
+            let last_progress_emit =
+                std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
             let progress_callback = move |file_bytes_hashed: u64, _file_total: u64| {
                 let mut last = last_progress_emit.lock().unwrap_or_else(|e| e.into_inner());
                 if last.elapsed() >= std::time::Duration::from_millis(100) {
@@ -833,10 +906,12 @@ impl OffloadWorkflow {
             };
 
             let hashes = hash_engine::hash_file_with_progress(
-                &file.abs_path, &cfg, Some(&progress_callback),
+                &file.abs_path,
+                &cfg,
+                Some(&progress_callback),
             )
-                .await
-                .with_context(|| format!("Failed to hash source: {:?}", file.abs_path))?;
+            .await
+            .with_context(|| format!("Failed to hash source: {:?}", file.abs_path))?;
 
             completed_bytes += file.size;
 
@@ -898,7 +973,10 @@ impl OffloadWorkflow {
                         // Skip this destination for this file
                         self.emit(OffloadEvent::FileSkipped {
                             rel_path: file.rel_path.clone(),
-                            reason: format!("skipped by user ({})", d.file_name().unwrap_or_default().to_string_lossy()),
+                            reason: format!(
+                                "skipped by user ({})",
+                                d.file_name().unwrap_or_default().to_string_lossy()
+                            ),
                         });
                         continue;
                     }
@@ -968,19 +1046,29 @@ impl OffloadWorkflow {
 
             // Build per-file status message (sent via JobProgress, not PhaseChanged)
             // Use last 2 path segments for dest display (e.g. "Volumes/SHUTTLE_01")
-            let dest_names: Vec<String> = self.config.dest_paths.iter()
+            let dest_names: Vec<String> = self
+                .config
+                .dest_paths
+                .iter()
                 .map(|d| {
-                    let comps: Vec<&str> = d.components()
+                    let comps: Vec<&str> = d
+                        .components()
                         .filter_map(|c| c.as_os_str().to_str())
                         .collect();
                     let n = comps.len();
-                    if n >= 2 { format!("{}/{}", comps[n - 2], comps[n - 1]) }
-                    else { d.to_string_lossy().to_string() }
+                    if n >= 2 {
+                        format!("{}/{}", comps[n - 2], comps[n - 1])
+                    } else {
+                        d.to_string_lossy().to_string()
+                    }
                 })
                 .collect();
             let file_msg = format!(
                 "Copying ({}/{}) {} → {}",
-                i + 1, total_files, file.rel_path, dest_names.join(", ")
+                i + 1,
+                total_files,
+                file.rel_path,
+                dest_names.join(", ")
             );
 
             self.emit(OffloadEvent::FileCopyStarted {
@@ -1013,7 +1101,8 @@ impl OffloadWorkflow {
             let progress_file_index = i;
             let progress_start = *start;
             let progress_msg = file_msg.clone();
-            let last_progress_emit = std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
+            let last_progress_emit =
+                std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
             let progress_callback = move |file_bytes_written: u64, _file_total: u64| {
                 let mut last = last_progress_emit.lock().unwrap_or_else(|e| e.into_inner());
                 if last.elapsed() >= std::time::Duration::from_millis(100) {
@@ -1040,7 +1129,14 @@ impl OffloadWorkflow {
             };
 
             // Read source once → write to all destinations
-            let copy_ok = match copy_engine::copy_file_multi(&file.abs_path, &dest_files, &file_copy_config, &control).await {
+            let copy_ok = match copy_engine::copy_file_multi(
+                &file.abs_path,
+                &dest_files,
+                &file_copy_config,
+                &control,
+            )
+            .await
+            {
                 Ok(results) => {
                     // Check if all results are skipped
                     let all_skipped = results.iter().all(|r| r.skipped);
@@ -1073,7 +1169,8 @@ impl OffloadWorkflow {
                     } else {
                         // At least some files were actually copied
                         if let Some(first_copied) = results.iter().find(|r| !r.skipped) {
-                            copy_hashes.insert(file.rel_path.clone(), first_copied.hash_results.clone());
+                            copy_hashes
+                                .insert(file.rel_path.clone(), first_copied.hash_results.clone());
                         }
 
                         // Update each per-destination task in DB
@@ -1099,10 +1196,14 @@ impl OffloadWorkflow {
                                 continue;
                             }
 
-                            let xxh64 = r.hash_results.iter()
+                            let xxh64 = r
+                                .hash_results
+                                .iter()
                                 .find(|h| h.algorithm == HashAlgorithm::XXH64)
                                 .map(|h| h.hex_digest.as_str());
-                            let sha256 = r.hash_results.iter()
+                            let sha256 = r
+                                .hash_results
+                                .iter()
                                 .find(|h| h.algorithm == HashAlgorithm::SHA256)
                                 .map(|h| h.hex_digest.as_str());
 
@@ -1250,15 +1351,21 @@ impl OffloadWorkflow {
                 on_progress: None, // cascade doesn't need intra-file progress
             };
 
-            match copy_engine::copy_file_single(&file.abs_path, &dest_file, &copy_config, &control).await {
+            match copy_engine::copy_file_single(&file.abs_path, &dest_file, &copy_config, &control)
+                .await
+            {
                 Ok(result) => {
                     copy_hashes.insert(file.rel_path.clone(), result.hash_results.clone());
 
                     let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                    let xxh64 = result.hash_results.iter()
+                    let xxh64 = result
+                        .hash_results
+                        .iter()
                         .find(|h| h.algorithm == HashAlgorithm::XXH64)
                         .map(|h| h.hex_digest.as_str());
-                    let sha256 = result.hash_results.iter()
+                    let sha256 = result
+                        .hash_results
+                        .iter()
                         .find(|h| h.algorithm == HashAlgorithm::SHA256)
                         .map(|h| h.hex_digest.as_str());
 
@@ -1392,15 +1499,25 @@ impl OffloadWorkflow {
             };
 
             // Read from primary copy → write to all secondary destinations
-            match copy_engine::copy_file_multi(&primary_file, &secondary_files, &copy_config, &control).await
+            match copy_engine::copy_file_multi(
+                &primary_file,
+                &secondary_files,
+                &copy_config,
+                &control,
+            )
+            .await
             {
                 Ok(results) => {
                     let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                     for r in &results {
-                        let xxh64 = r.hash_results.iter()
+                        let xxh64 = r
+                            .hash_results
+                            .iter()
                             .find(|h| h.algorithm == HashAlgorithm::XXH64)
                             .map(|h| h.hex_digest.as_str());
-                        let sha256 = r.hash_results.iter()
+                        let sha256 = r
+                            .hash_results
+                            .iter()
                             .find(|h| h.algorithm == HashAlgorithm::SHA256)
                             .map(|h| h.hex_digest.as_str());
 
@@ -1526,7 +1643,12 @@ impl OffloadWorkflow {
                 self.check_cancelled()?;
                 let dest_file = dest_root.join(&file.rel_path);
 
-                let verify_msg = format!("Verifying ({}/{}) {}...", completed_ops + 1, total_verify_ops, file.rel_path);
+                let verify_msg = format!(
+                    "Verifying ({}/{}) {}...",
+                    completed_ops + 1,
+                    total_verify_ops,
+                    file.rel_path
+                );
 
                 if !dest_file.exists() {
                     failed += 1;
@@ -1548,7 +1670,8 @@ impl OffloadWorkflow {
                 let total_files_for_progress = total_files;
                 let fi_for_progress = fi;
                 let progress_msg = verify_msg.clone();
-                let last_emit = std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
+                let last_emit =
+                    std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
                 let verify_progress = move |bytes_hashed: u64, _file_total: u64| {
                     let mut last = last_emit.lock().unwrap_or_else(|e| e.into_inner());
                     if last.elapsed() >= std::time::Duration::from_millis(100) {
@@ -1567,9 +1690,10 @@ impl OffloadWorkflow {
                     }
                 };
 
-                let actual = hash_engine::hash_file_with_progress(&dest_file, &cfg, Some(&verify_progress))
-                    .await
-                    .with_context(|| format!("Verify read failed: {:?}", dest_file))?;
+                let actual =
+                    hash_engine::hash_file_with_progress(&dest_file, &cfg, Some(&verify_progress))
+                        .await
+                        .with_context(|| format!("Verify read failed: {:?}", dest_file))?;
 
                 completed_ops += 1;
 
@@ -1768,11 +1892,14 @@ mod tests {
         let dest2 = tmp.path().join("dest2");
         std::fs::create_dir_all(&source).unwrap();
 
-        create_source_files(&source, &[
-            ("clip001.mov", b"video data clip 001"),
-            ("clip002.mov", b"video data clip 002 longer"),
-            ("audio/boom.wav", b"audio waveform data"),
-        ]);
+        create_source_files(
+            &source,
+            &[
+                ("clip001.mov", b"video data clip 001"),
+                ("clip002.mov", b"video data clip 002 longer"),
+                ("audio/boom.wav", b"audio waveform data"),
+            ],
+        );
 
         let db = test_db();
         let (tx, rx) = mpsc::unbounded_channel();
@@ -1819,7 +1946,9 @@ mod tests {
         {
             let conn = db.lock().unwrap();
             let status: String = conn
-                .query_row("SELECT status FROM jobs WHERE id = 'test-job-1'", [], |r| r.get(0))
+                .query_row("SELECT status FROM jobs WHERE id = 'test-job-1'", [], |r| {
+                    r.get(0)
+                })
                 .unwrap();
             assert_eq!(status, "completed");
 
@@ -1943,11 +2072,14 @@ mod tests {
         let dest = tmp.path().join("dst");
         std::fs::create_dir_all(&source).unwrap();
 
-        create_source_files(&source, &[
-            ("clip.mov", b"video"),
-            (".DS_Store", b"mac junk"),
-            ("Thumbs.db", b"windows junk"),
-        ]);
+        create_source_files(
+            &source,
+            &[
+                ("clip.mov", b"video"),
+                (".DS_Store", b"mac junk"),
+                ("Thumbs.db", b"windows junk"),
+            ],
+        );
 
         let db = test_db();
         let (tx, _rx) = mpsc::unbounded_channel();
@@ -2013,10 +2145,13 @@ mod tests {
         let d3 = tmp.path().join("d3");
         std::fs::create_dir_all(&source).unwrap();
 
-        create_source_files(&source, &[
-            ("A001C001.mov", b"ARRI footage A001C001"),
-            ("A001C002.mov", b"ARRI footage A001C002 take 2"),
-        ]);
+        create_source_files(
+            &source,
+            &[
+                ("A001C001.mov", b"ARRI footage A001C001"),
+                ("A001C002.mov", b"ARRI footage A001C002 take 2"),
+            ],
+        );
 
         let db = test_db();
         let (tx, _rx) = mpsc::unbounded_channel();
@@ -2071,11 +2206,14 @@ mod tests {
         let secondary2 = tmp.path().join("shuttle2");
         std::fs::create_dir_all(&source).unwrap();
 
-        create_source_files(&source, &[
-            ("A001C001.braw", b"BMPCC footage clip 001 take 1"),
-            ("A001C002.braw", b"BMPCC footage clip 002 take 1 longer"),
-            ("audio/boom.wav", b"audio boom track day 1"),
-        ]);
+        create_source_files(
+            &source,
+            &[
+                ("A001C001.braw", b"BMPCC footage clip 001 take 1"),
+                ("A001C002.braw", b"BMPCC footage clip 002 take 1 longer"),
+                ("audio/boom.wav", b"audio boom track day 1"),
+            ],
+        );
 
         let db = test_db();
         let (tx, rx) = mpsc::unbounded_channel();
@@ -2131,10 +2269,15 @@ mod tests {
         let events = drain_events(rx).await;
         let cascading_events: Vec<_> = events
             .iter()
-            .filter(|e| matches!(
-                e,
-                OffloadEvent::PhaseChanged { phase: OffloadPhase::Cascading, .. }
-            ))
+            .filter(|e| {
+                matches!(
+                    e,
+                    OffloadEvent::PhaseChanged {
+                        phase: OffloadPhase::Cascading,
+                        ..
+                    }
+                )
+            })
             .collect();
         assert!(
             !cascading_events.is_empty(),
@@ -2185,10 +2328,15 @@ mod tests {
         let events = drain_events(rx).await;
         let cascading_events: Vec<_> = events
             .iter()
-            .filter(|e| matches!(
-                e,
-                OffloadEvent::PhaseChanged { phase: OffloadPhase::Cascading, .. }
-            ))
+            .filter(|e| {
+                matches!(
+                    e,
+                    OffloadEvent::PhaseChanged {
+                        phase: OffloadPhase::Cascading,
+                        ..
+                    }
+                )
+            })
             .collect();
         assert!(
             cascading_events.is_empty(),

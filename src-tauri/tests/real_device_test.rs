@@ -45,7 +45,11 @@ fn walk_files(dir: &Path) -> Vec<PathBuf> {
                 let path = entry.path();
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
                 // Skip hidden files/dirs and system dirs
-                if name.starts_with('.') || name == "$RECYCLE.BIN" || name == "System Volume Information" || name == "ascmhl" {
+                if name.starts_with('.')
+                    || name == "$RECYCLE.BIN"
+                    || name == "System Volume Information"
+                    || name == "ascmhl"
+                {
                     continue;
                 }
                 if path.is_dir() {
@@ -85,7 +89,9 @@ fn human_bytes(bytes: u64) -> String {
 }
 
 /// Collect events and print progress.
-async fn drain_events_with_progress(mut rx: mpsc::UnboundedReceiver<OffloadEvent>) -> Vec<OffloadEvent> {
+async fn drain_events_with_progress(
+    mut rx: mpsc::UnboundedReceiver<OffloadEvent>,
+) -> Vec<OffloadEvent> {
     let mut events = Vec::new();
     let mut last_phase = String::new();
     while let Some(ev) = rx.recv().await {
@@ -118,10 +124,13 @@ async fn drain_events_with_progress(mut rx: mpsc::UnboundedReceiver<OffloadEvent
                 };
                 eprint!(
                     "\r    {:?} {}/{} files | {} / {} ({:.1}%) | {:.1} MB/s    ",
-                    phase, completed_files, total_files,
+                    phase,
+                    completed_files,
+                    total_files,
                     human_bytes(*completed_bytes),
                     human_bytes(*total_bytes),
-                    pct, speed
+                    pct,
+                    speed
                 );
             }
             OffloadEvent::FileCopyCompleted {
@@ -146,7 +155,10 @@ async fn drain_events_with_progress(mut rx: mpsc::UnboundedReceiver<OffloadEvent
                 ..
             } => {
                 if !verified {
-                    eprintln!("\r    [FAIL] {} — mismatch: {:?}", rel_path, mismatch_detail);
+                    eprintln!(
+                        "\r    [FAIL] {} — mismatch: {:?}",
+                        rel_path, mismatch_detail
+                    );
                 }
             }
             OffloadEvent::Error { message } => {
@@ -214,7 +226,12 @@ async fn real_device_small_scale() {
     eprintln!("╚══════════════════════════════════════════════════════════╝");
     eprintln!("  Source: {}", SOURCE_PATH);
     eprintln!("  Dest:   {}", dest.display());
-    eprintln!("  Files to copy: {} (first {} of {})", test_count, test_count, all_files.len());
+    eprintln!(
+        "  Files to copy: {} (first {} of {})",
+        test_count,
+        test_count,
+        all_files.len()
+    );
     for f in &test_files {
         let size = std::fs::metadata(f).unwrap().len();
         total_test_bytes += size;
@@ -275,10 +292,16 @@ async fn real_device_small_scale() {
     // AC-1: Zero loss
     assert!(result.success, "Workflow must succeed");
     assert_eq!(result.failed_files, 0, "Zero files should fail");
-    eprintln!("  [PASS] AC-1: Zero file loss (0 failed / {} total)", result.total_files);
+    eprintln!(
+        "  [PASS] AC-1: Zero file loss (0 failed / {} total)",
+        result.total_files
+    );
 
     // File count: workflow finds all files including macOS ._ resource forks
-    eprintln!("  [PASS] File count: {} files copied (incl. resource forks)", result.total_files);
+    eprintln!(
+        "  [PASS] File count: {} files copied (incl. resource forks)",
+        result.total_files
+    );
 
     // AC-1: Hash integrity — independent re-hash of every file
     eprintln!("  Verifying hashes independently...");
@@ -291,26 +314,43 @@ async fn real_device_small_scale() {
         let dest_hash = sha256_file(&dest_file).await;
         assert_eq!(src_hash, dest_hash, "Hash mismatch for {}", rel.display());
     }
-    eprintln!("  [PASS] AC-1: All {} file hashes verified (SHA-256)", test_count);
+    eprintln!(
+        "  [PASS] AC-1: All {} file hashes verified (SHA-256)",
+        test_count
+    );
 
     // AC-5: MHL report
     assert!(!result.mhl_paths.is_empty(), "MHL should be generated");
     let mhl_dir = dest.join("ascmhl");
     assert!(mhl_dir.exists(), "ascmhl directory should exist");
-    eprintln!("  [PASS] AC-5: MHL report generated at {:?}", result.mhl_paths);
+    eprintln!(
+        "  [PASS] AC-5: MHL report generated at {:?}",
+        result.mhl_paths
+    );
 
     // AC-4: Speed
     let throughput = result.total_bytes as f64 / total_duration.as_secs_f64() / 1_048_576.0;
-    eprintln!("  [INFO] AC-4: Throughput = {:.1} MB/s ({} in {:.1}s)",
-        throughput, human_bytes(result.total_bytes), total_duration.as_secs_f64());
+    eprintln!(
+        "  [INFO] AC-4: Throughput = {:.1} MB/s ({} in {:.1}s)",
+        throughput,
+        human_bytes(result.total_bytes),
+        total_duration.as_secs_f64()
+    );
 
     // DB verification (total_files includes macOS ._ resource forks)
     {
         let conn = db.lock().unwrap();
         let progress = checkpoint::get_job_progress(&conn, "real-small-test").unwrap();
-        assert!(progress.completed >= test_count, "At least {} files should complete", test_count);
+        assert!(
+            progress.completed >= test_count,
+            "At least {} files should complete",
+            test_count
+        );
         assert_eq!(progress.failed, 0);
-        eprintln!("  [PASS] DB checkpoint: {} completed, 0 failed", progress.completed);
+        eprintln!(
+            "  [PASS] DB checkpoint: {} completed, 0 failed",
+            progress.completed
+        );
     }
 
     // Cleanup temp source
@@ -350,7 +390,12 @@ async fn real_device_full_offload() {
     eprintln!("\n╔══════════════════════════════════════════════════════════╗");
     eprintln!("║  DIT Pro v1.0.0-alpha.1 — Full Offload Test          ║");
     eprintln!("╚══════════════════════════════════════════════════════════╝");
-    eprintln!("  Source: {} ({} files, {})", SOURCE_PATH, all_files.len(), human_bytes(total_bytes));
+    eprintln!(
+        "  Source: {} ({} files, {})",
+        SOURCE_PATH,
+        all_files.len(),
+        human_bytes(total_bytes)
+    );
     eprintln!("  Dest:   {}", dest.display());
     eprintln!("─────────────────────────────────────────────────────────");
 
@@ -391,10 +436,16 @@ async fn real_device_full_offload() {
     // AC-1: Zero loss, zero mismatch
     assert!(result.success, "Full offload must succeed");
     assert_eq!(result.failed_files, 0, "Zero files should fail");
-    assert_eq!(result.total_files, all_files.len(), "All files must be copied");
+    assert_eq!(
+        result.total_files,
+        all_files.len(),
+        "All files must be copied"
+    );
     eprintln!(
         "  [PASS] AC-1: Zero loss ({} / {} files, {} bytes)",
-        result.total_files, all_files.len(), human_bytes(result.total_bytes)
+        result.total_files,
+        all_files.len(),
+        human_bytes(result.total_bytes)
     );
 
     // Independent hash verification (sample 10 files for speed)
@@ -414,7 +465,10 @@ async fn real_device_full_offload() {
         verified += 1;
         eprintln!("    Verified {}: {} ✓", verified, rel.display());
     }
-    eprintln!("  [PASS] AC-1: {} sampled file hashes verified (SHA-256)", verified);
+    eprintln!(
+        "  [PASS] AC-1: {} sampled file hashes verified (SHA-256)",
+        verified
+    );
 
     // AC-5: MHL
     assert!(!result.mhl_paths.is_empty(), "MHL must be generated");
@@ -426,7 +480,10 @@ async fn real_device_full_offload() {
         .filter(|e| e.path().extension().map(|x| x == "mhl").unwrap_or(false))
         .collect();
     assert!(!mhl_files.is_empty(), "At least one .mhl file must exist");
-    eprintln!("  [PASS] AC-5: MHL generated ({} manifests)", mhl_files.len());
+    eprintln!(
+        "  [PASS] AC-5: MHL generated ({} manifests)",
+        mhl_files.len()
+    );
 
     // AC-4: Throughput
     let throughput_mbps = result.total_bytes as f64 / total_duration.as_secs_f64() / 1_048_576.0;
@@ -453,12 +510,30 @@ async fn real_device_full_offload() {
     eprintln!("\n╔══════════════════════════════════════════════════════════╗");
     eprintln!("║  ✅ FULL OFFLOAD TEST PASSED                             ║");
     eprintln!("╠══════════════════════════════════════════════════════════╣");
-    eprintln!("║  Files:      {:>6}                                     ║", all_files.len());
-    eprintln!("║  Total:      {:>10}                                ║", human_bytes(result.total_bytes));
-    eprintln!("║  Duration:   {:>6.1}s                                   ║", total_duration.as_secs_f64());
-    eprintln!("║  Speed:      {:>6.1} MB/s                               ║", throughput_mbps);
-    eprintln!("║  Failed:     {:>6}                                     ║", result.failed_files);
-    eprintln!("║  MHL:        {:>6} manifests                           ║", mhl_files.len());
+    eprintln!(
+        "║  Files:      {:>6}                                     ║",
+        all_files.len()
+    );
+    eprintln!(
+        "║  Total:      {:>10}                                ║",
+        human_bytes(result.total_bytes)
+    );
+    eprintln!(
+        "║  Duration:   {:>6.1}s                                   ║",
+        total_duration.as_secs_f64()
+    );
+    eprintln!(
+        "║  Speed:      {:>6.1} MB/s                               ║",
+        throughput_mbps
+    );
+    eprintln!(
+        "║  Failed:     {:>6}                                     ║",
+        result.failed_files
+    );
+    eprintln!(
+        "║  MHL:        {:>6} manifests                           ║",
+        mhl_files.len()
+    );
     eprintln!("╚══════════════════════════════════════════════════════════╝");
     eprintln!("  Output: {}", dest.display());
 }

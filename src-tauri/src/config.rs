@@ -88,11 +88,10 @@ fn default_max_retries() -> u32 {
 
 /// Per-device-type IO scheduling settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct IoSchedulingSettings {
     pub hdd: DeviceIoConfig,
     pub ssd: DeviceIoConfig,
-    pub nvme: DeviceIoConfig,
     pub raid: DeviceIoConfig,
     pub network: DeviceIoConfig,
 }
@@ -105,10 +104,6 @@ impl Default for IoSchedulingSettings {
                 buffer_size_mb: 1,
             },
             ssd: DeviceIoConfig {
-                max_concurrent: 4,
-                buffer_size_mb: 4,
-            },
-            nvme: DeviceIoConfig {
                 max_concurrent: 8,
                 buffer_size_mb: 8,
             },
@@ -259,7 +254,7 @@ mod tests {
         assert!(settings.offload.generate_mhl);
         assert_eq!(settings.offload.buffer_size, 4 * 1024 * 1024);
         assert_eq!(settings.io_scheduling.hdd.max_concurrent, 1);
-        assert_eq!(settings.io_scheduling.nvme.max_concurrent, 8);
+        assert_eq!(settings.io_scheduling.ssd.max_concurrent, 8);
         assert!(!settings.email.enabled);
     }
 
@@ -308,8 +303,8 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         let parsed: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(
-            parsed.io_scheduling.nvme.max_concurrent,
-            settings.io_scheduling.nvme.max_concurrent
+            parsed.io_scheduling.ssd.max_concurrent,
+            settings.io_scheduling.ssd.max_concurrent
         );
         assert_eq!(parsed.offload.source_verify, settings.offload.source_verify);
     }

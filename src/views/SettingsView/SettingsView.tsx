@@ -9,8 +9,7 @@ export function SettingsView() {
 
   const DEVICE_TYPES: { key: keyof AppSettings["ioScheduling"]; label: string; desc: string }[] = [
     { key: "hdd", label: "HDD", desc: t.settings.deviceHdd },
-    { key: "ssd", label: "SSD", desc: t.settings.deviceSsd },
-    { key: "nvme", label: "NVMe", desc: t.settings.deviceNvme },
+    { key: "ssd", label: "SSD / NVMe", desc: t.settings.deviceSsd },
     { key: "raid", label: "RAID", desc: t.settings.deviceRaid },
     { key: "network", label: "Network", desc: t.settings.deviceNetwork },
   ];

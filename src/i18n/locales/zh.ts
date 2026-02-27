@@ -169,6 +169,9 @@ const zh: TranslationKeys = {
     unmounted: "未挂载",
     critical: "严重",
     low: "偏低",
+    networkStorage: "网络存储",
+    unknownCapacity: "容量未知",
+    networkNoLimit: "无容量限制",
     openInFinder: "点击在访达中打开",
   },
 
@@ -255,8 +258,7 @@ const zh: TranslationKeys = {
     colMaxConcurrent: "最大并发数",
     colBufferMb: "缓冲区 (MB)",
     deviceHdd: "机械硬盘",
-    deviceSsd: "固态硬盘",
-    deviceNvme: "高速 NVMe",
+    deviceSsd: "固态硬盘（含 NVMe）",
     deviceRaid: "RAID 阵列",
     deviceNetwork: "网络共享",
     // Email section

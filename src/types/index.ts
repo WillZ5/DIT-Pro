@@ -11,7 +11,7 @@ export type CopyTaskStatus =
   | "skipped"
   | "conflict";
 
-export type DeviceType = "HDD" | "SSD" | "NVMe" | "RAID" | "Network" | "Unknown";
+export type DeviceType = "HDD" | "SSD" | "RAID" | "Network" | "Unknown";
 
 export type HashAlgorithm = "XXH64" | "XXH3" | "XXH128" | "SHA256" | "MD5";
 
@@ -291,7 +291,6 @@ export interface DeviceIoConfig {
 export interface IoSchedulingSettings {
   hdd: DeviceIoConfig;
   ssd: DeviceIoConfig;
-  nvme: DeviceIoConfig;
   raid: DeviceIoConfig;
   network: DeviceIoConfig;
 }

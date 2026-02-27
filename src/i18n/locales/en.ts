@@ -168,6 +168,9 @@ const en = {
     unmounted: "Unmounted",
     critical: "CRITICAL",
     low: "LOW",
+    networkStorage: "Network Storage",
+    unknownCapacity: "Unknown capacity",
+    networkNoLimit: "No capacity limit",
     openInFinder: "Click to open in Finder",
   },
 
@@ -257,8 +260,7 @@ const en = {
     colMaxConcurrent: "Max Concurrent",
     colBufferMb: "Buffer (MB)",
     deviceHdd: "Mechanical hard drive",
-    deviceSsd: "Solid state drive",
-    deviceNvme: "High-speed NVMe",
+    deviceSsd: "Solid state drive (incl. NVMe)",
     deviceRaid: "RAID array",
     deviceNetwork: "Network share",
     // Email section

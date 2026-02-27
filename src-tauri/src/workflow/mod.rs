@@ -142,6 +142,10 @@ pub enum OffloadEvent {
     PhaseChanged {
         phase: OffloadPhase,
         message: String,
+        /// Job name — only set on the first PhaseChanged event so the frontend
+        /// can populate the name even if the event arrives before start_offload returns.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
     },
     SourceHashCompleted {
         rel_path: String,
@@ -427,6 +431,7 @@ impl OffloadWorkflow {
         self.emit(OffloadEvent::PhaseChanged {
             phase: OffloadPhase::PreFlight,
             message: "Scanning source and checking destinations...".into(),
+            name: Some(self.config.job_name.clone()),
         });
 
         let source_files = self.scan_source().await?;
@@ -459,6 +464,7 @@ impl OffloadWorkflow {
             self.emit(OffloadEvent::PhaseChanged {
                 phase: OffloadPhase::SourceVerify,
                 message: format!("Hashing {} source files...", total_files),
+                name: None,
             });
             source_hashes = self.hash_source_files(&source_files).await?;
         }
@@ -474,6 +480,7 @@ impl OffloadWorkflow {
                     "Copying {} files to primary destination (cascade mode)...",
                     total_files,
                 ),
+                name: None,
             });
 
             let copy_hashes_primary = self
@@ -492,6 +499,7 @@ impl OffloadWorkflow {
                     total_files,
                     self.config.dest_paths.len() - 1,
                 ),
+                name: None,
             });
 
             self.cascade_from_primary(&source_files, &start, total_bytes)
@@ -505,6 +513,7 @@ impl OffloadWorkflow {
                     total_files,
                     self.config.dest_paths.len()
                 ),
+                name: None,
             });
 
             let copy_hashes = self
@@ -530,6 +539,7 @@ impl OffloadWorkflow {
             self.emit(OffloadEvent::PhaseChanged {
                 phase: OffloadPhase::Verifying,
                 message: "Re-reading destination files for verification...".into(),
+                name: None,
             });
             failed_count = self
                 .verify_destinations(&source_files, &source_hashes, &mut errors)
@@ -541,6 +551,7 @@ impl OffloadWorkflow {
             self.emit(OffloadEvent::PhaseChanged {
                 phase: OffloadPhase::Sealing,
                 message: "Generating ASC MHL manifests...".into(),
+                name: None,
             });
             mhl_paths = self.seal_mhl(&source_files, &source_hashes).await?;
         }
@@ -582,6 +593,7 @@ impl OffloadWorkflow {
                     errors.len() + failed_count
                 )
             },
+            name: None,
         });
 
         self.emit(OffloadEvent::Complete {
@@ -651,6 +663,7 @@ impl OffloadWorkflow {
         self.emit(OffloadEvent::PhaseChanged {
             phase: OffloadPhase::Copying,
             message: format!("Resuming: {} files remaining...", total_files),
+            name: Some(self.config.job_name.clone()),
         });
 
         // Copy pending files
@@ -671,6 +684,7 @@ impl OffloadWorkflow {
             self.emit(OffloadEvent::PhaseChanged {
                 phase: OffloadPhase::Verifying,
                 message: "Re-reading destination files for verification...".into(),
+                name: None,
             });
             failed_count = self
                 .verify_destinations(&source_files, &copy_hashes, &mut errors)
@@ -682,6 +696,7 @@ impl OffloadWorkflow {
             self.emit(OffloadEvent::PhaseChanged {
                 phase: OffloadPhase::Sealing,
                 message: "Generating ASC MHL manifests...".into(),
+                name: None,
             });
             // Load all completed tasks from DB to build full hash map and file list
             let (all_files, all_hashes) = {
@@ -783,6 +798,7 @@ impl OffloadWorkflow {
                     errors.len() + failed_count
                 )
             },
+            name: None,
         });
 
         self.emit(OffloadEvent::Complete {

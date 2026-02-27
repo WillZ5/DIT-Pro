@@ -1,11 +1,10 @@
 //! IO Scheduler — Per-drive concurrency control and smart queue management.
 //!
 //! Default concurrency limits:
-//! - HDD: 1-2 (protect from excessive seek)
-//! - SSD (SATA): 4
-//! - NVMe: 8
-//! - RAID: 4-8 (based on RAID level)
-//! - Network: 2-4
+//! - HDD: 1 (protect from excessive seek)
+//! - SSD (SATA + NVMe): 8
+//! - RAID: 4
+//! - Network: 2
 //!
 //! Each device gets an independent task queue and semaphore.
 //! Slow devices don't block fast devices.
@@ -17,10 +16,10 @@
 //! └─────┬────────┘
 //!       │ dispatch by destination device
 //!       ▼
-//! ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-//! │ HDD Queue   │  │ SSD Queue   │  │ NVMe Queue  │
-//! │ (1 worker)  │  │ (4 workers) │  │ (8 workers) │
-//! └─────────────┘  └─────────────┘  └─────────────┘
+//! ┌─────────────┐  ┌─────────────┐
+//! │ HDD Queue   │  │ SSD Queue   │
+//! │ (1 worker)  │  │ (8 workers) │
+//! └─────────────┘  └─────────────┘
 //! ```
 
 use std::collections::HashMap;
@@ -46,8 +45,7 @@ impl DeviceSchedulerConfig {
     pub fn default_for(device_type: DeviceType) -> Self {
         let (max_concurrent, buffer_size) = match device_type {
             DeviceType::HDD => (1, 1024 * 1024), // 1 concurrent, 1MB buffer
-            DeviceType::SSD => (4, 4 * 1024 * 1024), // 4 concurrent, 4MB buffer
-            DeviceType::NVMe => (8, 8 * 1024 * 1024), // 8 concurrent, 8MB buffer
+            DeviceType::SSD => (8, 8 * 1024 * 1024), // 8 concurrent, 8MB buffer (includes NVMe)
             DeviceType::RAID => (4, 4 * 1024 * 1024), // 4 concurrent, 4MB buffer
             DeviceType::Network => (2, 1024 * 1024), // 2 concurrent, 1MB buffer
             DeviceType::Unknown => (2, 2 * 1024 * 1024), // 2 concurrent, 2MB buffer
@@ -257,8 +255,9 @@ mod tests {
     }
 
     #[test]
-    fn test_default_config_nvme() {
-        let config = DeviceSchedulerConfig::default_for(DeviceType::NVMe);
+    fn test_default_config_ssd_includes_nvme() {
+        // SSD config now includes NVMe-level performance (8 concurrent, 8MB buffer)
+        let config = DeviceSchedulerConfig::default_for(DeviceType::SSD);
         assert_eq!(config.max_concurrent_tasks, 8);
         assert_eq!(config.buffer_size, 8 * 1024 * 1024);
     }

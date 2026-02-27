@@ -21,16 +21,6 @@ function DeviceIcon({ type }: { type: string }) {
           <path d="M10 12h4" stroke="#60a5fa" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
       );
-    case "NVMe":
-      return (
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <rect x="3" y="7" width="14" height="6" rx="1.5" stroke="#a78bfa" strokeWidth="1.4" />
-          <path d="M7 7V5.5a1 1 0 011-1h4a1 1 0 011 1V7" stroke="#a78bfa" strokeWidth="1.4" />
-          <circle cx="7" cy="10" r="1" fill="#a78bfa" />
-          <circle cx="10" cy="10" r="1" fill="#a78bfa" />
-          <circle cx="13" cy="10" r="1" fill="#a78bfa" />
-        </svg>
-      );
     case "HDD":
       return (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -152,23 +142,37 @@ export function VolumeView() {
                 {vol.mountPoint}
               </div>
               <div className="volume-space">
-                <span className="space-free">{formatBytes(vol.availableBytes)} {t.common.free}</span>
-                <span className="space-total"> / {formatBytes(vol.totalBytes)}</span>
+                {vol.totalBytes > 0 ? (
+                  <>
+                    <span className="space-free">{formatBytes(vol.availableBytes)} {t.common.free}</span>
+                    <span className="space-total"> / {formatBytes(vol.totalBytes)}</span>
+                  </>
+                ) : (
+                  <span className="space-free">{vol.deviceType === "Network" ? t.volumes.networkStorage : t.volumes.unknownCapacity}</span>
+                )}
               </div>
-              <div className="volume-bar">
-                <div
-                  className="usage-bar"
-                  style={{
-                    width: `${vol.usagePercent}%`,
-                    backgroundColor: getUsageBarColor(vol),
-                  }}
-                />
-              </div>
-              <div className="volume-percent">
-                <span>{vol.usagePercent.toFixed(0)}% {t.common.used}</span>
-                {vol.isCritical && <span className="warning-badge">{t.volumes.critical}</span>}
-                {vol.isLow && !vol.isCritical && <span className="warning-badge low">{t.volumes.low}</span>}
-              </div>
+              {vol.totalBytes > 0 ? (
+                <>
+                  <div className="volume-bar">
+                    <div
+                      className="usage-bar"
+                      style={{
+                        width: `${vol.usagePercent}%`,
+                        backgroundColor: getUsageBarColor(vol),
+                      }}
+                    />
+                  </div>
+                  <div className="volume-percent">
+                    <span>{vol.usagePercent.toFixed(0)}% {t.common.used}</span>
+                    {vol.isCritical && <span className="warning-badge">{t.volumes.critical}</span>}
+                    {vol.isLow && !vol.isCritical && <span className="warning-badge low">{t.volumes.low}</span>}
+                  </div>
+                </>
+              ) : (
+                <div className="volume-percent">
+                  <span style={{ color: "#888" }}>{vol.deviceType === "Network" ? t.volumes.networkNoLimit : "—"}</span>
+                </div>
+              )}
             </div>
           ))}
         </div>

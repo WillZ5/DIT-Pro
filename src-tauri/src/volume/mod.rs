@@ -17,7 +17,6 @@ use std::path::{Path, PathBuf};
 pub enum DeviceType {
     HDD,
     SSD,
-    NVMe,
     RAID,
     Network,
     Unknown,
@@ -28,7 +27,6 @@ impl std::fmt::Display for DeviceType {
         match self {
             DeviceType::HDD => write!(f, "HDD"),
             DeviceType::SSD => write!(f, "SSD"),
-            DeviceType::NVMe => write!(f, "NVMe"),
             DeviceType::RAID => write!(f, "RAID"),
             DeviceType::Network => write!(f, "Network"),
             DeviceType::Unknown => write!(f, "Unknown"),
@@ -41,8 +39,7 @@ impl DeviceType {
     pub fn from_str_loose(s: &str) -> Self {
         match s.to_uppercase().as_str() {
             "HDD" => DeviceType::HDD,
-            "SSD" => DeviceType::SSD,
-            "NVME" => DeviceType::NVMe,
+            "SSD" | "NVME" => DeviceType::SSD, // NVMe merged into SSD
             "RAID" => DeviceType::RAID,
             "NETWORK" => DeviceType::Network,
             _ => DeviceType::Unknown,
@@ -123,6 +120,18 @@ pub fn get_volume_space(path: &Path) -> Result<VolumeSpaceInfo> {
         0.0
     };
 
+    // Guard against unreliable statvfs on network filesystems:
+    // - total_bytes > 1 EB (exabyte) is physically impossible → treat as "unlimited"
+    // - usage_percent > 100% indicates corrupt statvfs data
+    if total_bytes > 1_000_000_000_000_000_000 || usage_percent > 100.0 {
+        return Ok(VolumeSpaceInfo {
+            total_bytes: 0,
+            available_bytes: 0,
+            used_bytes: 0,
+            usage_percent: 0.0,
+        });
+    }
+
     Ok(VolumeSpaceInfo {
         total_bytes,
         available_bytes,
@@ -136,12 +145,31 @@ pub fn get_volume_space(_path: &Path) -> Result<VolumeSpaceInfo> {
     anyhow::bail!("Volume space query not implemented on this platform")
 }
 
-/// Detect device type for a mounted volume using `diskutil info`.
+/// Detect device type for a mounted volume using `mount` and `diskutil info`.
 #[cfg(target_os = "macos")]
 fn detect_device_type(mount_point: &str) -> DeviceType {
     use std::process::Command;
 
-    // Network shares (SMB, NFS, AFP) are not under /dev
+    // First check `mount` output for network filesystem types — more reliable
+    // than `diskutil info` for network shares (SMB, NFS, AFP, WebDAV, CIFS).
+    if let Ok(mount_output) = Command::new("mount").output() {
+        let mounts = String::from_utf8_lossy(&mount_output.stdout);
+        for line in mounts.lines() {
+            if line.contains(mount_point) {
+                let lower = line.to_lowercase();
+                if lower.contains("smbfs")
+                    || lower.contains("nfs")
+                    || lower.contains("afpfs")
+                    || lower.contains("webdav")
+                    || lower.contains("cifs")
+                {
+                    return DeviceType::Network;
+                }
+            }
+        }
+    }
+
+    // Fall through to diskutil for local devices
     let output = match Command::new("diskutil")
         .args(["info", mount_point])
         .output()
@@ -152,7 +180,7 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
 
     let info = String::from_utf8_lossy(&output.stdout);
 
-    // Check for network filesystem protocols
+    // Check for network filesystem protocols (secondary check via diskutil)
     if info.contains("Protocol:") {
         let proto_line = info
             .lines()
@@ -172,19 +200,15 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
     // Determine internal media type from diskutil output
     let info_lower = info.to_lowercase();
 
-    // Check "Solid State:" field  (Yes = SSD/NVMe)
+    // Check "Solid State:" field  (Yes = SSD, including NVMe drives)
     let is_solid_state = info
         .lines()
         .find(|l| l.contains("Solid State:"))
         .map(|l| l.contains("Yes"))
         .unwrap_or(false);
 
-    // Check protocol/bus for NVMe
-    if info_lower.contains("nvme") || info_lower.contains("nvmexpress") {
-        return DeviceType::NVMe;
-    }
-
-    if is_solid_state {
+    // NVMe and SATA SSD are both classified as SSD
+    if is_solid_state || info_lower.contains("nvme") || info_lower.contains("nvmexpress") {
         return DeviceType::SSD;
     }
 
@@ -231,7 +255,7 @@ pub async fn list_mounted_volumes() -> Result<Vec<VolumeInfo>> {
             Err(_) => (0, 0),
         };
 
-        // Detect device type (SSD/NVMe/HDD/RAID/Network)
+        // Detect device type (SSD/HDD/RAID/Network)
         let device_type = detect_device_type(&mount_point);
 
         let id = uuid::Uuid::new_v4().to_string();
@@ -361,14 +385,14 @@ mod tests {
     fn test_device_type_display() {
         assert_eq!(DeviceType::HDD.to_string(), "HDD");
         assert_eq!(DeviceType::SSD.to_string(), "SSD");
-        assert_eq!(DeviceType::NVMe.to_string(), "NVMe");
+        assert_eq!(DeviceType::RAID.to_string(), "RAID");
     }
 
     #[test]
     fn test_device_type_from_str() {
         assert_eq!(DeviceType::from_str_loose("hdd"), DeviceType::HDD);
         assert_eq!(DeviceType::from_str_loose("SSD"), DeviceType::SSD);
-        assert_eq!(DeviceType::from_str_loose("nvme"), DeviceType::NVMe);
+        assert_eq!(DeviceType::from_str_loose("nvme"), DeviceType::SSD); // NVMe mapped to SSD
         assert_eq!(DeviceType::from_str_loose("garbage"), DeviceType::Unknown);
     }
 

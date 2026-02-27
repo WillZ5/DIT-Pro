@@ -93,7 +93,7 @@ interface ActiveOffload {
   lastSnapshotTime: number;
   currentSpeed: number;
   isPaused: boolean;
-  speedHistory: number[];
+  speedHistoryByPhase: Record<string, number[]>;
 }
 
 function createActiveOffload(jobId: string, name: string): ActiveOffload {
@@ -118,7 +118,7 @@ function createActiveOffload(jobId: string, name: string): ActiveOffload {
     lastSnapshotTime: now,
     currentSpeed: 0,
     isPaused: false,
-    speedHistory: [],
+    speedHistoryByPhase: {},
   };
 }
 
@@ -627,6 +627,11 @@ export function JobsView() {
             case "phaseChanged":
               updated.phase = ev.phase;
               updated.phaseMessage = ev.message;
+              // Populate name from the first PhaseChanged event (fixes race
+              // condition where events arrive before start_offload returns)
+              if (ev.name && !updated.name) {
+                updated.name = ev.name;
+              }
               break;
 
             case "sourceHashCompleted":
@@ -690,8 +695,12 @@ export function JobsView() {
                   updated.lastBytesSnapshot = ev.completedBytes;
                   updated.lastSnapshotTime = now;
                   if (speed > 0) {
-                    const hist = [...updated.speedHistory, speed];
-                    updated.speedHistory = hist.length > 120 ? hist.slice(-120) : hist;
+                    const phase = updated.phase;
+                    const phaseHist = [...(updated.speedHistoryByPhase[phase] || []), speed];
+                    updated.speedHistoryByPhase = {
+                      ...updated.speedHistoryByPhase,
+                      [phase]: phaseHist.length > 120 ? phaseHist.slice(-120) : phaseHist,
+                    };
                   }
                 }
               }
@@ -1417,62 +1426,67 @@ export function JobsView() {
                       </div>
                     </div>
 
-                    {/* Speed chart — inside detail panel */}
-                    {offload.speedHistory.length >= 1 && (
-                      <div className={`speed-chart ${!isRunning ? "speed-chart--finished" : ""}`}>
-                        {(() => {
-                          const raw = offload.speedHistory;
-                          // Smooth with moving average (window=5) to reduce zigzag noise
-                          const WIN = 5;
-                          const smoothed: number[] = raw.map((_, i) => {
-                            const start = Math.max(0, i - Math.floor(WIN / 2));
-                            const end = Math.min(raw.length, i + Math.floor(WIN / 2) + 1);
-                            let sum = 0;
-                            for (let j = start; j < end; j++) sum += raw[j];
-                            return sum / (end - start);
-                          });
-                          const data = smoothed.length === 1 ? [smoothed[0], smoothed[0]] : smoothed;
-                          const max = Math.max(...data, 1);
-                          const W = 400, H = 80, PAD = 4;
-                          const plotW = W - PAD * 2;
-                          const plotH = H - PAD * 2;
-                          const step = plotW / Math.max(data.length - 1, 1);
-                          const points = data.map((v, idx) => `${PAD + idx * step},${PAD + plotH - (v / max) * plotH}`).join(" ");
-                          const areaPoints = `${PAD},${PAD + plotH} ${points} ${PAD + (data.length - 1) * step},${PAD + plotH}`;
-                          return (
-                            <svg viewBox={`0 0 ${W} ${H}`} className="speed-chart-svg" preserveAspectRatio="none">
-                              <defs>
-                                <linearGradient id={`sg-${offload.jobId}`} x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.35" />
-                                  <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.03" />
-                                </linearGradient>
-                              </defs>
-                              <polyline points={areaPoints} fill={`url(#sg-${offload.jobId})`} stroke="none" vectorEffect="non-scaling-stroke" />
-                              <polyline points={points} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                              {data.length > 0 && (
-                                <circle
-                                  cx={PAD + (data.length - 1) * step}
-                                  cy={PAD + plotH - (data[data.length - 1] / max) * plotH}
-                                  r="2.5" fill="#3b82f6" vectorEffect="non-scaling-stroke"
-                                />
-                              )}
-                            </svg>
-                          );
-                        })()}
-                        <div className="speed-chart-current">
-                          <span className="speed-chart-value">
-                            {isRunning
-                              ? formatSpeed(offload.currentSpeed)
-                              : formatSpeed(
-                                  offload.speedHistory.length > 0
-                                    ? offload.speedHistory.reduce((a, b) => a + b, 0) / offload.speedHistory.length
-                                    : 0
-                                )}
-                          </span>
-                          <span className="speed-chart-label">
-                            {isRunning ? t.jobs.speed : `${t.jobs.speed} (avg)`}
-                          </span>
-                        </div>
+                    {/* Per-phase speed charts */}
+                    {Object.keys(offload.speedHistoryByPhase).length > 0 && (
+                      <div className="speed-charts-container">
+                        {Object.entries(offload.speedHistoryByPhase)
+                          .filter(([, hist]) => hist.length >= 1)
+                          .map(([phase, history]) => {
+                            const info = PHASE_INFO[phase as OffloadPhase];
+                            const color = info?.color || "#3b82f6";
+                            const isCurrentPhase = isRunning && offload.phase === phase;
+                            const raw = history;
+                            const WIN = 5;
+                            const smoothed: number[] = raw.map((_, i) => {
+                              const start = Math.max(0, i - Math.floor(WIN / 2));
+                              const end = Math.min(raw.length, i + Math.floor(WIN / 2) + 1);
+                              let sum = 0;
+                              for (let j = start; j < end; j++) sum += raw[j];
+                              return sum / (end - start);
+                            });
+                            const data = smoothed.length === 1 ? [smoothed[0], smoothed[0]] : smoothed;
+                            const max = Math.max(...data, 1);
+                            const W = 400, H = 60, PAD = 4;
+                            const plotH = H - PAD * 2;
+                            const plotW = W - PAD * 2;
+                            const step = plotW / Math.max(data.length - 1, 1);
+                            const points = data.map((v, idx) => `${PAD + idx * step},${PAD + plotH - (v / max) * plotH}`).join(" ");
+                            const areaPoints = `${PAD},${PAD + plotH} ${points} ${PAD + (data.length - 1) * step},${PAD + plotH}`;
+                            const gradientId = `sg-${offload.jobId}-${phase}`;
+                            const avgSpeed = raw.reduce((a, b) => a + b, 0) / raw.length;
+                            return (
+                              <div key={phase} className={`speed-chart ${!isCurrentPhase ? "speed-chart--finished" : ""}`}>
+                                <div className="speed-chart-phase-label" style={{ color }}>{info?.label || phase}</div>
+                                <svg viewBox={`0 0 ${W} ${H}`} className="speed-chart-svg" preserveAspectRatio="none">
+                                  <defs>
+                                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+                                      <stop offset="100%" stopColor={color} stopOpacity="0.03" />
+                                    </linearGradient>
+                                  </defs>
+                                  <polyline points={areaPoints} fill={`url(#${gradientId})`} stroke="none" vectorEffect="non-scaling-stroke" />
+                                  <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                                  {data.length > 0 && (
+                                    <circle
+                                      cx={PAD + (data.length - 1) * step}
+                                      cy={PAD + plotH - (data[data.length - 1] / max) * plotH}
+                                      r="2.5" fill={color} vectorEffect="non-scaling-stroke"
+                                    />
+                                  )}
+                                </svg>
+                                <div className="speed-chart-current">
+                                  <span className="speed-chart-value">
+                                    {isCurrentPhase
+                                      ? formatSpeed(offload.currentSpeed)
+                                      : formatSpeed(avgSpeed)}
+                                  </span>
+                                  <span className="speed-chart-label">
+                                    {isCurrentPhase ? t.jobs.speed : `${t.jobs.speed} (avg)`}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
                       </div>
                     )}
 

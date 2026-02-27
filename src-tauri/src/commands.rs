@@ -1642,6 +1642,14 @@ pub fn terminate_offload(
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         checkpoint::update_job_status(&conn, &job_id, checkpoint::STATUS_TERMINATED)
             .map_err(|e| e.to_string())?;
+        // Mark in-flight tasks as failed so they don't become zombie records
+        conn.execute(
+            "UPDATE copy_tasks SET status = 'failed', error_msg = 'Cancelled by user',
+             updated_at = datetime('now')
+             WHERE job_id = ?1 AND status IN ('copying', 'verifying')",
+            rusqlite::params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(CommandResult::ok(true))
     } else {
         Ok(CommandResult::err(format!(
@@ -1702,6 +1710,14 @@ pub fn batch_terminate(
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     for job_id in &cancelled_ids {
         checkpoint::update_job_status(&conn, job_id, checkpoint::STATUS_TERMINATED).ok();
+        // Mark in-flight tasks as failed so they don't become zombie records
+        conn.execute(
+            "UPDATE copy_tasks SET status = 'failed', error_msg = 'Cancelled by user',
+             updated_at = datetime('now')
+             WHERE job_id = ?1 AND status IN ('copying', 'verifying')",
+            rusqlite::params![job_id],
+        )
+        .ok();
     }
 
     Ok(CommandResult::ok(cancelled_ids.len()))

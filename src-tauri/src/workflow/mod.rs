@@ -613,7 +613,7 @@ impl OffloadWorkflow {
     pub async fn execute_resume(&self) -> Result<OffloadResult> {
         let start = Instant::now();
         let mut errors: Vec<String> = Vec::new();
-        let mhl_paths: Vec<PathBuf> = Vec::new();
+        let mut mhl_paths: Vec<PathBuf> = Vec::new();
 
         // Read pending tasks from DB
         let pending_tasks = {
@@ -675,6 +675,69 @@ impl OffloadWorkflow {
             failed_count = self
                 .verify_destinations(&source_files, &copy_hashes, &mut errors)
                 .await?;
+        }
+
+        // ── MHL Sealing (optional) — covers ALL completed files in the job ──
+        if self.config.generate_mhl && failed_count == 0 {
+            self.emit(OffloadEvent::PhaseChanged {
+                phase: OffloadPhase::Sealing,
+                message: "Generating ASC MHL manifests...".into(),
+            });
+            // Load all completed tasks from DB to build full hash map and file list
+            let (all_files, all_hashes) = {
+                let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                let mut stmt = conn.prepare(
+                    "SELECT DISTINCT source_path, file_size, hash_xxh64, hash_sha256
+                     FROM copy_tasks WHERE job_id = ?1 AND status = 'completed'",
+                )?;
+                let mut files: Vec<SourceFile> = Vec::new();
+                let mut hashes: HashMap<String, Vec<HashResult>> = HashMap::new();
+                let mut seen_sources = std::collections::HashSet::new();
+                let rows = stmt.query_map(rusqlite::params![self.config.job_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                })?;
+                for row in rows {
+                    let (source_path, file_size, xxh64, sha256) = row?;
+                    let abs_path = PathBuf::from(&source_path);
+                    let rel_path = abs_path
+                        .strip_prefix(&self.config.source_path)
+                        .unwrap_or(&abs_path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    if seen_sources.insert(source_path.clone()) {
+                        files.push(SourceFile {
+                            rel_path: rel_path.clone(),
+                            abs_path,
+                            size: file_size as u64,
+                        });
+                    }
+                    if let std::collections::hash_map::Entry::Vacant(e) = hashes.entry(rel_path) {
+                        let mut h = Vec::new();
+                        if let Some(ref hex) = xxh64 {
+                            h.push(HashResult {
+                                algorithm: HashAlgorithm::XXH64,
+                                hex_digest: hex.clone(),
+                            });
+                        }
+                        if let Some(ref hex) = sha256 {
+                            h.push(HashResult {
+                                algorithm: HashAlgorithm::SHA256,
+                                hex_digest: hex.clone(),
+                            });
+                        }
+                        if !h.is_empty() {
+                            e.insert(h);
+                        }
+                    }
+                }
+                (files, hashes)
+            };
+            mhl_paths = self.seal_mhl(&all_files, &all_hashes).await?;
         }
 
         // Finalize
@@ -1322,7 +1385,72 @@ impl OffloadWorkflow {
         };
 
         for (i, file) in files.iter().enumerate() {
-            let dest_file = primary_dest.join(&file.rel_path);
+            // Apply conflict resolution for primary destination
+            let raw_dest = primary_dest.join(&file.rel_path);
+            let key = format!("{}::{}", file.rel_path, raw_dest.to_string_lossy());
+            let dest_file = match self.config.conflict_resolutions.get(&key) {
+                Some(ConflictAction::Skip) => {
+                    self.emit(OffloadEvent::FileSkipped {
+                        rel_path: file.rel_path.clone(),
+                        reason: format!(
+                            "skipped by user ({})",
+                            primary_dest
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                        ),
+                    });
+                    // Mark task as completed (skipped) in DB
+                    {
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        let task_id: Option<String> = conn
+                            .query_row(
+                                "SELECT id FROM copy_tasks
+                                 WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                                rusqlite::params![
+                                    self.config.job_id,
+                                    file.abs_path.to_string_lossy().as_ref(),
+                                    raw_dest.to_string_lossy().as_ref(),
+                                ],
+                                |row| row.get(0),
+                            )
+                            .ok();
+                        if let Some(tid) = task_id {
+                            checkpoint::update_task_completed(&conn, &tid, None, None)?;
+                        }
+                    }
+                    completed_bytes += file.size;
+                    self.emit(OffloadEvent::JobProgress {
+                        completed_files: i + 1,
+                        total_files,
+                        completed_bytes,
+                        total_bytes,
+                        phase: OffloadPhase::Copying,
+                        elapsed_secs: start.elapsed().as_secs_f64(),
+                        message: None,
+                    });
+                    self.check_paused().await?;
+                    continue;
+                }
+                Some(ConflictAction::KeepBoth) => {
+                    let renamed = generate_keep_both_path(&raw_dest);
+                    {
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        conn.execute(
+                            "UPDATE copy_tasks SET dest_path = ?1, updated_at = datetime('now')
+                             WHERE job_id = ?2 AND source_path = ?3 AND dest_path = ?4",
+                            rusqlite::params![
+                                renamed.to_string_lossy().as_ref(),
+                                self.config.job_id,
+                                file.abs_path.to_string_lossy().as_ref(),
+                                raw_dest.to_string_lossy().as_ref(),
+                            ],
+                        )?;
+                    }
+                    renamed
+                }
+                Some(ConflictAction::Overwrite) | None => raw_dest,
+            };
 
             self.emit(OffloadEvent::FileCopyStarted {
                 rel_path: file.rel_path.clone(),
@@ -1345,14 +1473,32 @@ impl OffloadWorkflow {
                 )?;
             }
 
+            // Use Overwrite policy if conflict resolution chose overwrite
+            let effective_config = if matches!(
+                self.config.conflict_resolutions.get(&key),
+                Some(ConflictAction::Overwrite)
+            ) {
+                CopyEngineConfig {
+                    conflict_policy: copy_engine::FileConflictPolicy::Overwrite,
+                    ..copy_config.clone()
+                }
+            } else {
+                copy_config.clone()
+            };
+
             let control = copy_engine::CopyControl {
                 cancel_flag: Some(self.cancel.as_atomic()),
                 pause_flag: Some(self.pause.as_atomic()),
                 on_progress: None, // cascade doesn't need intra-file progress
             };
 
-            match copy_engine::copy_file_single(&file.abs_path, &dest_file, &copy_config, &control)
-                .await
+            match copy_engine::copy_file_single(
+                &file.abs_path,
+                &dest_file,
+                &effective_config,
+                &control,
+            )
+            .await
             {
                 Ok(result) => {
                     copy_hashes.insert(file.rel_path.clone(), result.hash_results.clone());
@@ -1463,11 +1609,93 @@ impl OffloadWorkflow {
         };
 
         for (i, file) in files.iter().enumerate() {
-            let primary_file = primary_dest.join(&file.rel_path);
-            let secondary_files: Vec<PathBuf> = secondary_dests
-                .iter()
-                .map(|d| d.join(&file.rel_path))
-                .collect();
+            // Look up actual primary path from DB (may be renamed by KeepBoth)
+            let primary_file = {
+                let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                let actual: Option<String> = conn
+                    .query_row(
+                        "SELECT dest_path FROM copy_tasks
+                         WHERE job_id = ?1 AND source_path = ?2
+                         AND dest_path LIKE ?3 AND status = 'completed'",
+                        rusqlite::params![
+                            self.config.job_id,
+                            file.abs_path.to_string_lossy().as_ref(),
+                            format!("{}/%", primary_dest.to_string_lossy()),
+                        ],
+                        |row| row.get(0),
+                    )
+                    .ok();
+                match actual {
+                    Some(p) => PathBuf::from(p),
+                    None => primary_dest.join(&file.rel_path),
+                }
+            };
+
+            // If primary was skipped or failed, skip cascade
+            if !primary_file.exists() {
+                completed_bytes += file.size;
+                continue;
+            }
+
+            // Apply conflict resolutions for secondary destinations
+            let mut secondary_files: Vec<PathBuf> = Vec::new();
+            for d in secondary_dests {
+                let raw_dest = d.join(&file.rel_path);
+                let key = format!("{}::{}", file.rel_path, raw_dest.to_string_lossy());
+                match self.config.conflict_resolutions.get(&key) {
+                    Some(ConflictAction::Skip) => {
+                        self.emit(OffloadEvent::FileSkipped {
+                            rel_path: file.rel_path.clone(),
+                            reason: format!(
+                                "skipped by user ({})",
+                                d.file_name().unwrap_or_default().to_string_lossy()
+                            ),
+                        });
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        let task_id: Option<String> = conn
+                            .query_row(
+                                "SELECT id FROM copy_tasks
+                                 WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                                rusqlite::params![
+                                    self.config.job_id,
+                                    file.abs_path.to_string_lossy().as_ref(),
+                                    raw_dest.to_string_lossy().as_ref(),
+                                ],
+                                |row| row.get(0),
+                            )
+                            .ok();
+                        if let Some(tid) = task_id {
+                            checkpoint::update_task_completed(&conn, &tid, None, None)?;
+                        }
+                        continue;
+                    }
+                    Some(ConflictAction::KeepBoth) => {
+                        let renamed = generate_keep_both_path(&raw_dest);
+                        {
+                            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                            conn.execute(
+                                "UPDATE copy_tasks SET dest_path = ?1, updated_at = datetime('now')
+                                 WHERE job_id = ?2 AND source_path = ?3 AND dest_path = ?4",
+                                rusqlite::params![
+                                    renamed.to_string_lossy().as_ref(),
+                                    self.config.job_id,
+                                    file.abs_path.to_string_lossy().as_ref(),
+                                    raw_dest.to_string_lossy().as_ref(),
+                                ],
+                            )?;
+                        }
+                        secondary_files.push(renamed);
+                    }
+                    Some(ConflictAction::Overwrite) | None => {
+                        secondary_files.push(raw_dest);
+                    }
+                }
+            }
+
+            if secondary_files.is_empty() {
+                completed_bytes += file.size;
+                continue;
+            }
 
             self.emit(OffloadEvent::FileCopyStarted {
                 rel_path: file.rel_path.clone(),
@@ -1641,7 +1869,27 @@ impl OffloadWorkflow {
 
             for dest_root in &self.config.dest_paths {
                 self.check_cancelled()?;
-                let dest_file = dest_root.join(&file.rel_path);
+                // Look up actual dest_path from DB (may differ due to KeepBoth rename)
+                let dest_file = {
+                    let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                    let actual: Option<String> = conn
+                        .query_row(
+                            "SELECT dest_path FROM copy_tasks
+                             WHERE job_id = ?1 AND source_path = ?2
+                             AND dest_path LIKE ?3 AND status = 'completed'",
+                            rusqlite::params![
+                                self.config.job_id,
+                                file.abs_path.to_string_lossy().as_ref(),
+                                format!("{}/%", dest_root.to_string_lossy()),
+                            ],
+                            |row| row.get(0),
+                        )
+                        .ok();
+                    match actual {
+                        Some(p) => PathBuf::from(p),
+                        None => dest_root.join(&file.rel_path),
+                    }
+                };
 
                 let verify_msg = format!(
                     "Verifying ({}/{}) {}...",
@@ -1769,7 +2017,27 @@ impl OffloadWorkflow {
                     file_hashes.insert(file.rel_path.clone(), h.clone());
                 }
 
-                let dest_file = dest_root.join(&file.rel_path);
+                // Look up actual dest_path from DB (may differ due to KeepBoth rename)
+                let dest_file = {
+                    let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                    let actual: Option<String> = conn
+                        .query_row(
+                            "SELECT dest_path FROM copy_tasks
+                             WHERE job_id = ?1 AND source_path = ?2
+                             AND dest_path LIKE ?3 AND status = 'completed'",
+                            rusqlite::params![
+                                self.config.job_id,
+                                file.abs_path.to_string_lossy().as_ref(),
+                                format!("{}/%", dest_root.to_string_lossy()),
+                            ],
+                            |row| row.get(0),
+                        )
+                        .ok();
+                    match actual {
+                        Some(p) => PathBuf::from(p),
+                        None => dest_root.join(&file.rel_path),
+                    }
+                };
                 let modified = tokio::fs::metadata(&dest_file)
                     .await
                     .ok()

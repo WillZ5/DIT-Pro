@@ -364,6 +364,8 @@ pub async fn copy_file_multi(
     let mut hasher = MultiHasher::new(&config.hash_algorithms);
     let mut buffer = vec![0u8; config.buffer_size];
     let mut total_written: u64 = 0;
+    // Per-writer error tracking: if a destination write fails, skip it on subsequent chunks
+    let mut writer_errors: Vec<Option<String>> = vec![None; destinations.len()];
 
     loop {
         // Check cancel/pause before each chunk read
@@ -375,8 +377,19 @@ pub async fn copy_file_multi(
         }
         let chunk = &buffer[..bytes_read];
         hasher.update(chunk);
-        for writer in writers.iter_mut().flatten() {
-            writer.write(chunk).await?;
+        for (idx, writer_opt) in writers.iter_mut().enumerate() {
+            if writer_errors[idx].is_some() {
+                continue; // already failed, skip
+            }
+            if let Some(ref mut writer) = writer_opt {
+                if let Err(e) = writer.write(chunk).await {
+                    writer_errors[idx] = Some(e.to_string());
+                    // Take ownership for abort (abort consumes self)
+                    if let Some(w) = writer_opt.take() {
+                        w.abort().await.ok();
+                    }
+                }
+            }
         }
         total_written += bytes_read as u64;
 
@@ -399,6 +412,19 @@ pub async fn copy_file_multi(
                 success: true,
                 skipped: true,
                 error: None,
+            });
+            continue;
+        }
+        // Check if this writer failed during copy
+        if let Some(err_msg) = &writer_errors[i] {
+            results.push(CopyFileResult {
+                source_path: source.to_path_buf(),
+                dest_path: destinations[i].clone(),
+                bytes_copied: 0,
+                hash_results: vec![],
+                success: false,
+                skipped: false,
+                error: Some(err_msg.clone()),
             });
             continue;
         }

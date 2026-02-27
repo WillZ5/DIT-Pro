@@ -1,5 +1,7 @@
 # Architecture
 
+[English](ARCHITECTURE.md) | [中文](ARCHITECTURE_CN.md)
+
 ## Overview
 
 DIT Pro is a Tauri 2.0 desktop application with a React/TypeScript frontend and a Rust backend. It targets macOS (Apple Silicon native) for professional film production card offloading.

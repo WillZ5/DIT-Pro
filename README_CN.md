@@ -53,6 +53,11 @@ cargo test --manifest-path src-tauri/Cargo.toml
 npx @tauri-apps/cli build
 ```
 
+## 文档
+
+- 架构说明：[English](docs/ARCHITECTURE.md) | [中文](docs/ARCHITECTURE_CN.md)
+- 更新日志：[English](docs/CHANGELOG.md) | [中文](docs/CHANGELOG_CN.md)
+
 ## 项目结构
 
 ```

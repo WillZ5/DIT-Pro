@@ -1,5 +1,7 @@
 # Changelog
 
+[English](CHANGELOG.md) | [中文](CHANGELOG_CN.md)
+
 All notable changes to DIT Pro are documented here.
 
 Version format: [Semantic Versioning](https://semver.org/) `MAJOR.MINOR.PATCH[-prerelease]`
@@ -18,8 +20,6 @@ Version format: [Semantic Versioning](https://semver.org/) `MAJOR.MINOR.PATCH[-p
 | v1.0.0-beta.1 | AC verification tests + frontend polish | Done |
 | v1.0.0-beta.2 | State management overhaul + backend hardening | Done |
 | v1.0.0-beta.3 | Serialization fix + speed chart + rename to DIT Pro | **Current** |
-| v1.0.0-rc.1 | Release candidate -- smoke testing | Upcoming |
-| v1.0.0 | MVP stable release | Upcoming |
 
 ---
 

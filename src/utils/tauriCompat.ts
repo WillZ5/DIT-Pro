@@ -37,10 +37,10 @@ function mockInvoke<T>(cmd: string, args?: Record<string, any>): T {
     case "get_app_version":
       return {
         version: "1.0.0",
-        preRelease: "demo",
+        preRelease: "beta.3",
         buildMeta: null,
-        channel: "dev",
-        fullString: "1.0.0-demo",
+        channel: "beta",
+        fullString: "1.0.0-beta.3",
         gitHash: null,
         buildTime: null,
       } as T;

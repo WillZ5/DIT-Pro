@@ -18,7 +18,7 @@ const translations: Record<Locale, TranslationKeys> = { en, zh };
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = "dit-system-locale";
+const STORAGE_KEY = "dit-pro-locale";
 
 function getInitialLocale(): Locale {
   try {

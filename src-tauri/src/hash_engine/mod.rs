@@ -40,6 +40,7 @@ impl std::fmt::Display for HashAlgorithm {
 
 /// Result of hashing a file with one algorithm
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HashResult {
     pub algorithm: HashAlgorithm,
     pub hex_digest: String,
@@ -186,6 +187,18 @@ pub async fn hash_file(
     path: &Path,
     config: &HashEngineConfig,
 ) -> Result<Vec<HashResult>> {
+    hash_file_with_progress(path, config, None).await
+}
+
+/// Hash a file with optional progress callback (async).
+/// The callback receives `(bytes_processed, total_bytes)` and is called after each buffer read.
+pub async fn hash_file_with_progress(
+    path: &Path,
+    config: &HashEngineConfig,
+    on_progress: Option<&(dyn Fn(u64, u64) + Send + Sync)>,
+) -> Result<Vec<HashResult>> {
+    let metadata = tokio::fs::metadata(path).await?;
+    let total_bytes = metadata.len();
     let mut file = tokio::fs::File::open(path).await?;
     let mut hasher = MultiHasher::new(&config.algorithms);
     let mut buffer = vec![0u8; config.buffer_size];
@@ -196,6 +209,9 @@ pub async fn hash_file(
             break;
         }
         hasher.update(&buffer[..bytes_read]);
+        if let Some(cb) = &on_progress {
+            cb(hasher.bytes_processed(), total_bytes);
+        }
     }
 
     Ok(hasher.finalize())

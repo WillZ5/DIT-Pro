@@ -171,7 +171,7 @@ function App() {
             onClick={() => setShowAbout(true)}
             style={{ cursor: "pointer" }}
           >
-            v{versionInfo?.version || "\u2014"}
+            v{versionInfo?.fullString?.split("+")[0] || versionInfo?.version || "\u2014"}
           </span>
         </div>
       </nav>

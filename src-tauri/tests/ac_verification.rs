@@ -895,7 +895,7 @@ async fn ac7_cli_verifies_mhl_directory() {
         );
     }
 
-    println!("[AC-7.2] PASS: MHL directory created by DIT System is verifiable");
+    println!("[AC-7.2] PASS: MHL directory created by DIT Pro is verifiable");
 }
 
 /// AC-7.3: MHL tamper detection works (chain integrity check)

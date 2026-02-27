@@ -21,7 +21,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("[DIT System] React error:", error, info.componentStack);
+    console.error("[DIT Pro] React error:", error, info.componentStack);
   }
 
   render() {
@@ -43,7 +43,7 @@ export class ErrorBoundary extends Component<Props, State> {
         >
           <div style={{ fontSize: "48px", marginBottom: "1rem" }}>⚠</div>
           <h1 style={{ fontSize: "1.25rem", marginBottom: "0.5rem" }}>
-            DIT System — Render Error
+            DIT Pro — Render Error
           </h1>
           <p style={{ color: "#a1a1aa", marginBottom: "1rem", maxWidth: "480px" }}>
             {this.state.error?.message || "An unexpected error occurred."}

@@ -14,11 +14,14 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 /// An atomic file writer that writes to .tmp then renames on completion.
+/// Implements Drop to automatically clean up temp files on cancellation.
 pub struct AtomicWriter {
     temp_path: PathBuf,
     final_path: PathBuf,
-    file: tokio::fs::File,
+    file: Option<tokio::fs::File>,
     bytes_written: u64,
+    /// Set to true after finalize() succeeds, so Drop doesn't delete the renamed file
+    finalized: bool,
 }
 
 impl AtomicWriter {
@@ -41,14 +44,16 @@ impl AtomicWriter {
         Ok(Self {
             temp_path,
             final_path: final_path.to_path_buf(),
-            file,
+            file: Some(file),
             bytes_written: 0,
+            finalized: false,
         })
     }
 
     /// Write a chunk of data to the temporary file
     pub async fn write(&mut self, data: &[u8]) -> Result<()> {
-        self.file.write_all(data).await.with_context(|| {
+        let file = self.file.as_mut().context("AtomicWriter already consumed")?;
+        file.write_all(data).await.with_context(|| {
             format!("Failed to write to temp file: {:?}", self.temp_path)
         })?;
         self.bytes_written += data.len() as u64;
@@ -59,12 +64,14 @@ impl AtomicWriter {
     /// This is the point of no return — after this call succeeds,
     /// the file is guaranteed to be complete and correctly named.
     pub async fn finalize(mut self) -> Result<()> {
-        // Flush internal buffers
-        self.file.flush().await?;
-        // Sync to disk (ensures data is physically written)
-        self.file.sync_all().await?;
-        // Drop the file handle before rename
-        drop(self.file);
+        if let Some(mut file) = self.file.take() {
+            // Flush internal buffers
+            file.flush().await?;
+            // Sync to disk (ensures data is physically written)
+            file.sync_all().await?;
+            // Drop the file handle before rename
+            drop(file);
+        }
 
         // Atomic rename
         fs::rename(&self.temp_path, &self.final_path)
@@ -76,15 +83,18 @@ impl AtomicWriter {
                 )
             })?;
 
+        self.finalized = true;
         Ok(())
     }
 
     /// Abort the write and clean up the temporary file
-    pub async fn abort(self) -> Result<()> {
-        drop(self.file);
+    pub async fn abort(mut self) -> Result<()> {
+        // Drop file handle first
+        self.file.take();
         if self.temp_path.exists() {
             fs::remove_file(&self.temp_path).await.ok();
         }
+        self.finalized = true; // Prevent Drop from trying cleanup again
         Ok(())
     }
 
@@ -105,6 +115,18 @@ impl AtomicWriter {
 
     pub fn temp_path(&self) -> &Path {
         &self.temp_path
+    }
+}
+
+/// Drop implementation to clean up temp files when AtomicWriter is dropped
+/// without calling finalize() or abort() (e.g., on cancellation/panic).
+impl Drop for AtomicWriter {
+    fn drop(&mut self) {
+        if !self.finalized {
+            // Use synchronous fs to clean up — Drop cannot be async.
+            // Best-effort: ignore errors during cleanup.
+            let _ = std::fs::remove_file(&self.temp_path);
+        }
     }
 }
 

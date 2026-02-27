@@ -406,13 +406,13 @@ export function ReportView() {
                   <tbody>
                     {jobReport.tasks.map((task, i) => {
                       const srcName =
-                        task.sourcePath.split("/").pop() || task.sourcePath;
+                        task.sourcePath?.split("/").pop() || task.sourcePath || "—";
                       const destName =
-                        task.destPath.split("/").pop() || task.destPath;
+                        task.destPath?.split("/").pop() || task.destPath || "—";
                       return (
                         <tr key={i}>
-                          <td title={task.sourcePath}>{srcName}</td>
-                          <td title={task.destPath}>{destName}</td>
+                          <td title={task.sourcePath || ""}>{srcName}</td>
+                          <td title={task.destPath || ""}>{destName}</td>
                           <td>{formatBytes(task.fileSize)}</td>
                           <td>
                             <span

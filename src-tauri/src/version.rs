@@ -1,4 +1,4 @@
-//! Version Management for DIT System.
+//! Version Management for DIT Pro.
 //!
 //! Provides structured version information with SemVer compliance,
 //! pre-release tags (alpha/beta/rc), and build metadata (git hash + date).

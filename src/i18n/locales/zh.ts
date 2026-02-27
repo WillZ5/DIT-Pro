@@ -1,20 +1,20 @@
-// Chinese (Simplified) translations for DIT System
+// Chinese (Simplified) translations for DIT Pro
 import type { TranslationKeys } from "./en";
 
 const zh: TranslationKeys = {
   // ─── App Shell ──────────────────────────────────────────────────────
   app: {
-    title: "DIT System",
+    title: "DIT Pro",
     subtitle: "素材转场",
     demo: "演示",
     demoBanner: "浏览器预览模式 — 使用模拟数据。请在 Tauri 中运行以获得完整功能。",
-    quitConfirmTitle: "退出 DIT System？",
-    quitConfirmMessage: "确定要退出 DIT System 吗？",
+    quitConfirmTitle: "退出 DIT Pro？",
+    quitConfirmMessage: "确定要退出 DIT Pro 吗？",
     quitConfirmMessageActive:
       "当前有正在进行的拷卡任务，退出可能导致拷贝不完整。确定要退出吗？",
     quitConfirm: "退出",
     quitCancel: "取消",
-    quitHoldHint: "按住 ⌘Q 退出 DIT System",
+    quitHoldHint: "按住 ⌘Q 退出 DIT Pro",
     quitHoldHintActive: "按住 ⌘Q 退出 — 进行中的任务将被中断",
   },
 
@@ -122,6 +122,35 @@ const zh: TranslationKeys = {
     statusTerminated: "手动终止",
     skippedFiles: "已跳过",
     conflicts: "冲突",
+    // Conflict resolution dialog
+    conflictsDetected: "检测到重复文件",
+    conflictsDesc: "以下文件在目标位置已存在。请选择处理方式：",
+    conflictFile: "文件",
+    conflictSource: "源文件",
+    conflictDest: "目标文件",
+    conflictSize: "大小",
+    conflictModified: "修改时间",
+    conflictAction: "操作",
+    conflictSkip: "跳过",
+    conflictOverwrite: "覆盖",
+    conflictKeepBoth: "保留两者",
+    conflictApplyAll: "全部应用",
+    conflictSameSize: "大小相同",
+    conflictDiffSize: "大小不同",
+    conflictSameHash: "内容一致",
+    conflictDiffHash: "内容不同",
+    conflictHashLabel: "哈希",
+    conflictChecking: "正在检查冲突（含哈希比对）...",
+    conflictProceed: "继续",
+    conflictCount: "发现 {count} 个冲突",
+    // Phase messages (i18n)
+    phaseOffloadComplete: "拷卡完成",
+    phasePaused: "已暂停",
+    phaseResumed: "已恢复",
+    phaseTerminated: "已被用户终止",
+    phaseStarting: "正在启动...",
+    phaseResuming: "正在恢复...",
+    phaseResumedOffload: "已恢复拷卡",
     // Job detail dropdown
     details: "详情",
     currentFile: "当前文件",
@@ -294,7 +323,7 @@ const zh: TranslationKeys = {
     loadMore: "加载更多",
   },
   about: {
-    title: "关于 DIT System",
+    title: "关于 DIT Pro",
     version: "版本",
     channel: "通道",
     buildTime: "构建时间",

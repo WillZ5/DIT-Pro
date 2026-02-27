@@ -49,7 +49,7 @@ fn benchmark_hash_throughput() {
         *byte = (i.wrapping_mul(7) ^ i.wrapping_mul(13)) as u8;
     }
 
-    println!("\n=== DIT System Hash Engine Throughput Benchmark ===");
+    println!("\n=== DIT Pro Hash Engine Throughput Benchmark ===");
     println!("Data size: {} MB, Chunk size: {} MB\n", BENCHMARK_SIZE / (1024*1024), CHUNK_SIZE / (1024*1024));
 
     // Benchmark individual algorithms

@@ -19,7 +19,7 @@
 //! - **Event-driven progress**: Real-time events for frontend display
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -36,6 +36,24 @@ use crate::mhl::{self, MhlConfig, MhlProcessType};
 use crate::volume;
 
 // ─── Configuration ───────────────────────────────────────────────────────
+
+/// User's decision for a conflicting file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConflictAction {
+    Skip,
+    Overwrite,
+    KeepBoth,
+}
+
+/// A single conflict resolution from the user
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictResolution {
+    pub rel_path: String,
+    pub dest_path: String,
+    pub action: ConflictAction,
+}
 
 /// Configuration for an offload workflow
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +75,10 @@ pub struct OffloadConfig {
     /// that copy to remaining (slower) destinations. Frees source card sooner.
     #[serde(default)]
     pub cascade: bool,
+    /// Optional per-file conflict resolutions from duplicate detection dialog.
+    /// Key: "rel_path::dest_path" → action
+    #[serde(default)]
+    pub conflict_resolutions: HashMap<String, ConflictAction>,
 }
 
 impl Default for OffloadConfig {
@@ -73,6 +95,7 @@ impl Default for OffloadConfig {
             generate_mhl: true,
             max_retries: 3,
             cascade: false,
+            conflict_resolutions: HashMap::new(),
         }
     }
 }
@@ -110,7 +133,7 @@ impl std::fmt::Display for OffloadPhase {
 
 /// Events emitted during the offload workflow for frontend updates
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum OffloadEvent {
     PhaseChanged {
         phase: OffloadPhase,
@@ -147,6 +170,9 @@ pub enum OffloadEvent {
         total_bytes: u64,
         phase: OffloadPhase,
         elapsed_secs: f64,
+        /// Optional per-file status message (e.g. "Copying (3/142) file.mxf → A001")
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
     },
     Warning {
         message: String,
@@ -197,6 +223,43 @@ struct SourceFile {
     rel_path: String,
     abs_path: PathBuf,
     size: u64,
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────
+
+/// Generate a "keep both" path by appending _copy (or _copy_2, _copy_3, etc.)
+/// Example: photo.mov → photo_copy.mov → photo_copy_2.mov
+fn generate_keep_both_path(dest: &PathBuf) -> PathBuf {
+    let stem = dest
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let ext = dest
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    let parent = dest.parent().unwrap_or(Path::new(""));
+
+    // Try _copy first, then _copy_2, _copy_3, etc.
+    let candidate = parent.join(format!("{}_copy{}", stem, ext));
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    for n in 2..=999 {
+        let candidate = parent.join(format!("{}_copy_{}{}", stem, n, ext));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+
+    // Fallback: use timestamp
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    parent.join(format!("{}_{}{}", stem, ts, ext))
 }
 
 // ─── Workflow Orchestrator ───────────────────────────────────────────────
@@ -328,7 +391,7 @@ impl OffloadWorkflow {
     }
 
     /// Send an event (silently ignores if receiver dropped)
-    fn emit(&self, event: OffloadEvent) {
+    pub fn emit(&self, event: OffloadEvent) {
         self.event_tx.send(event).ok();
     }
 
@@ -740,7 +803,38 @@ impl OffloadWorkflow {
             self.check_cancelled()?;
             self.check_paused().await?;
 
-            let hashes = hash_engine::hash_file(&file.abs_path, &cfg)
+            let file_msg = format!("Hashing ({}/{}) {}...", i + 1, total_files, file.rel_path);
+
+            // Set up intra-file progress reporting (throttled to 100ms for responsive speed chart)
+            let event_tx = self.event_tx.clone();
+            let file_completed_bytes = completed_bytes;
+            let progress_total_files = total_files;
+            let progress_file_index = i;
+            let progress_start = hash_start;
+            let progress_msg = file_msg.clone();
+            let last_progress_emit = std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
+            let progress_callback = move |file_bytes_hashed: u64, _file_total: u64| {
+                let mut last = last_progress_emit.lock().unwrap_or_else(|e| e.into_inner());
+                if last.elapsed() >= std::time::Duration::from_millis(100) {
+                    let current_total = file_completed_bytes + file_bytes_hashed;
+                    event_tx
+                        .send(OffloadEvent::JobProgress {
+                            completed_files: progress_file_index,
+                            total_files: progress_total_files,
+                            completed_bytes: current_total,
+                            total_bytes,
+                            phase: OffloadPhase::SourceVerify,
+                            elapsed_secs: progress_start.elapsed().as_secs_f64(),
+                            message: Some(progress_msg.clone()),
+                        })
+                        .ok();
+                    *last = Instant::now();
+                }
+            };
+
+            let hashes = hash_engine::hash_file_with_progress(
+                &file.abs_path, &cfg, Some(&progress_callback),
+            )
                 .await
                 .with_context(|| format!("Failed to hash source: {:?}", file.abs_path))?;
 
@@ -753,7 +847,7 @@ impl OffloadWorkflow {
                 total_files,
             });
 
-            // Emit JobProgress during hash phase so frontend can show progress
+            // Emit JobProgress after file completion
             self.emit(OffloadEvent::JobProgress {
                 completed_files: i + 1,
                 total_files,
@@ -761,6 +855,7 @@ impl OffloadWorkflow {
                 total_bytes,
                 phase: OffloadPhase::SourceVerify,
                 elapsed_secs: hash_start.elapsed().as_secs_f64(),
+                message: Some(file_msg),
             });
 
             map.insert(file.rel_path.clone(), hashes);
@@ -791,12 +886,102 @@ impl OffloadWorkflow {
         };
 
         for (i, file) in files.iter().enumerate() {
-            let dest_files: Vec<PathBuf> = self
-                .config
-                .dest_paths
-                .iter()
-                .map(|d| d.join(&file.rel_path))
+            // Apply conflict resolutions to destination paths
+            let mut dest_files: Vec<PathBuf> = Vec::new();
+            let mut has_overwrite = false;
+
+            for d in &self.config.dest_paths {
+                let dest = d.join(&file.rel_path);
+                let key = format!("{}::{}", file.rel_path, dest.to_string_lossy());
+                match self.config.conflict_resolutions.get(&key) {
+                    Some(ConflictAction::Skip) => {
+                        // Skip this destination for this file
+                        self.emit(OffloadEvent::FileSkipped {
+                            rel_path: file.rel_path.clone(),
+                            reason: format!("skipped by user ({})", d.file_name().unwrap_or_default().to_string_lossy()),
+                        });
+                        continue;
+                    }
+                    Some(ConflictAction::Overwrite) => {
+                        has_overwrite = true;
+                        dest_files.push(dest);
+                    }
+                    Some(ConflictAction::KeepBoth) => {
+                        // Rename: file.ext → file_copy.ext (or file_copy_2.ext if that exists)
+                        let renamed = generate_keep_both_path(&dest);
+                        // Update DB record to match the renamed destination path
+                        {
+                            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                            conn.execute(
+                                "UPDATE copy_tasks SET dest_path = ?1, updated_at = datetime('now')
+                                 WHERE job_id = ?2 AND source_path = ?3 AND dest_path = ?4",
+                                rusqlite::params![
+                                    renamed.to_string_lossy().as_ref(),
+                                    self.config.job_id,
+                                    file.abs_path.to_string_lossy().as_ref(),
+                                    dest.to_string_lossy().as_ref(),
+                                ],
+                            )?;
+                        }
+                        dest_files.push(renamed);
+                    }
+                    None => {
+                        // No conflict resolution — copy normally
+                        dest_files.push(dest);
+                    }
+                }
+            }
+
+            if dest_files.is_empty() {
+                // All destinations were skipped for this file
+                completed_bytes += file.size;
+                self.emit(OffloadEvent::FileCopyCompleted {
+                    rel_path: file.rel_path.clone(),
+                    file_size: file.size,
+                    hashes: vec![],
+                    file_index: i,
+                    total_files,
+                });
+                self.emit(OffloadEvent::JobProgress {
+                    completed_files: i + 1,
+                    total_files,
+                    completed_bytes,
+                    total_bytes,
+                    phase: OffloadPhase::Copying,
+                    elapsed_secs: start.elapsed().as_secs_f64(),
+                    message: None,
+                });
+                continue;
+            }
+
+            // If any destination has Overwrite resolution, use Overwrite policy for the multi-copy.
+            // This is safe because: Skip dests are already removed, KeepBoth dests are renamed,
+            // and remaining non-conflict dests won't have matching files to overwrite.
+            let file_copy_config = if has_overwrite {
+                CopyEngineConfig {
+                    conflict_policy: copy_engine::FileConflictPolicy::Overwrite,
+                    ..copy_config.clone()
+                }
+            } else {
+                copy_config.clone()
+            };
+
+            // Build per-file status message (sent via JobProgress, not PhaseChanged)
+            // Use last 2 path segments for dest display (e.g. "Volumes/SHUTTLE_01")
+            let dest_names: Vec<String> = self.config.dest_paths.iter()
+                .map(|d| {
+                    let comps: Vec<&str> = d.components()
+                        .filter_map(|c| c.as_os_str().to_str())
+                        .collect();
+                    let n = comps.len();
+                    if n >= 2 { format!("{}/{}", comps[n - 2], comps[n - 1]) }
+                    else { d.to_string_lossy().to_string() }
+                })
                 .collect();
+            let file_msg = format!(
+                "Copying ({}/{}) {} → {}",
+                i + 1, total_files, file.rel_path, dest_names.join(", ")
+            );
 
             self.emit(OffloadEvent::FileCopyStarted {
                 rel_path: file.rel_path.clone(),
@@ -821,16 +1006,17 @@ impl OffloadWorkflow {
                 }
             } // lock released
 
-            // Set up intra-file progress reporting (throttled to 500ms)
+            // Set up intra-file progress reporting (throttled to 100ms for responsive speed chart)
             let event_tx = self.event_tx.clone();
             let file_completed_bytes = completed_bytes;
             let progress_total_files = total_files;
             let progress_file_index = i;
             let progress_start = *start;
-            let last_progress_emit = std::sync::Mutex::new(Instant::now());
+            let progress_msg = file_msg.clone();
+            let last_progress_emit = std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
             let progress_callback = move |file_bytes_written: u64, _file_total: u64| {
                 let mut last = last_progress_emit.lock().unwrap_or_else(|e| e.into_inner());
-                if last.elapsed() >= std::time::Duration::from_millis(500) {
+                if last.elapsed() >= std::time::Duration::from_millis(100) {
                     let current_total = file_completed_bytes + file_bytes_written;
                     event_tx
                         .send(OffloadEvent::JobProgress {
@@ -840,6 +1026,7 @@ impl OffloadWorkflow {
                             total_bytes,
                             phase: OffloadPhase::Copying,
                             elapsed_secs: progress_start.elapsed().as_secs_f64(),
+                            message: Some(progress_msg.clone()),
                         })
                         .ok();
                     *last = Instant::now();
@@ -853,7 +1040,7 @@ impl OffloadWorkflow {
             };
 
             // Read source once → write to all destinations
-            match copy_engine::copy_file_multi(&file.abs_path, &dest_files, &copy_config, &control).await {
+            let copy_ok = match copy_engine::copy_file_multi(&file.abs_path, &dest_files, &file_copy_config, &control).await {
                 Ok(results) => {
                     // Check if all results are skipped
                     let all_skipped = results.iter().all(|r| r.skipped);
@@ -945,6 +1132,7 @@ impl OffloadWorkflow {
                             }
                         }
                     }
+                    true
                 }
                 Err(e) => {
                     // If cancelled, propagate the error immediately
@@ -975,10 +1163,14 @@ impl OffloadWorkflow {
                             checkpoint::update_task_failed(&conn, &tid, &e.to_string())?;
                         }
                     }
+                    false
                 }
-            }
+            };
 
-            completed_bytes += file.size;
+            // Only count completed bytes for successful copies (avoid inflated progress)
+            if copy_ok {
+                completed_bytes += file.size;
+            }
 
             self.emit(OffloadEvent::FileCopyCompleted {
                 rel_path: file.rel_path.clone(),
@@ -995,6 +1187,7 @@ impl OffloadWorkflow {
                 total_bytes,
                 phase: OffloadPhase::Copying,
                 elapsed_secs: start.elapsed().as_secs_f64(),
+                message: Some(file_msg),
             });
 
             // Check for pause/cancel after each file (chunk-level checks also in copy_engine)
@@ -1087,6 +1280,11 @@ impl OffloadWorkflow {
                     }
                 }
                 Err(e) => {
+                    // Check if cancelled — propagate immediately
+                    let err_str = e.to_string();
+                    if err_str.contains("cancelled by user") {
+                        return Err(e);
+                    }
                     self.emit(OffloadEvent::Warning {
                         message: format!("Primary copy failed for {}: {}", file.rel_path, e),
                     });
@@ -1126,6 +1324,7 @@ impl OffloadWorkflow {
                 total_bytes,
                 phase: OffloadPhase::Copying,
                 elapsed_secs: start.elapsed().as_secs_f64(),
+                message: None,
             });
 
             // Check for pause/cancel after each file
@@ -1232,6 +1431,11 @@ impl OffloadWorkflow {
                     }
                 }
                 Err(e) => {
+                    // Check if cancelled — propagate immediately
+                    let err_str = e.to_string();
+                    if err_str.contains("cancelled by user") {
+                        return Err(e);
+                    }
                     self.emit(OffloadEvent::Warning {
                         message: format!("Cascade failed for {}: {}", file.rel_path, e),
                     });
@@ -1273,6 +1477,7 @@ impl OffloadWorkflow {
                 total_bytes,
                 phase: OffloadPhase::Cascading,
                 elapsed_secs: start.elapsed().as_secs_f64(),
+                message: None,
             });
 
             // Check for pause/cancel after each file
@@ -1296,8 +1501,17 @@ impl OffloadWorkflow {
             buffer_size: self.config.buffer_size,
         };
         let mut failed = 0;
+        let total_files = files.len();
+        let total_bytes: u64 = files.iter().map(|f| f.size).sum();
+        let total_verify_ops = total_files * self.config.dest_paths.len();
+        let mut completed_ops: usize = 0;
+        let mut completed_bytes: u64 = 0;
+        let verify_start = Instant::now();
 
-        for file in files {
+        for (fi, file) in files.iter().enumerate() {
+            // Check pause/cancel between files
+            self.check_paused().await?;
+
             let expected = match source_hashes.get(&file.rel_path) {
                 Some(h) => h,
                 None => {
@@ -1309,7 +1523,10 @@ impl OffloadWorkflow {
             };
 
             for dest_root in &self.config.dest_paths {
+                self.check_cancelled()?;
                 let dest_file = dest_root.join(&file.rel_path);
+
+                let verify_msg = format!("Verifying ({}/{}) {}...", completed_ops + 1, total_verify_ops, file.rel_path);
 
                 if !dest_file.exists() {
                     failed += 1;
@@ -1320,12 +1537,41 @@ impl OffloadWorkflow {
                         verified: false,
                         mismatch_detail: Some("File not found after copy".into()),
                     });
+                    completed_ops += 1;
                     continue;
                 }
 
-                let actual = hash_engine::hash_file(&dest_file, &cfg)
+                // Progress callback for intra-file verify progress
+                let event_tx = self.event_tx.clone();
+                let base_completed_bytes = completed_bytes;
+                let verify_start_clone = verify_start;
+                let total_files_for_progress = total_files;
+                let fi_for_progress = fi;
+                let progress_msg = verify_msg.clone();
+                let last_emit = std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
+                let verify_progress = move |bytes_hashed: u64, _file_total: u64| {
+                    let mut last = last_emit.lock().unwrap_or_else(|e| e.into_inner());
+                    if last.elapsed() >= std::time::Duration::from_millis(100) {
+                        event_tx
+                            .send(OffloadEvent::JobProgress {
+                                completed_files: fi_for_progress,
+                                total_files: total_files_for_progress,
+                                completed_bytes: base_completed_bytes + bytes_hashed,
+                                total_bytes,
+                                phase: OffloadPhase::Verifying,
+                                elapsed_secs: verify_start_clone.elapsed().as_secs_f64(),
+                                message: Some(progress_msg.clone()),
+                            })
+                            .ok();
+                        *last = Instant::now();
+                    }
+                };
+
+                let actual = hash_engine::hash_file_with_progress(&dest_file, &cfg, Some(&verify_progress))
                     .await
                     .with_context(|| format!("Verify read failed: {:?}", dest_file))?;
+
+                completed_ops += 1;
 
                 let mut ok = true;
                 let mut detail = None;
@@ -1360,6 +1606,20 @@ impl OffloadWorkflow {
                     mismatch_detail: detail,
                 });
             }
+
+            // Update completed bytes for this source file (count once even with multiple dests)
+            completed_bytes += file.size;
+
+            // Emit progress after each source file is fully verified
+            self.emit(OffloadEvent::JobProgress {
+                completed_files: fi + 1,
+                total_files,
+                completed_bytes,
+                total_bytes,
+                phase: OffloadPhase::Verifying,
+                elapsed_secs: verify_start.elapsed().as_secs_f64(),
+                message: None,
+            });
         }
 
         Ok(failed)
@@ -1529,6 +1789,7 @@ mod tests {
             generate_mhl: true,
             max_retries: 3,
             cascade: false,
+            conflict_resolutions: HashMap::new(),
         };
 
         let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -1607,6 +1868,7 @@ mod tests {
             generate_mhl: false,
             max_retries: 1,
             cascade: false,
+            conflict_resolutions: HashMap::new(),
         };
 
         let workflow = OffloadWorkflow::new(config, db, tx);
@@ -1646,6 +1908,7 @@ mod tests {
             generate_mhl: false,
             max_retries: 1,
             cascade: false,
+            conflict_resolutions: HashMap::new(),
         };
 
         let workflow = OffloadWorkflow::new(config, db, tx);
@@ -1701,6 +1964,7 @@ mod tests {
             generate_mhl: false,
             max_retries: 1,
             cascade: false,
+            conflict_resolutions: HashMap::new(),
         };
 
         let workflow = OffloadWorkflow::new(config, db, tx);
@@ -1769,6 +2033,7 @@ mod tests {
             generate_mhl: false,
             max_retries: 1,
             cascade: false,
+            conflict_resolutions: HashMap::new(),
         };
 
         let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -1827,6 +2092,7 @@ mod tests {
             generate_mhl: false,
             max_retries: 1,
             cascade: true,
+            conflict_resolutions: HashMap::new(),
         };
 
         let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -1901,6 +2167,7 @@ mod tests {
             generate_mhl: false,
             max_retries: 1,
             cascade: true, // enabled but only 1 dest → should not cascade
+            conflict_resolutions: HashMap::new(),
         };
 
         let workflow = OffloadWorkflow::new(config, db, tx);

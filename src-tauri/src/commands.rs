@@ -611,6 +611,178 @@ pub struct MhlChainVerifyResult {
     pub valid: bool,
 }
 
+// ─── Conflict Detection ──────────────────────────────────────────────
+
+/// A file conflict detected before copy (destination file already exists)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileConflict {
+    pub rel_path: String,
+    pub source_size: u64,
+    pub source_modified: Option<String>,
+    pub dest_path: String,
+    pub dest_size: u64,
+    pub dest_modified: Option<String>,
+    /// true if source and dest have the same size
+    pub same_size: bool,
+    /// true if same_size AND content hashes match (XXH64)
+    pub same_hash: Option<bool>,
+    /// Source file hash (XXH64, hex)
+    pub source_hash: Option<String>,
+    /// Dest file hash (XXH64, hex)
+    pub dest_hash: Option<String>,
+}
+
+/// User's decision for a conflicting file
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConflictAction {
+    Skip,
+    Overwrite,
+    KeepBoth,
+}
+
+/// A single conflict resolution from the user
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictResolution {
+    pub rel_path: String,
+    pub dest_path: String,
+    pub action: ConflictAction,
+}
+
+/// Detect file conflicts before starting an offload.
+/// Scans source files against all destination directories and returns any
+/// files that already exist at the destinations.
+/// For same-size files, computes XXH64 hash to confirm whether content is identical.
+#[tauri::command]
+pub async fn detect_conflicts(
+    source_path: String,
+    dest_paths: Vec<String>,
+) -> Result<CommandResult<Vec<FileConflict>>, String> {
+    let source_root = PathBuf::from(&source_path);
+    if !source_root.exists() {
+        return Ok(CommandResult::err(format!("Source path does not exist: {}", source_path)));
+    }
+
+    let mut conflicts = Vec::new();
+
+    // Consistent ignore patterns with workflow's scan_source
+    let ignore_patterns: Vec<String> = crate::mhl::DEFAULT_IGNORE_PATTERNS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    // Walk source directory to find all files (consistent with scan_source)
+    let mut source_files: Vec<(String, PathBuf, std::fs::Metadata)> = Vec::new();
+    fn walk_dir(
+        dir: &Path,
+        root: &Path,
+        files: &mut Vec<(String, PathBuf, std::fs::Metadata)>,
+        ignore_patterns: &[String],
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let rel_path = path
+                    .strip_prefix(root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+
+                // Use the same ignore logic as workflow scan_source
+                if crate::mhl::should_ignore(&rel_path, ignore_patterns) {
+                    continue;
+                }
+
+                // Skip symlinks to avoid circular references
+                if let Ok(ft) = entry.file_type() {
+                    if ft.is_symlink() {
+                        continue;
+                    }
+                    if ft.is_dir() {
+                        walk_dir(&path, root, files, ignore_patterns);
+                    } else if ft.is_file() {
+                        if let Ok(meta) = entry.metadata() {
+                            files.push((rel_path, path.clone(), meta));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    walk_dir(&source_root, &source_root, &mut source_files, &ignore_patterns);
+
+    // Hash config for quick XXH64 comparison
+    let hash_cfg = crate::hash_engine::HashEngineConfig {
+        algorithms: vec![crate::hash_engine::HashAlgorithm::XXH64],
+        buffer_size: 4 * 1024 * 1024,
+    };
+
+    // Check each source file against each destination
+    for (rel_path, source_abs, source_meta) in &source_files {
+        for dest_root in &dest_paths {
+            let dest_file = PathBuf::from(dest_root).join(rel_path);
+            if dest_file.exists() {
+                if let Ok(dest_meta) = std::fs::metadata(&dest_file) {
+                    let source_modified = source_meta
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| {
+                            chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                                .unwrap_or_default()
+                        });
+                    let dest_modified = dest_meta
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| {
+                            chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                                .unwrap_or_default()
+                        });
+
+                    let same_size = source_meta.len() == dest_meta.len();
+
+                    // For same-size files, compute XXH64 to check if content is identical
+                    let (same_hash, source_hash, dest_hash) = if same_size {
+                        let src_hashes = crate::hash_engine::hash_file(source_abs, &hash_cfg).await;
+                        let dst_hashes = crate::hash_engine::hash_file(&dest_file, &hash_cfg).await;
+                        match (src_hashes, dst_hashes) {
+                            (Ok(sh), Ok(dh)) => {
+                                let src_hex = sh.first().map(|h| h.hex_digest.clone());
+                                let dst_hex = dh.first().map(|h| h.hex_digest.clone());
+                                let matched = src_hex.as_ref() == dst_hex.as_ref() && src_hex.is_some();
+                                (Some(matched), src_hex, dst_hex)
+                            }
+                            _ => (None, None, None),
+                        }
+                    } else {
+                        (Some(false), None, None)
+                    };
+
+                    conflicts.push(FileConflict {
+                        rel_path: rel_path.clone(),
+                        source_size: source_meta.len(),
+                        source_modified,
+                        dest_path: dest_file.to_string_lossy().to_string(),
+                        dest_size: dest_meta.len(),
+                        dest_modified,
+                        same_size,
+                        same_hash,
+                        source_hash,
+                        dest_hash,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(CommandResult::ok(conflicts))
+}
+
 // ─── Offload Workflow Commands ────────────────────────────────────────
 
 /// Request to start a full offload workflow
@@ -625,6 +797,9 @@ pub struct StartOffloadRequest {
     pub post_verify: Option<bool>,
     pub generate_mhl: Option<bool>,
     pub cascade: Option<bool>,
+    /// Optional conflict resolutions from the duplicate detection dialog.
+    /// If provided, Skip/Overwrite/KeepBoth are applied per file.
+    pub conflict_resolutions: Option<Vec<ConflictResolution>>,
 }
 
 /// Start an offload workflow. Returns immediately with job_id.
@@ -647,6 +822,17 @@ pub async fn start_offload(
         .filter_map(|s| parse_algorithm(s))
         .collect();
 
+    // Convert conflict resolutions list to HashMap keyed by "rel_path::dest_path"
+    let conflict_map: std::collections::HashMap<String, workflow::ConflictAction> =
+        request.conflict_resolutions.unwrap_or_default().into_iter().map(|r| {
+            let action = match r.action {
+                ConflictAction::Skip => workflow::ConflictAction::Skip,
+                ConflictAction::Overwrite => workflow::ConflictAction::Overwrite,
+                ConflictAction::KeepBoth => workflow::ConflictAction::KeepBoth,
+            };
+            (format!("{}::{}", r.rel_path, r.dest_path), action)
+        }).collect();
+
     let config = workflow::OffloadConfig {
         job_id: job_id.clone(),
         job_name: request.name,
@@ -663,6 +849,7 @@ pub async fn start_offload(
         generate_mhl: request.generate_mhl.unwrap_or(saved.offload.generate_mhl),
         max_retries: saved.offload.max_retries,
         cascade: request.cascade.unwrap_or(saved.offload.cascade),
+        conflict_resolutions: conflict_map,
     };
 
     let db = state.db.clone();
@@ -721,6 +908,8 @@ pub async fn start_offload(
                 // If cancelled, set status to "terminated" instead of "failed"
                 if err_msg.contains("cancelled by user") {
                     log::info!("Offload {} terminated by user", job_id_for_task);
+                    // Emit Terminated event so the frontend updates immediately
+                    wf.emit(workflow::OffloadEvent::Terminated);
                     if let Ok(conn) = db_for_status.lock() {
                         // Log cancellation as a warning (not an error)
                         let dit_err = crate::error::DitError::CopyCancelled;
@@ -934,6 +1123,7 @@ pub async fn resume_offload(
         generate_mhl: saved.offload.generate_mhl,
         max_retries: saved.offload.max_retries,
         cascade: false, // No cascade on resume
+        conflict_resolutions: std::collections::HashMap::new(), // No conflicts on resume
     };
 
     // Step 5: Mark job as copying
@@ -1574,5 +1764,122 @@ pub async fn export_debug_bundle(
     match crate::debug_bundle::create_debug_bundle(&conn, &app_data_dir, &settings) {
         Ok(path) => Ok(CommandResult::ok(path.to_string_lossy().to_string())),
         Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workflow::{OffloadEvent, OffloadPhase};
+
+    #[test]
+    fn test_envelope_serialization_job_progress() {
+        let event = OffloadEvent::JobProgress {
+            completed_files: 5,
+            total_files: 25,
+            completed_bytes: 1_234_567_890,
+            total_bytes: 12_345_678_901,
+            phase: OffloadPhase::Copying,
+            elapsed_secs: 15.3,
+            message: Some("Copying (5/25) file.mov → dest".to_string()),
+        };
+        let envelope = OffloadEventEnvelope {
+            job_id: "test-job-123".to_string(),
+            event,
+        };
+        let json = serde_json::to_string_pretty(&envelope).unwrap();
+        println!("=== Serialized OffloadEventEnvelope ===\n{}", json);
+
+        // Verify all expected fields exist with correct camelCase names
+        assert!(json.contains("\"jobId\""), "Missing jobId");
+        assert!(json.contains("\"type\": \"jobProgress\""), "Missing type tag");
+        assert!(json.contains("\"completedFiles\""), "Missing completedFiles");
+        assert!(json.contains("\"totalFiles\""), "Missing totalFiles");
+        assert!(json.contains("\"completedBytes\""), "Missing completedBytes");
+        assert!(json.contains("\"totalBytes\""), "Missing totalBytes");
+        assert!(json.contains("\"phase\""), "Missing phase");
+        assert!(json.contains("\"elapsedSecs\""), "Missing elapsedSecs");
+        assert!(json.contains("\"message\""), "Missing message");
+
+        // Verify actual values
+        assert!(json.contains("1234567890"), "completedBytes value wrong");
+        assert!(json.contains("12345678901"), "totalBytes value wrong");
+
+        // Verify NO snake_case fields leaked through
+        assert!(!json.contains("\"job_id\""), "job_id should be jobId");
+        assert!(!json.contains("\"completed_files\""), "snake_case leaked");
+        assert!(!json.contains("\"completed_bytes\""), "snake_case leaked");
+        assert!(!json.contains("\"total_bytes\""), "snake_case leaked");
+        assert!(!json.contains("\"total_files\""), "snake_case leaked");
+        assert!(!json.contains("\"elapsed_secs\""), "snake_case leaked");
+    }
+
+    #[test]
+    fn test_all_event_variants_camel_case() {
+        use crate::hash_engine::HashResult;
+
+        // Test all variants with multi-word fields
+        let events: Vec<(&str, OffloadEvent)> = vec![
+            ("sourceHashCompleted", OffloadEvent::SourceHashCompleted {
+                rel_path: "file.mov".into(),
+                hashes: vec![],
+                file_index: 0,
+                total_files: 10,
+            }),
+            ("fileCopyStarted", OffloadEvent::FileCopyStarted {
+                rel_path: "file.mov".into(),
+                file_size: 1000,
+                dest_count: 2,
+            }),
+            ("fileCopyCompleted", OffloadEvent::FileCopyCompleted {
+                rel_path: "file.mov".into(),
+                file_size: 1000,
+                hashes: vec![],
+                file_index: 0,
+                total_files: 10,
+            }),
+            ("fileVerified", OffloadEvent::FileVerified {
+                rel_path: "file.mov".into(),
+                dest_path: "/dest".into(),
+                verified: true,
+                mismatch_detail: None,
+            }),
+            ("complete", OffloadEvent::Complete {
+                total_files: 10,
+                total_bytes: 5000,
+                duration_secs: 30.5,
+                mhl_paths: vec![],
+            }),
+            ("fileSkipped", OffloadEvent::FileSkipped {
+                rel_path: "file.mov".into(),
+                reason: "test".into(),
+            }),
+            ("duplicateConflict", OffloadEvent::DuplicateConflict {
+                rel_path: "file.mov".into(),
+                source_hash: "abc".into(),
+                dest_hash: "def".into(),
+            }),
+        ];
+
+        for (name, event) in events {
+            let json = serde_json::to_string(&event).unwrap();
+            println!("{}: {}", name, json);
+
+            // No snake_case multi-word fields should exist
+            assert!(!json.contains("\"rel_path\""), "{}: rel_path leaked", name);
+            assert!(!json.contains("\"file_index\""), "{}: file_index leaked", name);
+            assert!(!json.contains("\"total_files\""), "{}: total_files leaked", name);
+            assert!(!json.contains("\"file_size\""), "{}: file_size leaked", name);
+            assert!(!json.contains("\"dest_count\""), "{}: dest_count leaked", name);
+            assert!(!json.contains("\"dest_path\""), "{}: dest_path leaked", name);
+            assert!(!json.contains("\"mismatch_detail\""), "{}: mismatch_detail leaked", name);
+            assert!(!json.contains("\"total_bytes\""), "{}: total_bytes leaked", name);
+            assert!(!json.contains("\"duration_secs\""), "{}: duration_secs leaked", name);
+            assert!(!json.contains("\"mhl_paths\""), "{}: mhl_paths leaked", name);
+            assert!(!json.contains("\"source_hash\""), "{}: source_hash leaked", name);
+            assert!(!json.contains("\"dest_hash\""), "{}: dest_hash leaked", name);
+        }
     }
 }

@@ -114,7 +114,7 @@ impl NotifyEvent {
     {warnings_html}
   </div>
   <div style="padding:12px 24px;background:#16213e;text-align:center;font-size:12px;color:#666;">
-    DIT System — Bulletproof Card Offload
+    DIT Pro
   </div>
 </div>"#,
                     job_name = html_escape(job_name),
@@ -137,10 +137,10 @@ impl NotifyEvent {
     <div style="background:#3e1a1a;padding:16px;border-radius:8px;border-left:4px solid #f44336;">
       <strong>Error:</strong><br/>{error}
     </div>
-    <p style="margin-top:16px;color:#ff9800;">Please check the DIT System application for details and consider restarting the offload.</p>
+    <p style="margin-top:16px;color:#ff9800;">Please check the DIT Pro application for details and consider restarting the offload.</p>
   </div>
   <div style="padding:12px 24px;background:#16213e;text-align:center;font-size:12px;color:#666;">
-    DIT System — Bulletproof Card Offload
+    DIT Pro
   </div>
 </div>"#,
                     job_name = html_escape(job_name),
@@ -177,7 +177,7 @@ impl NotifyEvent {
     <p style="color:#f44336;margin-top:16px;"><strong>Action Required:</strong> Do NOT eject the source card. Re-run verification or re-copy affected files.</p>
   </div>
   <div style="padding:12px 24px;background:#16213e;text-align:center;font-size:12px;color:#666;">
-    DIT System — Bulletproof Card Offload
+    DIT Pro
   </div>
 </div>"#,
                     job_name = html_escape(job_name),
@@ -270,7 +270,7 @@ pub async fn send_test_email(
         total_bytes: 107_374_182_400, // 100 GB
         duration_secs: 360.0,
         mhl_generated: true,
-        warnings: vec!["This is a test notification from DIT System.".to_string()],
+        warnings: vec!["This is a test notification from DIT Pro.".to_string()],
     };
 
     send_notification(settings, &test_event, app_data_dir).await

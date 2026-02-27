@@ -17,5 +17,5 @@ if (root) {
     </StrictMode>,
   );
 } else {
-  document.body.innerHTML = '<div style="color:#e0e0e0;padding:2rem">DIT System: #root element not found</div>';
+  document.body.innerHTML = '<div style="color:#e0e0e0;padding:2rem">DIT Pro: #root element not found</div>';
 }

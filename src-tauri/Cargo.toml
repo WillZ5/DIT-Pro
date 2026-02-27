@@ -1,7 +1,7 @@
 [package]
-name = "dit-system"
+name = "dit-pro"
 version = "1.0.0"
-description = "DIT Material Management System — Bulletproof Card Offload Engine"
+description = "DIT Pro — Professional Card Offload Engine"
 authors = ["William Zhao"]
 license = "MIT"
 repository = ""

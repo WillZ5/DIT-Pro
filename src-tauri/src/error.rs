@@ -1,4 +1,4 @@
-//! Structured Error Code System for DIT System.
+//! Structured Error Code System for DIT Pro.
 //!
 //! Every runtime error has a unique code (E1xxx), category, and severity.
 //! Error codes are organized by subsystem:

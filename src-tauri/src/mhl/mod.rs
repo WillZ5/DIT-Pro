@@ -82,7 +82,7 @@ impl Default for MhlConfig {
     fn default() -> Self {
         Self {
             creator_info: MhlCreatorInfo {
-                tool_name: "DIT System".to_string(),
+                tool_name: "DIT Pro".to_string(),
                 tool_version: env!("CARGO_PKG_VERSION").to_string(),
                 hostname: get_hostname(),
                 location: None,
@@ -620,7 +620,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = MhlConfig::default();
-        assert_eq!(config.creator_info.tool_name, "DIT System");
+        assert_eq!(config.creator_info.tool_name, "DIT Pro");
         assert!(!config.ignore_patterns.is_empty());
         assert_eq!(config.hash_format, HashAlgorithm::XXH64);
     }

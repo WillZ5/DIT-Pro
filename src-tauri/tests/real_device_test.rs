@@ -17,6 +17,7 @@ use app_lib::db;
 use app_lib::hash_engine::{self, HashAlgorithm, HashEngineConfig};
 use app_lib::workflow::{OffloadConfig, OffloadEvent, OffloadWorkflow};
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -103,6 +104,7 @@ async fn drain_events_with_progress(mut rx: mpsc::UnboundedReceiver<OffloadEvent
                 total_bytes,
                 phase,
                 elapsed_secs,
+                ..
             } => {
                 let pct = if *total_bytes > 0 {
                     *completed_bytes as f64 / *total_bytes as f64 * 100.0
@@ -208,7 +210,7 @@ async fn real_device_small_scale() {
     // Actually, we'll use the full DCIM dir and just verify the first N files
     let mut total_test_bytes: u64 = 0;
     eprintln!("\n╔══════════════════════════════════════════════════════════╗");
-    eprintln!("║  DIT System v1.0.0-alpha.1 — Real Device Test (Small)   ║");
+    eprintln!("║  DIT Pro v1.0.0-alpha.1 — Real Device Test (Small)   ║");
     eprintln!("╚══════════════════════════════════════════════════════════╝");
     eprintln!("  Source: {}", SOURCE_PATH);
     eprintln!("  Dest:   {}", dest.display());
@@ -254,6 +256,7 @@ async fn real_device_small_scale() {
         generate_mhl: true,
         max_retries: 3,
         cascade: false,
+        conflict_resolutions: HashMap::new(),
     };
 
     // Execute
@@ -345,7 +348,7 @@ async fn real_device_full_offload() {
     }
 
     eprintln!("\n╔══════════════════════════════════════════════════════════╗");
-    eprintln!("║  DIT System v1.0.0-alpha.1 — Full Offload Test          ║");
+    eprintln!("║  DIT Pro v1.0.0-alpha.1 — Full Offload Test          ║");
     eprintln!("╚══════════════════════════════════════════════════════════╝");
     eprintln!("  Source: {} ({} files, {})", SOURCE_PATH, all_files.len(), human_bytes(total_bytes));
     eprintln!("  Dest:   {}", dest.display());
@@ -370,6 +373,7 @@ async fn real_device_full_offload() {
         generate_mhl: true,
         max_retries: 3,
         cascade: false,
+        conflict_resolutions: HashMap::new(),
     };
 
     // Execute

@@ -823,7 +823,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dit-system"
+name = "dit-pro"
 version = "1.0.0"
 dependencies = [
  "anyhow",

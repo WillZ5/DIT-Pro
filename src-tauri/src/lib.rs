@@ -1,5 +1,5 @@
-// DIT System — Bulletproof Card Offload Engine
-// Core modules for the DIT material management system
+// DIT Pro — Professional Card Offload Engine
+// Core modules for the DIT Pro system
 
 pub mod checkpoint;
 pub mod commands;
@@ -72,7 +72,7 @@ pub fn run() {
             // Initialize database
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
-            let db_path = app_data_dir.join("dit-system.db");
+            let db_path = app_data_dir.join("dit-pro.db");
             let conn = db::init_database(&db_path.to_string_lossy())?;
             log::info!("Database initialized at {:?}", db_path);
 
@@ -114,12 +114,12 @@ pub fn run() {
             }
 
             // Custom application menu — ⌘Q accelerator with Rust-side hold detection
-            let quit_item = MenuItem::with_id(app, "app-quit", "Quit DIT System", true, Some("CmdOrCtrl+Q"))?;
+            let quit_item = MenuItem::with_id(app, "app-quit", "Quit DIT Pro", true, Some("CmdOrCtrl+Q"))?;
 
-            let app_submenu = Submenu::with_items(app, "DIT System", true, &[
-                &PredefinedMenuItem::about(app, Some("About DIT System"), None)?,
+            let app_submenu = Submenu::with_items(app, "DIT Pro", true, &[
+                &PredefinedMenuItem::about(app, Some("About DIT Pro"), None)?,
                 &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::hide(app, Some("Hide DIT System"))?,
+                &PredefinedMenuItem::hide(app, Some("Hide DIT Pro"))?,
                 &PredefinedMenuItem::hide_others(app, None)?,
                 &PredefinedMenuItem::show_all(app, None)?,
                 &PredefinedMenuItem::separator(app)?,
@@ -213,6 +213,8 @@ pub fn run() {
             // MHL
             commands::create_mhl_generation,
             commands::verify_mhl_chain,
+            // Conflict Detection
+            commands::detect_conflicts,
             // Workflow
             commands::start_offload,
             commands::resume_offload,

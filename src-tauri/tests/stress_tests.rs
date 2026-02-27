@@ -15,6 +15,7 @@ use app_lib::hash_engine::{self, HashAlgorithm, HashEngineConfig};
 use app_lib::mhl;
 use app_lib::workflow::{CancelToken, OffloadConfig, OffloadEvent, OffloadPhase, OffloadWorkflow};
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -114,6 +115,7 @@ fn make_config(
         generate_mhl,
         max_retries: 3,
         cascade,
+        conflict_resolutions: HashMap::new(),
     }
 }
 
@@ -447,6 +449,7 @@ async fn stress_interrupt_resume_200_files() {
             generate_mhl: false,
             max_retries: 3,
             cascade: false,
+            conflict_resolutions: HashMap::new(),
         };
         let workflow = OffloadWorkflow::with_cancel(config, db_clone, tx1, cancel_clone);
         workflow.execute().await
@@ -500,6 +503,7 @@ async fn stress_interrupt_resume_200_files() {
         generate_mhl: false,
         max_retries: 3,
         cascade: false,
+        conflict_resolutions: HashMap::new(),
     };
 
     let workflow2 = OffloadWorkflow::new(config2, db.clone(), tx2);
@@ -618,7 +622,7 @@ async fn stress_throughput_benchmark() {
     let efficiency = engine_mbps / raw_mbps * 100.0;
 
     println!("\n╔══════════════════════════════════════════════════════╗");
-    println!("║        DIT System Copy Throughput Benchmark          ║");
+    println!("║        DIT Pro Copy Throughput Benchmark          ║");
     println!("╠══════════════════════════════════════════════════════╣");
     println!("║ File size:                 {:>6} MB                  ║", file_size / (1024 * 1024));
     println!("║ Raw buffered copy:    {:>8.1} MB/s ({:.2}s)          ║", raw_mbps, raw_secs);
@@ -694,6 +698,7 @@ async fn stress_3_concurrent_jobs() {
                 generate_mhl: false,
                 max_retries: 3,
                 cascade: false,
+                conflict_resolutions: HashMap::new(),
             };
             let workflow = OffloadWorkflow::new(config, db_clone, tx);
             workflow.execute().await

@@ -464,7 +464,7 @@ mod tests {
             generation: 1,
             creation_date: now,
             creator_info: MhlCreatorInfo {
-                tool_name: "DIT System".to_string(),
+                tool_name: "DIT Pro".to_string(),
                 tool_version: "0.1.0".to_string(),
                 hostname: Some("MacStudio.local".to_string()),
                 location: Some("Stage 5, Burbank".to_string()),
@@ -538,7 +538,7 @@ mod tests {
         assert!(xml_str.contains("<creatorinfo>"));
         assert!(xml_str.contains("<creationdate>"));
         assert!(xml_str.contains("<hostname>MacStudio.local</hostname>"));
-        assert!(xml_str.contains("<tool version=\"0.1.0\">DIT System</tool>"));
+        assert!(xml_str.contains("<tool version=\"0.1.0\">DIT Pro</tool>"));
         assert!(xml_str.contains("<location>Stage 5, Burbank</location>"));
         assert!(xml_str.contains("<comment>Card A offload</comment>"));
 

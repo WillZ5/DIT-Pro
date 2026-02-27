@@ -504,7 +504,7 @@ export function SettingsView() {
                 <input
                   type="email"
                   className="settings-input"
-                  placeholder="dit-system@studio.com"
+                  placeholder="dit-pro@studio.com"
                   value={settings.email.fromAddress}
                   onChange={(e) => updateEmail("fromAddress", e.target.value)}
                 />

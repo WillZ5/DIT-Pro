@@ -2,7 +2,7 @@
 //!
 //! A lightweight, cross-platform command-line tool for verifying
 //! ASC MHL hash lists. Post-production houses can use this to verify
-//! delivered media without installing the full DIT System.
+//! delivered media without installing the full DIT Pro.
 //!
 //! Usage:
 //!   mhl-verify <path>                  Verify all MHL generations in a directory
@@ -774,7 +774,7 @@ mod tests {
 <hashlist version="2.0" xmlns="urn:ASC:MHL:v2.0">
   <creatorinfo>
     <creationdate>2024-06-15T10:30:00+00:00</creationdate>
-    <tool version="0.1.0">DIT System</tool>
+    <tool version="0.1.0">DIT Pro</tool>
   </creatorinfo>
   <processinfo>
     <process>transfer</process>
@@ -969,7 +969,7 @@ mod tests {
 <hashlist version="2.0" xmlns="urn:ASC:MHL:v2.0">
   <creatorinfo>
     <creationdate>2024-01-01T00:00:00+00:00</creationdate>
-    <tool version="0.1.0">DIT System</tool>
+    <tool version="0.1.0">DIT Pro</tool>
   </creatorinfo>
   <processinfo>
     <process>transfer</process>

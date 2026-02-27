@@ -1,4 +1,4 @@
-/* DIT System — Main Layout & Design System */
+/* DIT Pro — Main Layout & Design System */
 
 /* ─── Layout ─────────────────────────────────────────────────────────────── */
 
@@ -1465,6 +1465,159 @@
   width: 400px;
 }
 
+.dialog--wide {
+  width: 780px;
+}
+
+/* Conflict Resolution Dialog */
+.conflict-desc {
+  color: #a1a1aa;
+  font-size: 13px;
+  margin: 0 0 4px;
+}
+
+.conflict-count {
+  color: #f59e0b;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+
+.conflict-apply-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: #18181b;
+  border-radius: 8px;
+  border: 1px solid #27272a;
+}
+
+.conflict-apply-all > span {
+  font-size: 12px;
+  color: #71717a;
+  white-space: nowrap;
+}
+
+.conflict-table-wrapper {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+}
+
+.conflict-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.conflict-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.conflict-table th {
+  background: #18181b;
+  color: #71717a;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid #27272a;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.conflict-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #1c1c22;
+  color: #d4d4d8;
+  vertical-align: top;
+}
+
+.conflict-table tr:last-child td {
+  border-bottom: none;
+}
+
+.conflict-row--diff {
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.conflict-cell-file {
+  max-width: 220px;
+}
+
+.conflict-filename {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fafafa;
+  font-weight: 500;
+}
+
+.conflict-size-badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-top: 3px;
+}
+
+.conflict-size-same {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.conflict-size-diff {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.conflict-cell-info {
+  min-width: 100px;
+}
+
+.conflict-cell-info span {
+  display: block;
+}
+
+.conflict-date {
+  color: #52525b;
+  font-size: 11px;
+}
+
+.conflict-dest-name {
+  color: #71717a;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+.conflict-cell-action {
+  min-width: 100px;
+}
+
+.conflict-select {
+  width: 100%;
+  padding: 4px 8px;
+  background: #18181b;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  color: #e4e4e7;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.conflict-select:hover {
+  border-color: #52525b;
+}
+
 .dialog-header {
   display: flex;
   justify-content: space-between;
@@ -1952,25 +2105,53 @@
   background: #ef444415;
 }
 
-/* ─── Speed Waveform ──────────────────────────────────────────────────── */
+/* ─── Speed Chart (Steam-style) ──────────────────────────────────────── */
 
-.speed-waveform {
-  margin-top: 12px;
-  padding: 8px 0;
-  border-top: 1px solid #1c1c22;
+.speed-chart {
+  position: relative;
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 8px;
 }
 
-.speed-waveform-label {
-  font-size: 11px;
-  color: #71717a;
-  display: block;
-  margin-bottom: 4px;
-}
-
-.speed-waveform-svg {
+.speed-chart-svg {
   width: 100%;
-  height: 40px;
+  height: 72px;
   display: block;
+}
+
+.speed-chart-current {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.speed-chart-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #3b82f6;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.speed-chart-label {
+  font-size: 10px;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.speed-chart--finished {
+  opacity: 0.6;
+}
+
+.speed-chart--finished .speed-chart-value {
+  color: #22c55e;
 }
 
 /* ─── Channel Badge ────────────────────────────────────────────────────── */

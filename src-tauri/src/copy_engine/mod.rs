@@ -150,7 +150,9 @@ pub async fn check_available_space(dest_path: &Path, required_bytes: u64) -> Res
         unsafe {
             let mut stat: libc::statvfs = std::mem::zeroed();
             if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
-                let available = stat.f_bavail as u64 * stat.f_frsize;
+                // f_frsize can be 0 on some APFS configurations; fall back to f_bsize
+                let block_size = if stat.f_frsize > 0 { stat.f_frsize } else { stat.f_bsize as u64 };
+                let available = stat.f_bavail as u64 * block_size;
                 if available < required_bytes {
                     bail!(
                         "Insufficient space on {:?}: {} available, {} required",
@@ -159,6 +161,8 @@ pub async fn check_available_space(dest_path: &Path, required_bytes: u64) -> Res
                         format_bytes(required_bytes)
                     );
                 }
+            } else {
+                log::warn!("statvfs failed for {:?}, skipping space check", dest_path);
             }
         }
     }

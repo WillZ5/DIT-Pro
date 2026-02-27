@@ -1,19 +1,19 @@
-// English translations for DIT System
+// English translations for DIT Pro
 const en = {
   // ─── App Shell ──────────────────────────────────────────────────────
   app: {
-    title: "DIT System",
+    title: "DIT Pro",
     subtitle: "Material Offload",
     demo: "DEMO",
     demoBanner:
       "Browser preview mode — using mock data. Run in Tauri for full functionality.",
-    quitConfirmTitle: "Quit DIT System?",
-    quitConfirmMessage: "Are you sure you want to quit DIT System?",
+    quitConfirmTitle: "Quit DIT Pro?",
+    quitConfirmMessage: "Are you sure you want to quit DIT Pro?",
     quitConfirmMessageActive:
       "There are active offload jobs running. Quitting now may result in incomplete copies. Are you sure you want to quit?",
     quitConfirm: "Quit",
     quitCancel: "Cancel",
-    quitHoldHint: "Hold ⌘Q to quit DIT System",
+    quitHoldHint: "Hold ⌘Q to quit DIT Pro",
     quitHoldHintActive: "Hold ⌘Q to quit — active jobs will be interrupted",
   },
 
@@ -117,10 +117,39 @@ const en = {
     confirmDeleteMsg: "Are you sure you want to delete this job record? All associated copy records will be permanently removed. This cannot be undone.",
     confirmDeleteBatchMsg: "Are you sure you want to delete the selected job records? All associated copy records will be permanently removed. This cannot be undone.",
     deleteBtn: "Delete",
-    statusPaused: "Paused",
-    statusTerminated: "Terminated",
+    statusPaused: "PAUSED",
+    statusTerminated: "TERMINATED",
     skippedFiles: "Skipped",
     conflicts: "Conflicts",
+    // Conflict resolution dialog
+    conflictsDetected: "Duplicate Files Detected",
+    conflictsDesc: "The following files already exist at the destination. Choose how to handle each conflict:",
+    conflictFile: "File",
+    conflictSource: "Source",
+    conflictDest: "Destination",
+    conflictSize: "Size",
+    conflictModified: "Modified",
+    conflictAction: "Action",
+    conflictSkip: "Skip",
+    conflictOverwrite: "Overwrite",
+    conflictKeepBoth: "Keep Both",
+    conflictApplyAll: "Apply to all",
+    conflictSameSize: "Same size",
+    conflictDiffSize: "Different size",
+    conflictSameHash: "Identical content",
+    conflictDiffHash: "Different content",
+    conflictHashLabel: "Hash",
+    conflictChecking: "Checking for conflicts...",
+    conflictProceed: "Proceed",
+    conflictCount: "{count} conflicts found",
+    // Phase messages (i18n)
+    phaseOffloadComplete: "Offload complete",
+    phasePaused: "Paused",
+    phaseResumed: "Resumed",
+    phaseTerminated: "Terminated by user",
+    phaseStarting: "Starting...",
+    phaseResuming: "Resuming...",
+    phaseResumedOffload: "Resumed Offload",
     // Job detail dropdown
     details: "Details",
     currentFile: "Current File",
@@ -297,7 +326,7 @@ const en = {
     loadMore: "Load More",
   },
   about: {
-    title: "About DIT System",
+    title: "About DIT Pro",
     version: "Version",
     channel: "Channel",
     buildTime: "Build Time",

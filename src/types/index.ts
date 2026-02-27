@@ -1,4 +1,4 @@
-// DIT System — Core TypeScript types
+// DIT Pro — Core TypeScript types
 
 export type CopyTaskStatus =
   | "pending"
@@ -173,7 +173,8 @@ export type OffloadPhase =
   | "Verifying"
   | "Sealing"
   | "Complete"
-  | "Failed";
+  | "Failed"
+  | "Terminated";
 
 /** Envelope wrapping OffloadEvent with job_id for demuxing concurrent jobs */
 export interface OffloadEventEnvelope {
@@ -220,6 +221,8 @@ export type OffloadEvent =
       totalBytes: number;
       phase: OffloadPhase;
       elapsedSecs: number;
+      /** Optional per-file status message */
+      message?: string;
     }
   | { type: "warning"; message: string }
   | {
@@ -246,6 +249,36 @@ export interface StartOffloadRequest {
   postVerify?: boolean;
   generateMhl?: boolean;
   cascade?: boolean;
+  conflictResolutions?: ConflictResolution[];
+}
+
+// ─── Conflict Detection Types ────────────────────────────────────────────
+
+/** A file conflict detected before copy (destination file already exists) */
+export interface FileConflict {
+  relPath: string;
+  sourceSize: number;
+  sourceModified: string | null;
+  destPath: string;
+  destSize: number;
+  destModified: string | null;
+  sameSize: boolean;
+  /** true if same_size AND content hashes match (XXH64) */
+  sameHash: boolean | null;
+  /** Source file hash (XXH64, hex) */
+  sourceHash: string | null;
+  /** Dest file hash (XXH64, hex) */
+  destHash: string | null;
+}
+
+/** User's decision for a conflicting file */
+export type ConflictAction = "skip" | "overwrite" | "keepBoth";
+
+/** A single conflict resolution from the user */
+export interface ConflictResolution {
+  relPath: string;
+  destPath: string;
+  action: ConflictAction;
 }
 
 // ─── Settings Types ──────────────────────────────────────────────────────

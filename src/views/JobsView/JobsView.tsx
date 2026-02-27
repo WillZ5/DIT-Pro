@@ -1,10 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { safeInvoke, isTauri } from "../../utils/tauriCompat";
 import { setActiveJobCount } from "../../App";
 import { useI18n, type TranslationKeys } from "../../i18n";
 import type {
   AppSettings,
   CommandResult,
+  ConflictAction,
+  ConflictResolution,
+  FileConflict,
   JobInfo,
   OffloadEventEnvelope,
   OffloadPhase,
@@ -25,6 +28,7 @@ function translateStatus(status: string, t: TranslationKeys): string {
     paused: t.jobs.statusPaused,
     terminated: t.jobs.statusTerminated,
     skipped: t.jobs.skippedFiles,
+    conflict: t.jobs.conflicts,
   };
   return map[status] || status.toUpperCase();
 }
@@ -43,8 +47,9 @@ function formatSpeed(bytesPerSec: number): string {
 }
 
 function formatDuration(secs: number): string {
-  if (!secs || secs < 0) return "0s";
-  const totalSecs = Math.round(secs);
+  if (secs === undefined || secs === null || secs < 0) return "0s";
+  if (secs > 0 && secs < 1) return "< 1s";
+  const totalSecs = Math.max(1, Math.round(secs));
   if (totalSecs < 60) return `${totalSecs}s`;
   const m = Math.floor(totalSecs / 60);
   const s = totalSecs % 60;
@@ -63,6 +68,7 @@ function usePhaseInfo(): Record<OffloadPhase, { label: string; color: string }> 
     Sealing: { label: t.jobs.phaseSealing, color: "#3f51b5" },
     Complete: { label: t.jobs.phaseComplete, color: "#4caf50" },
     Failed: { label: t.jobs.phaseFailed, color: "#f44336" },
+    Terminated: { label: t.jobs.statusTerminated, color: "#dc2626" },
   };
 }
 
@@ -116,6 +122,131 @@ function createActiveOffload(jobId: string, name: string): ActiveOffload {
   };
 }
 
+// ─── Conflict Resolution Dialog ─────────────────────────────────────────
+
+interface ConflictResolutionDialogProps {
+  conflicts: FileConflict[];
+  onResolve: (resolutions: ConflictResolution[]) => void;
+  onCancel: () => void;
+}
+
+function ConflictResolutionDialog({ conflicts, onResolve, onCancel }: ConflictResolutionDialogProps) {
+  const { t } = useI18n();
+  const [actions, setActions] = useState<Map<string, ConflictAction>>(
+    () => new Map(conflicts.map((c) => [`${c.relPath}::${c.destPath}`, "skip"]))
+  );
+
+  const setAction = (key: string, action: ConflictAction) => {
+    setActions((prev) => {
+      const next = new Map(prev);
+      next.set(key, action);
+      return next;
+    });
+  };
+
+  const applyAll = (action: ConflictAction) => {
+    setActions(new Map(conflicts.map((c) => [`${c.relPath}::${c.destPath}`, action])));
+  };
+
+  const handleProceed = () => {
+    const resolutions: ConflictResolution[] = conflicts.map((c) => ({
+      relPath: c.relPath,
+      destPath: c.destPath,
+      action: actions.get(`${c.relPath}::${c.destPath}`) || "skip",
+    }));
+    onResolve(resolutions);
+  };
+
+  return (
+    <div className="dialog-overlay" onClick={onCancel}>
+      <div className="dialog dialog--wide" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog-header">
+          <h3>{t.jobs.conflictsDetected}</h3>
+          <button className="dialog-close" onClick={onCancel}>&times;</button>
+        </div>
+
+        <div className="dialog-body">
+          <p className="conflict-desc">{t.jobs.conflictsDesc}</p>
+          <p className="conflict-count">
+            {t.jobs.conflictCount.replace("{count}", String(conflicts.length))}
+          </p>
+
+          {/* Apply-all buttons */}
+          <div className="conflict-apply-all">
+            <span>{t.jobs.conflictApplyAll}:</span>
+            <button className="btn-sm btn-secondary" onClick={() => applyAll("skip")}>{t.jobs.conflictSkip}</button>
+            <button className="btn-sm btn-secondary" onClick={() => applyAll("overwrite")}>{t.jobs.conflictOverwrite}</button>
+            <button className="btn-sm btn-secondary" onClick={() => applyAll("keepBoth")}>{t.jobs.conflictKeepBoth}</button>
+          </div>
+
+          {/* Conflict table */}
+          <div className="conflict-table-wrapper">
+            <table className="conflict-table">
+              <thead>
+                <tr>
+                  <th>{t.jobs.conflictFile}</th>
+                  <th>{t.jobs.conflictSource}</th>
+                  <th>{t.jobs.conflictDest}</th>
+                  <th>{t.jobs.conflictAction}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {conflicts.map((c) => {
+                  const key = `${c.relPath}::${c.destPath}`;
+                  const currentAction = actions.get(key) || "skip";
+                  const destName = c.destPath ? c.destPath.split("/").slice(-2).join("/") : "—";
+                  return (
+                    <tr key={key} className={c.sameSize ? "" : "conflict-row--diff"}>
+                      <td className="conflict-cell-file" title={c.relPath}>
+                        <span className="conflict-filename">{c.relPath}</span>
+                        <span className={`conflict-size-badge ${c.sameSize ? "conflict-size-same" : "conflict-size-diff"}`}>
+                          {c.sameSize ? t.jobs.conflictSameSize : t.jobs.conflictDiffSize}
+                        </span>
+                        {c.sameHash !== null && c.sameSize && (
+                          <span className={`conflict-size-badge ${c.sameHash ? "conflict-size-same" : "conflict-size-diff"}`}>
+                            {c.sameHash ? t.jobs.conflictSameHash : t.jobs.conflictDiffHash}
+                          </span>
+                        )}
+                      </td>
+                      <td className="conflict-cell-info">
+                        <span>{formatBytes(c.sourceSize)}</span>
+                        {c.sourceModified && <span className="conflict-date">{c.sourceModified}</span>}
+                        {c.sourceHash && <span className="conflict-date" title={c.sourceHash}>XXH64: {c.sourceHash.slice(0, 12)}…</span>}
+                      </td>
+                      <td className="conflict-cell-info" title={c.destPath}>
+                        <span>{formatBytes(c.destSize)}</span>
+                        {c.destModified && <span className="conflict-date">{c.destModified}</span>}
+                        {c.destHash && <span className="conflict-date" title={c.destHash}>XXH64: {c.destHash.slice(0, 12)}…</span>}
+                        <span className="conflict-dest-name">{destName}</span>
+                      </td>
+                      <td className="conflict-cell-action">
+                        <select
+                          value={currentAction}
+                          onChange={(e) => setAction(key, e.target.value as ConflictAction)}
+                          className="conflict-select"
+                        >
+                          <option value="skip">{t.jobs.conflictSkip}</option>
+                          <option value="overwrite">{t.jobs.conflictOverwrite}</option>
+                          <option value="keepBoth">{t.jobs.conflictKeepBoth}</option>
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="dialog-footer">
+          <button className="btn-secondary" onClick={onCancel}>{t.common.cancel}</button>
+          <button className="btn-primary" onClick={handleProceed}>{t.jobs.conflictProceed}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── New Offload Dialog ─────────────────────────────────────────────────
 
 interface NewOffloadDialogProps {
@@ -124,10 +255,14 @@ interface NewOffloadDialogProps {
 }
 
 function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
-  const { t } = useI18n();
-  const [name, setName] = useState(
-    `Offload ${new Date().toLocaleString()}`
-  );
+  const { t, locale } = useI18n();
+  const [name, setName] = useState(() => {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US", {
+      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    });
+    return `${locale === "zh" ? "拷贝" : "Offload"} ${dateStr}`;
+  });
   const [sourcePath, setSourcePath] = useState("");
   const [destPaths, setDestPaths] = useState<string[]>([]);
   const [presets, setPresets] = useState<WorkflowPreset[]>([]);
@@ -430,6 +565,10 @@ export function JobsView() {
   const [terminateTarget, setTerminateTarget] = useState<string | string[] | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | string[] | null>(null);
+  // Conflict detection state
+  const [pendingRequest, setPendingRequest] = useState<StartOffloadRequest | null>(null);
+  const [detectedConflicts, setDetectedConflicts] = useState<FileConflict[]>([]);
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
 
   // Report active job count for exit confirmation dialog
   useEffect(() => {
@@ -462,16 +601,24 @@ export function JobsView() {
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | null = null;
+    let cancelled = false;
 
     const setup = async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      unlisten = await listen<OffloadEventEnvelope>("offload-event", (event) => {
+      const unlistenFn = await listen<OffloadEventEnvelope>("offload-event", (event) => {
         const { jobId, event: ev } = event.payload;
 
         setActiveOffloads((prev) => {
           const next = new Map(prev);
-          const offload = next.get(jobId);
-          if (!offload) return prev;
+          let offload = next.get(jobId);
+
+          // If the ActiveOffload doesn't exist yet (event arrived before
+          // executeStartOffload registered it), auto-create a placeholder
+          // so we never silently drop events.
+          if (!offload) {
+            offload = createActiveOffload(jobId, "");
+            next.set(jobId, offload);
+          }
 
           const updated = { ...offload };
           const now = Date.now();
@@ -483,7 +630,7 @@ export function JobsView() {
               break;
 
             case "sourceHashCompleted":
-              updated.currentFile = ev.relPath;
+              updated.currentFile = `✓ ${ev.relPath}`;
               updated.completedFiles = ev.fileIndex + 1;
               updated.totalFiles = ev.totalFiles;
               break;
@@ -492,14 +639,15 @@ export function JobsView() {
               updated.currentFile = ev.relPath;
               break;
 
-            case "fileCopyCompleted":
-              updated.currentFile = ev.relPath;
+            case "fileCopyCompleted": {
+              updated.currentFile = `✓ ${ev.relPath}`;
               updated.completedFiles = ev.fileIndex + 1;
               updated.totalFiles = ev.totalFiles;
               break;
+            }
 
             case "fileVerified":
-              updated.currentFile = `Verify: ${ev.relPath}`;
+              updated.currentFile = `${ev.verified ? "✓" : "✗"} ${ev.relPath}${ev.destPath ? ` → ${ev.destPath.split("/").pop() || ev.destPath}` : ""}`;
               if (!ev.verified && ev.mismatchDetail) {
                 updated.warnings = [
                   ...updated.warnings,
@@ -509,24 +657,43 @@ export function JobsView() {
               break;
 
             case "jobProgress": {
+              // If currently paused, ignore stale progress events
+              if (updated.isPaused) break;
+
+              // Detect phase change — reset speed baseline
+              const phaseChanged = ev.phase !== updated.phase;
+              if (phaseChanged) {
+                updated.lastBytesSnapshot = 0;
+                updated.lastSnapshotTime = now;
+                updated.currentSpeed = 0;
+                updated.phaseMessage = ev.message || "";
+              }
+
               updated.completedFiles = ev.completedFiles;
               updated.totalFiles = ev.totalFiles;
               updated.completedBytes = ev.completedBytes;
               updated.totalBytes = ev.totalBytes;
               updated.phase = ev.phase;
               updated.elapsedSecs = ev.elapsedSecs;
-              updated.isPaused = false;
-              // Calculate speed
-              const dt = (now - updated.lastSnapshotTime) / 1000;
-              if (dt > 0.5) {
-                const db = ev.completedBytes - updated.lastBytesSnapshot;
-                const speed = db / dt;
-                updated.currentSpeed = speed;
-                updated.lastBytesSnapshot = ev.completedBytes;
-                updated.lastSnapshotTime = now;
-                // Track speed history (keep last 60 samples for waveform)
-                const hist = [...updated.speedHistory, speed];
-                updated.speedHistory = hist.length > 60 ? hist.slice(-60) : hist;
+              if (ev.message) {
+                updated.phaseMessage = ev.message;
+              }
+
+              // Calculate instantaneous speed on every event
+              if (!phaseChanged) {
+                const dt = (now - updated.lastSnapshotTime) / 1000;
+                if (dt >= 1.0) {
+                  // Sample once per second for both speed display and history
+                  const db = ev.completedBytes - updated.lastBytesSnapshot;
+                  const speed = Math.max(0, db / dt);
+                  updated.currentSpeed = speed;
+                  updated.lastBytesSnapshot = ev.completedBytes;
+                  updated.lastSnapshotTime = now;
+                  if (speed > 0) {
+                    const hist = [...updated.speedHistory, speed];
+                    updated.speedHistory = hist.length > 120 ? hist.slice(-120) : hist;
+                  }
+                }
               }
               break;
             }
@@ -537,13 +704,14 @@ export function JobsView() {
 
             case "complete":
               updated.phase = "Complete";
-              updated.phaseMessage = "Offload complete";
+              updated.phaseMessage = t.jobs.phaseOffloadComplete;
               updated.completedFiles = ev.totalFiles;
               updated.totalFiles = ev.totalFiles;
               updated.completedBytes = ev.totalBytes;
               updated.totalBytes = ev.totalBytes;
               updated.durationSecs = ev.durationSecs;
               updated.mhlPaths = ev.mhlPaths ?? [];
+              updated.currentSpeed = 0;
               loadJobs();
               break;
 
@@ -551,34 +719,41 @@ export function JobsView() {
               updated.phase = "Failed";
               updated.error = ev.message;
               updated.phaseMessage = ev.message;
+              updated.currentSpeed = 0;
               loadJobs();
               break;
 
             case "fileSkipped":
-              updated.warnings = [...updated.warnings, `Skipped: ${ev.relPath} (${ev.reason})`];
+              updated.warnings = [...updated.warnings, `${t.jobs.skippedFiles}: ${ev.relPath} (${ev.reason})`];
               break;
 
             case "duplicateConflict":
               updated.warnings = [
                 ...updated.warnings,
-                `Conflict: ${ev.relPath} — src:${ev.sourceHash.slice(0, 8)}… vs dest:${ev.destHash.slice(0, 8)}…`,
+                `${t.jobs.conflicts}: ${ev.relPath} — src:${ev.sourceHash.slice(0, 8)}… vs dest:${ev.destHash.slice(0, 8)}…`,
               ];
               break;
 
             case "paused":
               updated.isPaused = true;
-              updated.phaseMessage = "Paused";
+              updated.phaseMessage = t.jobs.phasePaused;
               updated.currentSpeed = 0;
               break;
 
             case "resumed":
               updated.isPaused = false;
-              updated.phaseMessage = "Resumed";
+              updated.phaseMessage = t.jobs.phaseResumed;
+              // Reset speed baseline to avoid spike after pause gap
+              updated.lastBytesSnapshot = updated.completedBytes;
+              updated.lastSnapshotTime = now;
+              updated.currentSpeed = 0;
               break;
 
             case "terminated":
-              updated.phase = "Failed";
-              updated.phaseMessage = "Terminated by user";
+              updated.phase = "Terminated";
+              updated.phaseMessage = t.jobs.phaseTerminated;
+              updated.currentSpeed = 0;
+              updated.isPaused = false;
               loadJobs();
               break;
           }
@@ -587,18 +762,23 @@ export function JobsView() {
           return next;
         });
       });
+      if (cancelled) {
+        unlistenFn(); // Cleanup immediately if component already unmounted
+      } else {
+        unlisten = unlistenFn;
+      }
     };
 
     setup();
     return () => {
+      cancelled = true;
       unlisten?.();
     };
-  }, [loadJobs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadJobs, t]);
 
-  const handleStartOffload = async (request: StartOffloadRequest) => {
-    setShowNewDialog(false);
-    setError(null);
-
+  // Actually start the offload (called directly or after conflict resolution)
+  const executeStartOffload = async (request: StartOffloadRequest) => {
     try {
       setLoading(true);
       const result = await safeInvoke<CommandResult<string>>("start_offload", {
@@ -608,8 +788,18 @@ export function JobsView() {
       if (result.success && result.data) {
         const jobId = result.data;
 
+        // Register ActiveOffload IMMEDIATELY so that any events already
+        // queued by the backend will find their target in the map.
+        // (The backend starts emitting events as soon as start_offload returns.)
         setActiveOffloads((prev) => {
           const next = new Map(prev);
+          const existing = next.get(jobId);
+          if (existing) {
+            // Event listener created this entry early with empty name —
+            // merge the real name while keeping the latest state.
+            next.set(jobId, { ...existing, name: request.name });
+            return next;
+          }
           next.set(jobId, createActiveOffload(jobId, request.name));
           return next;
         });
@@ -621,6 +811,57 @@ export function JobsView() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Called when user clicks "Start" in NewOffloadDialog — detect conflicts first
+  const handleStartOffload = async (request: StartOffloadRequest) => {
+    setShowNewDialog(false);
+    setError(null);
+
+    try {
+      setLoading(true);
+      // Step 1: Detect conflicts before starting
+      const conflictResult = await safeInvoke<CommandResult<FileConflict[]>>(
+        "detect_conflicts",
+        { sourcePath: request.sourcePath, destPaths: request.destPaths }
+      );
+
+      if (conflictResult.success && conflictResult.data && conflictResult.data.length > 0) {
+        // Conflicts found — show resolution dialog
+        setPendingRequest(request);
+        setDetectedConflicts(conflictResult.data);
+        setShowConflictDialog(true);
+        setLoading(false);
+        return;
+      }
+
+      // No conflicts — proceed directly
+      await executeStartOffload(request);
+    } catch (err) {
+      setError(String(err));
+      setLoading(false);
+    }
+  };
+
+  // Called when user resolves conflicts in the dialog
+  const handleConflictResolved = async (resolutions: ConflictResolution[]) => {
+    setShowConflictDialog(false);
+    setDetectedConflicts([]);
+    if (!pendingRequest) return;
+
+    const requestWithResolutions: StartOffloadRequest = {
+      ...pendingRequest,
+      conflictResolutions: resolutions,
+    };
+    setPendingRequest(null);
+    await executeStartOffload(requestWithResolutions);
+  };
+
+  const handleConflictCancel = () => {
+    setShowConflictDialog(false);
+    setDetectedConflicts([]);
+    setPendingRequest(null);
+    setLoading(false);
   };
 
   const handleRecover = async (jobId: string) => {
@@ -668,6 +909,7 @@ export function JobsView() {
       case "verifying":
         return "#3b82f6";
       case "failed":
+      case "error":
       case "completed_with_errors":
         return "#ef4444";
       case "pending":
@@ -675,6 +917,10 @@ export function JobsView() {
         return "#f59e0b";
       case "terminated":
         return "#dc2626";
+      case "skipped":
+        return "#a3a3a3";
+      case "conflict":
+        return "#f97316";
       default:
         return "#71717a";
     }
@@ -688,6 +934,7 @@ export function JobsView() {
       case "verifying":
         return "status-badge status-badge--active";
       case "failed":
+      case "error":
       case "completed_with_errors":
         return "status-badge status-badge--failed";
       case "pending":
@@ -696,19 +943,26 @@ export function JobsView() {
         return "status-badge status-badge--paused";
       case "terminated":
         return "status-badge status-badge--terminated";
+      case "skipped":
+        return "status-badge status-badge--completed";
+      case "conflict":
+        return "status-badge status-badge--pending";
       default:
         return "status-badge";
     }
   };
 
   // Combine active offloads (sorted newest first) + DB jobs
-  const activeList = Array.from(activeOffloads.values()).sort(
-    (a, b) => b.startedAt - a.startedAt
+  const activeList = useMemo(
+    () => Array.from(activeOffloads.values()).sort((a, b) => b.startedAt - a.startedAt),
+    [activeOffloads]
   );
 
   // Filter out DB jobs that already have an active offload tracker
-  const activeJobIds = new Set(activeList.map((o) => o.jobId));
-  const dbOnlyJobs = jobs.filter((j) => !activeJobIds.has(j.id));
+  const dbOnlyJobs = useMemo(() => {
+    const activeJobIds = new Set(activeList.map((o) => o.jobId));
+    return jobs.filter((j) => !activeJobIds.has(j.id));
+  }, [activeList, jobs]);
 
   // ─── Selection & Action Handlers ─────────────────────────────────────
 
@@ -736,7 +990,7 @@ export function JobsView() {
         const next = new Map(prev);
         const offload = next.get(jobId);
         if (offload) {
-          next.set(jobId, { ...offload, isPaused: true, phaseMessage: "Paused", currentSpeed: 0 });
+          next.set(jobId, { ...offload, isPaused: true, phaseMessage: t.jobs.phasePaused, currentSpeed: 0 });
         }
         return next;
       });
@@ -754,7 +1008,7 @@ export function JobsView() {
         const next = new Map(prev);
         const offload = next.get(jobId);
         if (offload) {
-          next.set(jobId, { ...offload, isPaused: false, phaseMessage: "Resuming..." });
+          next.set(jobId, { ...offload, isPaused: false, phaseMessage: t.jobs.phaseResuming });
         }
         return next;
       });
@@ -793,11 +1047,30 @@ export function JobsView() {
   const handleTerminateExecute = async () => {
     if (!terminateTarget) return;
     try {
+      const targets = Array.isArray(terminateTarget) ? terminateTarget : [terminateTarget];
       if (Array.isArray(terminateTarget)) {
         await safeInvoke("batch_terminate", { jobIds: terminateTarget });
       } else {
         await safeInvoke("terminate_offload", { jobId: terminateTarget });
       }
+      // Immediately update frontend state for responsiveness
+      // (backend also emits Terminated event, but this ensures instant UI update)
+      setActiveOffloads((prev) => {
+        const next = new Map(prev);
+        for (const jid of targets) {
+          const o = next.get(jid);
+          if (o) {
+            next.set(jid, {
+              ...o,
+              phase: "Terminated" as OffloadPhase,
+              phaseMessage: t.jobs.phaseTerminated,
+              currentSpeed: 0,
+              isPaused: false,
+            });
+          }
+        }
+        return next;
+      });
       setSelectedJobs(new Set());
       await loadJobs();
     } catch (err) {
@@ -841,14 +1114,11 @@ export function JobsView() {
   };
 
   const handlePauseAll = async () => {
-    const runningIds = [
-      ...activeList
-        .filter((o) => o.phase !== "Complete" && o.phase !== "Failed")
-        .map((o) => o.jobId),
-      ...dbOnlyJobs
-        .filter((j) => j.status === "copying" || j.status === "verifying")
-        .map((j) => j.id),
-    ];
+    // Only pause active offloads (with real workflow handles).
+    // DB-only jobs with "copying"/"verifying" status are orphaned (no workflow) — skip them.
+    const runningIds = activeList
+      .filter((o) => o.phase !== "Complete" && o.phase !== "Failed" && o.phase !== "Terminated")
+      .map((o) => o.jobId);
     if (runningIds.length === 0) return;
     try {
       await safeInvoke("batch_pause", { jobIds: runningIds });
@@ -859,10 +1129,18 @@ export function JobsView() {
   };
 
   const handleResumeAll = async () => {
-    const pausedIds = dbOnlyJobs
+    // Resume active offloads that are paused
+    const activePausedIds = activeList
+      .filter((o) => o.isPaused)
+      .map((o) => o.jobId);
+    for (const id of activePausedIds) {
+      await safeInvoke("resume_paused_offload", { jobId: id }).catch(() => {});
+    }
+    // Resume DB-only paused jobs
+    const dbPausedIds = dbOnlyJobs
       .filter((j) => j.status === "paused")
       .map((j) => j.id);
-    for (const id of pausedIds) {
+    for (const id of dbPausedIds) {
       await safeInvoke("resume_paused_offload", { jobId: id }).catch(() => {});
     }
     await loadJobs();
@@ -898,6 +1176,15 @@ export function JobsView() {
         <NewOffloadDialog
           onStart={handleStartOffload}
           onCancel={() => setShowNewDialog(false)}
+        />
+      )}
+
+      {/* Conflict Resolution Dialog */}
+      {showConflictDialog && detectedConflicts.length > 0 && (
+        <ConflictResolutionDialog
+          conflicts={detectedConflicts}
+          onResolve={handleConflictResolved}
+          onCancel={handleConflictCancel}
         />
       )}
 
@@ -967,11 +1254,16 @@ export function JobsView() {
                   ? (offload.completedFiles / offload.totalFiles) * 100
                   : 0;
             const isRunning =
-              offload.phase !== "Complete" && offload.phase !== "Failed";
+              offload.phase !== "Complete" && offload.phase !== "Failed" && offload.phase !== "Terminated";
+            // ETA based on overall average speed (completedBytes / elapsedSecs)
+            // to avoid jitter from instantaneous speed fluctuations
+            const overallSpeed =
+              offload.elapsedSecs > 0 && offload.completedBytes > 0
+                ? offload.completedBytes / offload.elapsedSecs
+                : 0;
             const eta =
-              isRunning && offload.currentSpeed > 0
-                ? (offload.totalBytes - offload.completedBytes) /
-                  offload.currentSpeed
+              isRunning && overallSpeed > 0
+                ? (offload.totalBytes - offload.completedBytes) / overallSpeed
                 : 0;
 
             const isExpanded = expandedJobId === offload.jobId;
@@ -989,7 +1281,7 @@ export function JobsView() {
                       checked={selectedJobs.has(offload.jobId)}
                       onChange={() => toggleSelectJob(offload.jobId)}
                     />
-                    <span className="job-name">{offload.name}</span>
+                    <span className="job-name">{offload.name || `Offload ${offload.jobId.slice(0, 8)}…`}</span>
                     <div className="job-header-right">
                       <span
                         className="job-phase-badge"
@@ -999,10 +1291,10 @@ export function JobsView() {
                           borderColor: phaseInfo.color + "44",
                         }}
                       >
-                        {isRunning && (
+                        {isRunning && !offload.isPaused && (
                           <span className="pulse-dot" style={{ backgroundColor: phaseInfo.color }} />
                         )}
-                        {phaseInfo.label}
+                        {offload.isPaused ? t.jobs.statusPaused : phaseInfo.label}
                       </span>
                       {isRunning && !offload.isPaused && (
                         <>
@@ -1124,34 +1416,68 @@ export function JobsView() {
                         </span>
                       </div>
                     </div>
+
+                    {/* Speed chart — inside detail panel */}
+                    {offload.speedHistory.length >= 1 && (
+                      <div className={`speed-chart ${!isRunning ? "speed-chart--finished" : ""}`}>
+                        {(() => {
+                          const raw = offload.speedHistory;
+                          // Smooth with moving average (window=5) to reduce zigzag noise
+                          const WIN = 5;
+                          const smoothed: number[] = raw.map((_, i) => {
+                            const start = Math.max(0, i - Math.floor(WIN / 2));
+                            const end = Math.min(raw.length, i + Math.floor(WIN / 2) + 1);
+                            let sum = 0;
+                            for (let j = start; j < end; j++) sum += raw[j];
+                            return sum / (end - start);
+                          });
+                          const data = smoothed.length === 1 ? [smoothed[0], smoothed[0]] : smoothed;
+                          const max = Math.max(...data, 1);
+                          const W = 400, H = 80, PAD = 4;
+                          const plotW = W - PAD * 2;
+                          const plotH = H - PAD * 2;
+                          const step = plotW / Math.max(data.length - 1, 1);
+                          const points = data.map((v, idx) => `${PAD + idx * step},${PAD + plotH - (v / max) * plotH}`).join(" ");
+                          const areaPoints = `${PAD},${PAD + plotH} ${points} ${PAD + (data.length - 1) * step},${PAD + plotH}`;
+                          return (
+                            <svg viewBox={`0 0 ${W} ${H}`} className="speed-chart-svg" preserveAspectRatio="none">
+                              <defs>
+                                <linearGradient id={`sg-${offload.jobId}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.35" />
+                                  <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.03" />
+                                </linearGradient>
+                              </defs>
+                              <polyline points={areaPoints} fill={`url(#sg-${offload.jobId})`} stroke="none" vectorEffect="non-scaling-stroke" />
+                              <polyline points={points} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                              {data.length > 0 && (
+                                <circle
+                                  cx={PAD + (data.length - 1) * step}
+                                  cy={PAD + plotH - (data[data.length - 1] / max) * plotH}
+                                  r="2.5" fill="#3b82f6" vectorEffect="non-scaling-stroke"
+                                />
+                              )}
+                            </svg>
+                          );
+                        })()}
+                        <div className="speed-chart-current">
+                          <span className="speed-chart-value">
+                            {isRunning
+                              ? formatSpeed(offload.currentSpeed)
+                              : formatSpeed(
+                                  offload.speedHistory.length > 0
+                                    ? offload.speedHistory.reduce((a, b) => a + b, 0) / offload.speedHistory.length
+                                    : 0
+                                )}
+                          </span>
+                          <span className="speed-chart-label">
+                            {isRunning ? t.jobs.speed : `${t.jobs.speed} (avg)`}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     {offload.phaseMessage && (
                       <div className="job-detail-phase-msg">{offload.phaseMessage}</div>
-                    )}
-                    {/* Speed waveform chart */}
-                    {offload.speedHistory.length > 1 && (
-                      <div className="speed-waveform">
-                        <span className="speed-waveform-label">{t.jobs.speed}</span>
-                        <svg viewBox="0 0 240 40" className="speed-waveform-svg" preserveAspectRatio="none">
-                          {(() => {
-                            const data = offload.speedHistory;
-                            const max = Math.max(...data, 1);
-                            const step = 240 / Math.max(data.length - 1, 1);
-                            const points = data.map((v, i) => `${i * step},${40 - (v / max) * 36}`).join(" ");
-                            return (
-                              <>
-                                <polyline points={points} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" />
-                                <polyline points={`0,40 ${points} ${(data.length - 1) * step},40`} fill="url(#speedGrad)" stroke="none" />
-                                <defs>
-                                  <linearGradient id="speedGrad" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.3" />
-                                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.02" />
-                                  </linearGradient>
-                                </defs>
-                              </>
-                            );
-                          })()}
-                        </svg>
-                      </div>
                     )}
                   </div>
                 )}
@@ -1161,7 +1487,7 @@ export function JobsView() {
                   <div className="job-complete-summary">
                     <span className="complete-check">&#x2713;</span>
                     {offload.totalFiles} {t.jobs.filesCopiedIn}{" "}
-                    {formatDuration(offload.durationSecs)}
+                    {formatDuration(offload.durationSecs || offload.elapsedSecs)}
                     {offload.totalBytes > 0 && (
                       <> &mdash; {formatBytes(offload.totalBytes)} {t.common.total}</>
                     )}
@@ -1203,16 +1529,15 @@ export function JobsView() {
                       checked={selectedJobs.has(job.id)}
                       onChange={() => toggleSelectJob(job.id)}
                     />
-                    <span className="job-name">{job.name}</span>
+                    <span className="job-name">{job.name || `Offload ${job.id.slice(0, 8)}…`}</span>
                     <div className="job-header-right">
                       <span className={getStatusBadgeClass(job.status)}>
                         {translateStatus(job.status, t)}
                       </span>
+                      {/* DB-only jobs with "copying"/"verifying" status are orphaned (crashed mid-operation).
+                          No active workflow to pause — show recover button instead. */}
                       {isJobActive(job.status) && (
-                        <>
-                          <button className="btn-pause" onClick={() => handlePause(job.id)} title={t.jobs.pause}>&#x23F8;</button>
-                          <button className="btn-terminate" onClick={() => handleTerminateConfirm(job.id)} title={t.jobs.terminate}>&#x23F9;</button>
-                        </>
+                        <button className="btn-resume" onClick={() => handleRecover(job.id)} title={t.common.recover}>&#x25B6;</button>
                       )}
                       {isJobPaused(job.status) && (
                         <>
@@ -1301,9 +1626,8 @@ export function JobsView() {
                   {job.failedTasks > 0 && (
                     <span className="failed-badge">{job.failedTasks} {t.jobs.failed}</span>
                   )}
-                  {(job.status === "pending" || job.status === "failed" || job.failedTasks > 0) &&
+                  {(job.status === "pending" || job.status === "failed" || isJobActive(job.status) || job.failedTasks > 0) &&
                     !isJobPaused(job.status) &&
-                    !isJobActive(job.status) &&
                     job.status !== "completed" &&
                     job.status !== "terminated" && (
                       <button
@@ -1313,15 +1637,13 @@ export function JobsView() {
                         {t.common.recover}
                       </button>
                     )}
-                  {!isJobActive(job.status) && (
-                    <button
-                      className="btn-delete"
-                      onClick={() => handleDeleteConfirm(job.id)}
-                      title={t.common.delete}
-                    >
-                      {t.common.delete}
-                    </button>
-                  )}
+                  <button
+                    className="btn-delete"
+                    onClick={() => handleDeleteConfirm(job.id)}
+                    title={t.common.delete}
+                  >
+                    {t.common.delete}
+                  </button>
                 </div>
               </div>
             );

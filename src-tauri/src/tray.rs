@@ -1,4 +1,4 @@
-//! System tray (macOS menu bar) for DIT System.
+//! System tray (macOS menu bar) for DIT Pro.
 //!
 //! Provides a menu bar icon with:
 //! - Left-click: show/focus main window
@@ -17,7 +17,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let version = env!("CARGO_PKG_VERSION");
 
     // Build context menu items
-    let title_item = MenuItemBuilder::new(format!("DIT System v{}", version))
+    let title_item = MenuItemBuilder::new(format!("DIT Pro v{}", version))
         .enabled(false)
         .build(app)?;
 
@@ -42,7 +42,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let _tray = TrayIconBuilder::with_id("main-tray")
         .icon(icon)
         .icon_as_template(true)
-        .tooltip("DIT System")
+        .tooltip("DIT Pro")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_tray_icon_event({

@@ -1,73 +1,81 @@
-# React + TypeScript + Vite
+# DIT Pro
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Professional card offload engine for film production. Built with Tauri 2.0, React/TypeScript, and Rust.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Multi-destination copy** with parallel write and 4MB atomic buffering
+- **Hash verification** (XXH64 / XXH3 / SHA-256 / MD5), 10+ GB/s throughput
+- **ASC MHL v2.0** manifest generation and chain integrity
+- **Cascading copy** -- fast SSD first, then auto-cascade to slower targets
+- **Conflict detection** with per-file resolution (skip / overwrite / keep both)
+- **Checkpoint & resume** -- survives crashes, cable pulls, and power loss
+- **IO scheduler** -- per-device concurrency control (HDD 1-2 / SSD 4 / NVMe 8)
+- **Real-time progress** -- speed chart, ETA, per-file status
+- **Shooting day reports** -- HTML/TXT export with file-level hash records
+- **Email notifications** -- SMTP-based alerts on completion or error
+- **Workflow presets** -- save and reuse offload configurations
+- **Structured error codes** -- 33 codes across 8 categories with 4 severity levels
+- **Debug bundle export** -- one-click diagnostics (logs, DB, config, system info)
+- **i18n** -- English and Chinese
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Layer | Technology |
+|-------|-----------|
+| Shell | [Tauri 2.0](https://v2.tauri.app/) |
+| Frontend | React + TypeScript |
+| Backend | Rust |
+| Database | SQLite (WAL mode) |
+| CLI | `mhl-verify` -- standalone MHL chain verifier |
 
-## Expanding the ESLint configuration
+## Requirements
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- macOS 11.0+ (Apple Silicon native)
+- [Node.js](https://nodejs.org/) 18+
+- [Rust](https://www.rust-lang.org/tools/install) 1.75+
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Development
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+```bash
+# Install dependencies
+npm install
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Start dev server (frontend HMR + Tauri backend)
+npm run dev
+
+# Run Rust tests
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Build production DMG
+npx @tauri-apps/cli build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Project Structure
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
 ```
+src/                    # React frontend
+  views/                # 5 main views: Jobs, Volumes, Presets, Reports, Settings
+  i18n/                 # Internationalization (en/zh)
+src-tauri/              # Rust backend
+  src/
+    copy_engine/        # Multi-path parallel copy with atomic writes
+    hash_engine/        # XXH64/XXH3/SHA-256/MD5
+    workflow/           # Offload orchestrator (scan -> copy -> verify -> MHL -> notify)
+    mhl/                # ASC MHL v2.0 manifest generation
+    checkpoint/         # Crash recovery and resume
+    volume/             # Device discovery and space monitoring
+    io_scheduler/       # Per-device concurrency control
+    config/             # JSON config persistence
+    preset/             # Workflow preset management
+    report/             # Shooting day and job reports
+    notify/             # Email notification system
+    tray.rs             # System tray (idle/active/error states)
+    error.rs            # Structured error code system (E1001-E1704)
+    version.rs          # Semantic versioning and release channels
+mhl-verify-cli/         # Standalone CLI for MHL chain verification
+```
+
+## License
+
+All rights reserved.

@@ -89,9 +89,41 @@ impl VolumeSpaceInfo {
 }
 
 /// Query the filesystem for space information on a path.
-/// Uses statvfs on Unix systems.
+/// Uses statvfs on Unix systems with sanity checks.
+/// For network volumes where statvfs returns garbage, falls back to `df`.
 #[cfg(unix)]
 pub fn get_volume_space(path: &Path) -> Result<VolumeSpaceInfo> {
+    let info = get_volume_space_statvfs(path)?;
+
+    // Sanity check: statvfs often returns garbage on network mounts (SMB/NFS).
+    // Detect: total < 1MB, or total < available, or usage >= 100% with free = 0
+    // but available > 0 — all signs of broken statvfs.
+    let looks_sane = info.total_bytes >= 1_048_576 // at least 1 MB
+        && info.total_bytes <= 1_000_000_000_000_000_000 // at most 1 EB
+        && info.total_bytes >= info.available_bytes
+        && info.usage_percent <= 100.0;
+
+    if looks_sane {
+        return Ok(info);
+    }
+
+    // Fall back to `df -k` which reports correct values for network mounts
+    if let Ok(df_info) = get_volume_space_df(path) {
+        return Ok(df_info);
+    }
+
+    // If df also fails, return zeros → frontend shows "unknown capacity"
+    Ok(VolumeSpaceInfo {
+        total_bytes: 0,
+        available_bytes: 0,
+        used_bytes: 0,
+        usage_percent: 0.0,
+    })
+}
+
+/// Raw statvfs query (fast, but unreliable for network mounts).
+#[cfg(unix)]
+fn get_volume_space_statvfs(path: &Path) -> Result<VolumeSpaceInfo> {
     use std::ffi::CString;
     use std::mem::MaybeUninit;
 
@@ -120,17 +152,64 @@ pub fn get_volume_space(path: &Path) -> Result<VolumeSpaceInfo> {
         0.0
     };
 
-    // Guard against unreliable statvfs on network filesystems:
-    // - total_bytes > 1 EB (exabyte) is physically impossible → treat as "unlimited"
-    // - usage_percent > 100% indicates corrupt statvfs data
-    if total_bytes > 1_000_000_000_000_000_000 || usage_percent > 100.0 {
-        return Ok(VolumeSpaceInfo {
-            total_bytes: 0,
-            available_bytes: 0,
-            used_bytes: 0,
-            usage_percent: 0.0,
-        });
+    Ok(VolumeSpaceInfo {
+        total_bytes,
+        available_bytes,
+        used_bytes,
+        usage_percent,
+    })
+}
+
+/// Parse `df -k <path>` output to get space info.
+/// Used as fallback when statvfs returns garbage (common on SMB/NFS mounts).
+#[cfg(unix)]
+fn get_volume_space_df(path: &Path) -> Result<VolumeSpaceInfo> {
+    use std::process::Command;
+
+    let output = Command::new("df")
+        .args(["-k", &path.to_string_lossy()])
+        .output()
+        .context("Failed to run df")?;
+
+    if !output.status.success() {
+        anyhow::bail!("df failed for {:?}", path);
     }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // df -k output: "Filesystem 1024-blocks Used Available Capacity ..."
+    // Skip header line, parse second line
+    let data_line = stdout
+        .lines()
+        .nth(1)
+        .context("df output missing data line")?;
+
+    // Fields may be separated by variable whitespace.
+    // For network mounts the filesystem field can contain spaces (e.g. "//user@host/share"),
+    // so parse from the end to get the numeric fields reliably.
+    let fields: Vec<&str> = data_line.split_whitespace().collect();
+    // Typical df -k output fields (macOS):
+    //   Filesystem  1024-blocks  Used  Available  Capacity  iused  ifree  %iused  Mounted-on
+    // We need at least: total(1), used(2), available(3), capacity(4)
+    if fields.len() < 5 {
+        anyhow::bail!("df output too few fields: {}", data_line);
+    }
+
+    // Parse from right: Mounted-on(-1), %iused(-2), ifree(-3), iused(-4),
+    //                    Capacity(-5), Available(-6), Used(-7), 1024-blocks(-8)
+    // On macOS `df -k` has 9 columns. Parse by index from end for robustness.
+    let len = fields.len();
+    let total_kb: u64 = fields[len - 8].parse().unwrap_or(0);
+    let used_kb: u64 = fields[len - 7].parse().unwrap_or(0);
+    let available_kb: u64 = fields[len - 6].parse().unwrap_or(0);
+
+    let total_bytes = total_kb * 1024;
+    let used_bytes = used_kb * 1024;
+    let available_bytes = available_kb * 1024;
+    let usage_percent = if total_bytes > 0 {
+        (used_bytes as f64 / total_bytes as f64) * 100.0
+    } else {
+        0.0
+    };
 
     Ok(VolumeSpaceInfo {
         total_bytes,

@@ -1435,11 +1435,10 @@ export function JobsView() {
                     {Object.keys(offload.speedHistoryByPhase).length > 0 && (
                       <div className="speed-charts-container">
                         {Object.entries(offload.speedHistoryByPhase)
-                          .filter(([, hist]) => hist.length >= 1)
+                          .filter(([phase, hist]) => hist.length >= 1 && phase === offload.phase)
                           .map(([phase, history]) => {
                             const info = PHASE_INFO[phase as OffloadPhase];
                             const color = info?.color || "#3b82f6";
-                            const isCurrentPhase = isRunning && offload.phase === phase;
                             const raw = history;
                             const WIN = 5;
                             const smoothed: number[] = raw.map((_, i) => {
@@ -1458,9 +1457,8 @@ export function JobsView() {
                             const points = data.map((v, idx) => `${PAD + idx * step},${PAD + plotH - (v / max) * plotH}`).join(" ");
                             const areaPoints = `${PAD},${PAD + plotH} ${points} ${PAD + (data.length - 1) * step},${PAD + plotH}`;
                             const gradientId = `sg-${offload.jobId}-${phase}`;
-                            const avgSpeed = raw.reduce((a, b) => a + b, 0) / raw.length;
                             return (
-                              <div key={phase} className={`speed-chart ${!isCurrentPhase ? "speed-chart--finished" : ""}`}>
+                              <div key={phase} className="speed-chart">
                                 <div className="speed-chart-phase-label" style={{ color }}>{info?.label || phase}</div>
                                 <svg viewBox={`0 0 ${W} ${H}`} className="speed-chart-svg" preserveAspectRatio="none">
                                   <defs>
@@ -1481,12 +1479,10 @@ export function JobsView() {
                                 </svg>
                                 <div className="speed-chart-current">
                                   <span className="speed-chart-value">
-                                    {isCurrentPhase
-                                      ? formatSpeed(offload.currentSpeed)
-                                      : formatSpeed(avgSpeed)}
+                                    {formatSpeed(offload.currentSpeed)}
                                   </span>
                                   <span className="speed-chart-label">
-                                    {isCurrentPhase ? t.jobs.speed : `${t.jobs.speed} (avg)`}
+                                    {t.jobs.speed}
                                   </span>
                                 </div>
                               </div>

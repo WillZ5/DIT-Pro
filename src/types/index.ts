@@ -184,7 +184,7 @@ export interface OffloadEventEnvelope {
 
 /** Events emitted by the offload workflow via Tauri event system */
 export type OffloadEvent =
-  | { type: "phaseChanged"; phase: OffloadPhase; message: string }
+  | { type: "phaseChanged"; phase: OffloadPhase; message: string; name?: string }
   | {
       type: "sourceHashCompleted";
       relPath: string;

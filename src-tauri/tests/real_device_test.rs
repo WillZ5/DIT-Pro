@@ -96,7 +96,7 @@ async fn drain_events_with_progress(
     let mut last_phase = String::new();
     while let Some(ev) = rx.recv().await {
         match &ev {
-            OffloadEvent::PhaseChanged { phase, message } => {
+            OffloadEvent::PhaseChanged { phase, message, .. } => {
                 let phase_name = format!("{:?}", phase);
                 if phase_name != last_phase {
                     eprintln!("\n  [{:?}] {}", phase, message);

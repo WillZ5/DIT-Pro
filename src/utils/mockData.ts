@@ -261,7 +261,6 @@ export const MOCK_SETTINGS: AppSettings = {
   ioScheduling: {
     hdd: { maxConcurrent: 1, bufferSizeMb: 4 },
     ssd: { maxConcurrent: 2, bufferSizeMb: 8 },
-    nvme: { maxConcurrent: 4, bufferSizeMb: 16 },
     raid: { maxConcurrent: 2, bufferSizeMb: 8 },
     network: { maxConcurrent: 1, bufferSizeMb: 4 },
   },

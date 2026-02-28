@@ -337,7 +337,11 @@ pub async fn list_mounted_volumes() -> Result<Vec<VolumeInfo>> {
         // Detect device type (SSD/HDD/RAID/Network)
         let device_type = detect_device_type(&mount_point);
 
-        let id = uuid::Uuid::new_v4().to_string();
+        // Use a stable, deterministic ID based on mount point so that
+        // repeated polls return the same ID for the same volume.
+        // This allows the frontend (React key={vol.id}) to reconcile
+        // correctly instead of re-mounting all cards every poll cycle.
+        let id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, mount_point.as_bytes()).to_string();
 
         volumes.push(VolumeInfo {
             id,

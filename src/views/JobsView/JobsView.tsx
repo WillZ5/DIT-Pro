@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { safeInvoke, isTauri } from "../../utils/tauriCompat";
-import { setActiveJobCount } from "../../App";
+import { setActiveJobCount } from "../../state/activeJobCount";
 import { useI18n, type TranslationKeys } from "../../i18n";
 import type {
   AppSettings,
@@ -552,6 +552,12 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
 export function JobsView() {
   const { t } = useI18n();
   const PHASE_INFO = usePhaseInfo();
+
+  // Stable ref for `t` — lets the event handler always read the latest
+  // translations without restarting the listener when language changes.
+  const tRef = useRef(t);
+  useEffect(() => { tRef.current = t; }, [t]);
+
   const [jobs, setJobs] = useState<JobInfo[]>([]);
   const [activeOffloads, setActiveOffloads] = useState<
     Map<string, ActiveOffload>
@@ -713,7 +719,7 @@ export function JobsView() {
 
             case "complete":
               updated.phase = "Complete";
-              updated.phaseMessage = t.jobs.phaseOffloadComplete;
+              updated.phaseMessage = tRef.current.jobs.phaseOffloadComplete;
               updated.completedFiles = ev.totalFiles;
               updated.totalFiles = ev.totalFiles;
               updated.completedBytes = ev.totalBytes;
@@ -733,25 +739,25 @@ export function JobsView() {
               break;
 
             case "fileSkipped":
-              updated.warnings = [...updated.warnings, `${t.jobs.skippedFiles}: ${ev.relPath} (${ev.reason})`];
+              updated.warnings = [...updated.warnings, `${tRef.current.jobs.skippedFiles}: ${ev.relPath} (${ev.reason})`];
               break;
 
             case "duplicateConflict":
               updated.warnings = [
                 ...updated.warnings,
-                `${t.jobs.conflicts}: ${ev.relPath} — src:${ev.sourceHash.slice(0, 8)}… vs dest:${ev.destHash.slice(0, 8)}…`,
+                `${tRef.current.jobs.conflicts}: ${ev.relPath} — src:${ev.sourceHash.slice(0, 8)}… vs dest:${ev.destHash.slice(0, 8)}…`,
               ];
               break;
 
             case "paused":
               updated.isPaused = true;
-              updated.phaseMessage = t.jobs.phasePaused;
+              updated.phaseMessage = tRef.current.jobs.phasePaused;
               updated.currentSpeed = 0;
               break;
 
             case "resumed":
               updated.isPaused = false;
-              updated.phaseMessage = t.jobs.phaseResumed;
+              updated.phaseMessage = tRef.current.jobs.phaseResumed;
               // Reset speed baseline to avoid spike after pause gap
               updated.lastBytesSnapshot = updated.completedBytes;
               updated.lastSnapshotTime = now;
@@ -760,7 +766,7 @@ export function JobsView() {
 
             case "terminated":
               updated.phase = "Terminated";
-              updated.phaseMessage = t.jobs.phaseTerminated;
+              updated.phaseMessage = tRef.current.jobs.phaseTerminated;
               updated.currentSpeed = 0;
               updated.isPaused = false;
               loadJobs();
@@ -783,8 +789,7 @@ export function JobsView() {
       cancelled = true;
       unlisten?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadJobs, t]);
+  }, [loadJobs]);
 
   // Actually start the offload (called directly or after conflict resolution)
   const executeStartOffload = async (request: StartOffloadRequest) => {

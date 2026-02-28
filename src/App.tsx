@@ -5,20 +5,10 @@ import { ReportView } from "./views/ReportView/ReportView";
 import { PresetsView } from "./views/PresetsView/PresetsView";
 import { SettingsView } from "./views/SettingsView/SettingsView";
 import { safeInvoke, IS_DEMO, isTauri } from "./utils/tauriCompat";
+import { subscribeActiveJobCount } from "./state/activeJobCount";
 import { useI18n } from "./i18n";
 import type { ViewType, VersionInfo } from "./types";
 import "./App.css";
-
-/** Global ref for active job count — updated by JobsView, read by App */
-let _activeJobCount = 0;
-let _activeJobCountListener: ((count: number) => void) | null = null;
-export function setActiveJobCount(count: number) {
-  _activeJobCount = count;
-  _activeJobCountListener?.(count);
-}
-export function getActiveJobCount(): number {
-  return _activeJobCount;
-}
 
 // ─── SVG Icon Components ──────────────────────────────────────────────────
 
@@ -87,10 +77,9 @@ function App() {
   const [activeJobCount, setActiveJobCountState] = useState(0);
   const { t } = useI18n();
 
-  // Sync the global _activeJobCount into React state for reactive quit dialog
+  // Sync global active job count into React state for reactive quit dialog
   useEffect(() => {
-    _activeJobCountListener = (count) => setActiveJobCountState(count);
-    return () => { _activeJobCountListener = null; };
+    return subscribeActiveJobCount(setActiveJobCountState);
   }, []);
 
   const navItems: { id: ViewType; label: string; Icon: React.FC<{ active: boolean }> }[] = [
@@ -182,7 +171,11 @@ function App() {
             {t.app.demoBanner}
           </div>
         )}
-        {currentView === "jobs" && <JobsView />}
+        {/* JobsView is always mounted so event listener + active job state
+            survives tab switches and language changes. Other views mount on demand. */}
+        <div style={{ display: currentView === "jobs" ? "contents" : "none" }}>
+          <JobsView />
+        </div>
         {currentView === "volumes" && <VolumeView />}
         {currentView === "presets" && <PresetsView />}
         {currentView === "reports" && <ReportView />}

@@ -31,10 +31,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-cargo-
 
       - name: Check formatting
         run: cargo fmt --all --check
@@ -49,7 +48,7 @@ jobs:
         working-directory: src-tauri
 
       - name: Run integration tests
-        run: cargo test --test '*' --verbose
+        run: cargo test --tests --verbose
         working-directory: src-tauri
 
       - name: Run doc tests
@@ -73,8 +72,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run benchmark (release mode)
         run: cargo test --release --test hash_benchmark -- --nocapture

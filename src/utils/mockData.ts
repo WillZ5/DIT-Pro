@@ -10,7 +10,7 @@ import type {
 
 /** Detect if we're running inside Tauri or standalone browser */
 export function isTauri(): boolean {
-  return !!(window as any).__TAURI_INTERNALS__;
+  return "__TAURI_INTERNALS__" in window;
 }
 
 // ─── Mock Jobs ──────────────────────────────────────────────────────────────

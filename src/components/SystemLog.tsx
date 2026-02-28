@@ -94,8 +94,10 @@ export function SystemLog() {
   }, []);
 
   useEffect(() => {
-    loadEntries();
-    loadSummary();
+    queueMicrotask(() => {
+      void loadEntries();
+      void loadSummary();
+    });
   }, [loadEntries, loadSummary]);
 
   const handleResolve = async (id: number) => {

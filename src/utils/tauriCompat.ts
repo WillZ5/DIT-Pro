@@ -1,5 +1,5 @@
 // Tauri compatibility layer — provides mock data in browser preview mode
-import type { CommandResult } from "../types";
+import type { AppSettings, CommandResult, WorkflowPreset } from "../types";
 import {
   MOCK_JOBS,
   MOCK_VOLUMES,
@@ -11,7 +11,7 @@ import {
 
 /** True when running inside the Tauri desktop shell */
 export function isTauri(): boolean {
-  return !!(window as any).__TAURI_INTERNALS__;
+  return "__TAURI_INTERNALS__" in window;
 }
 
 /** Whether we're in browser-only demo mode */
@@ -31,8 +31,16 @@ const demoStore = {
   settings: { ...MOCK_SETTINGS },
 };
 
+interface MockInvokeArgs {
+  settings?: AppSettings;
+  presetData?: WorkflowPreset;
+  presetId?: string;
+  jobId?: string;
+  jobIds?: string[];
+}
+
 /** Mock command handler */
-function mockInvoke<T>(cmd: string, args?: Record<string, any>): T {
+function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
   switch (cmd) {
     case "get_app_version":
       return {
@@ -62,19 +70,26 @@ function mockInvoke<T>(cmd: string, args?: Record<string, any>): T {
     case "get_job_report":
       return ok(MOCK_JOB_REPORT) as T;
     case "create_preset": {
+      if (!args?.presetData) {
+        return fail("Missing presetData") as T;
+      }
       const preset = {
-        ...args?.presetData,
+        ...args.presetData,
         id: `preset-${Date.now()}`,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      };
+      } satisfies WorkflowPreset;
       demoStore.presets.push(preset);
       return ok(preset) as T;
     }
     case "update_preset": {
-      const idx = demoStore.presets.findIndex((p) => p.id === args?.presetData?.id);
+      if (!args?.presetData) {
+        return fail("Missing presetData") as T;
+      }
+      const presetData = args.presetData;
+      const idx = demoStore.presets.findIndex((p) => p.id === presetData.id);
       if (idx >= 0) {
-        demoStore.presets[idx] = { ...args!.presetData, updatedAt: new Date().toISOString() };
+        demoStore.presets[idx] = { ...presetData, updatedAt: new Date().toISOString() };
         return ok(demoStore.presets[idx]) as T;
       }
       return fail("Preset not found") as T;
@@ -128,7 +143,7 @@ function mockInvoke<T>(cmd: string, args?: Record<string, any>): T {
  * Drop-in replacement for Tauri's `invoke()`.
  * In browser mode, returns mock data immediately.
  */
-export async function safeInvoke<T>(cmd: string, args?: Record<string, any>): Promise<T> {
+export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (isTauri()) {
     const { invoke } = await import("@tauri-apps/api/core");
     return invoke<T>(cmd, args);

@@ -1702,7 +1702,15 @@ impl OffloadWorkflow {
                         }
                         secondary_files.push(renamed);
                     }
-                    Some(ConflictAction::Overwrite) | None => {
+                    Some(ConflictAction::Overwrite) => {
+                        // Delete existing file so copy_file_multi won't skip it
+                        // via SkipIfSameSize policy.
+                        if raw_dest.exists() {
+                            let _ = std::fs::remove_file(&raw_dest);
+                        }
+                        secondary_files.push(raw_dest);
+                    }
+                    None => {
                         secondary_files.push(raw_dest);
                     }
                 }

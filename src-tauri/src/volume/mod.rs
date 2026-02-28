@@ -59,6 +59,7 @@ pub struct VolumeInfo {
     pub total_bytes: u64,
     pub available_bytes: u64,
     pub device_type: DeviceType,
+    pub file_system: Option<String>,
     pub serial_number: Option<String>,
     pub is_mounted: bool,
     pub last_seen_at: Option<DateTime<Utc>>,
@@ -227,9 +228,10 @@ pub fn get_volume_space(_path: &Path) -> Result<VolumeSpaceInfo> {
     anyhow::bail!("Volume space query not implemented on this platform")
 }
 
-/// Detect device type for a mounted volume using `mount` and `diskutil info`.
+/// Detect device type and file system for a mounted volume using `mount` and `diskutil info`.
+/// Returns (DeviceType, Option<file_system_name>).
 #[cfg(target_os = "macos")]
-fn detect_device_type(mount_point: &str) -> DeviceType {
+fn detect_device_info(mount_point: &str) -> (DeviceType, Option<String>) {
     use std::process::Command;
 
     // First check `mount` output for network filesystem types — more reliable
@@ -239,13 +241,22 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
         for line in mounts.lines() {
             if line.contains(mount_point) {
                 let lower = line.to_lowercase();
-                if lower.contains("smbfs")
-                    || lower.contains("nfs")
-                    || lower.contains("afpfs")
-                    || lower.contains("webdav")
-                    || lower.contains("cifs")
-                {
-                    return DeviceType::Network;
+                // Extract fs type from mount output: "... on /Volumes/X (smbfs, ...)"
+                let fs = if lower.contains("smbfs") {
+                    Some("SMB".to_string())
+                } else if lower.contains("nfs") {
+                    Some("NFS".to_string())
+                } else if lower.contains("afpfs") {
+                    Some("AFP".to_string())
+                } else if lower.contains("webdav") {
+                    Some("WebDAV".to_string())
+                } else if lower.contains("cifs") {
+                    Some("CIFS".to_string())
+                } else {
+                    None
+                };
+                if fs.is_some() {
+                    return (DeviceType::Network, fs);
                 }
             }
         }
@@ -257,10 +268,17 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
         .output()
     {
         Ok(o) => o,
-        Err(_) => return DeviceType::Unknown,
+        Err(_) => return (DeviceType::Unknown, None),
     };
 
     let info = String::from_utf8_lossy(&output.stdout);
+
+    // Extract "File System Personality:" (e.g. "ExFAT", "APFS", "MS-DOS FAT32", "NTFS")
+    let file_system = info
+        .lines()
+        .find(|l| l.contains("File System Personality:"))
+        .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string())
+        .filter(|s| !s.is_empty());
 
     // Check for network filesystem protocols (secondary check via diskutil)
     if info.contains("Protocol:") {
@@ -270,13 +288,13 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
             .unwrap_or_default();
         let proto = proto_line.to_lowercase();
         if proto.contains("smb") || proto.contains("nfs") || proto.contains("afp") {
-            return DeviceType::Network;
+            return (DeviceType::Network, file_system);
         }
     }
 
     // Check for RAID (AppleRAID or software RAID)
     if info.contains("RAID") || info.contains("AppleRAID") {
-        return DeviceType::RAID;
+        return (DeviceType::RAID, file_system);
     }
 
     // Determine internal media type from diskutil output
@@ -292,7 +310,7 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
         .unwrap_or(false);
 
     if is_solid_state || info_lower.contains("nvme") || info_lower.contains("nvmexpress") {
-        return DeviceType::SSD;
+        return (DeviceType::SSD, file_system);
     }
 
     // Check for SD / CF / memory cards via protocol or removable media.
@@ -309,26 +327,26 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
         let proto = proto_line.to_lowercase();
         // "Secure Digital" = SD/SDHC/SDXC via built-in reader
         if proto.contains("secure digital") {
-            return DeviceType::SD;
+            return (DeviceType::SD, file_system);
         }
         // USB removable media (card reader with SD/CF inside)
         if proto.contains("usb") && is_removable {
-            return DeviceType::SD;
+            return (DeviceType::SD, file_system);
         }
     }
 
     // If diskutil returned valid device info but not solid state, it's likely HDD
     // (only for physical disks, not disk images)
     if info.contains("Device Node:") && info.contains("Total Size:") {
-        return DeviceType::HDD;
+        return (DeviceType::HDD, file_system);
     }
 
-    DeviceType::Unknown
+    (DeviceType::Unknown, file_system)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn detect_device_type(_mount_point: &str) -> DeviceType {
-    DeviceType::Unknown
+fn detect_device_info(_mount_point: &str) -> (DeviceType, Option<String>) {
+    (DeviceType::Unknown, None)
 }
 
 /// List mounted volumes on macOS by reading /Volumes directory.
@@ -360,8 +378,8 @@ pub async fn list_mounted_volumes() -> Result<Vec<VolumeInfo>> {
             Err(_) => (0, 0),
         };
 
-        // Detect device type (SSD/HDD/RAID/Network)
-        let device_type = detect_device_type(&mount_point);
+        // Detect device type and file system (SSD/HDD/SD/RAID/Network + ExFAT/APFS/etc.)
+        let (device_type, file_system) = detect_device_info(&mount_point);
 
         // Use a stable, deterministic ID based on mount point so that
         // repeated polls return the same ID for the same volume.
@@ -376,6 +394,7 @@ pub async fn list_mounted_volumes() -> Result<Vec<VolumeInfo>> {
             total_bytes,
             available_bytes,
             device_type,
+            file_system,
             serial_number: None,
             is_mounted: true,
             last_seen_at: Some(Utc::now()),
@@ -442,6 +461,7 @@ pub fn get_all_volumes(conn: &Connection) -> Result<Vec<VolumeInfo>> {
                 total_bytes: row.get::<_, i64>(3)? as u64,
                 available_bytes: row.get::<_, i64>(4)? as u64,
                 device_type: DeviceType::from_str_loose(&row.get::<_, String>(5)?),
+                file_system: None,
                 serial_number: row.get(6)?,
                 is_mounted: false,
                 last_seen_at,
@@ -563,6 +583,7 @@ mod tests {
             total_bytes: 2_000_000_000_000,
             available_bytes: 1_500_000_000_000,
             device_type: DeviceType::SSD,
+            file_system: None,
             serial_number: Some("SN12345".to_string()),
             is_mounted: true,
             last_seen_at: Some(Utc::now()),
@@ -607,6 +628,7 @@ mod tests {
             total_bytes: 1_000_000_000_000,
             available_bytes: 500_000_000_000,
             device_type: DeviceType::SSD,
+            file_system: None,
             serial_number: None,
             is_mounted: true,
             last_seen_at: None,

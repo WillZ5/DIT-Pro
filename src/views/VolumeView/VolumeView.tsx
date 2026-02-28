@@ -142,7 +142,7 @@ export function VolumeView() {
                 </span>
                 <div className="volume-header-text">
                   <span className="volume-name">{vol.name}</span>
-                  <span className="volume-type">{vol.deviceType}{!vol.isMounted && ` \u00B7 ${t.volumes.unmounted}`}</span>
+                  <span className="volume-type">{vol.deviceType}{vol.fileSystem && ` \u00B7 ${vol.fileSystem}`}{!vol.isMounted && ` \u00B7 ${t.volumes.unmounted}`}</span>
                 </div>
               </div>
               <div className="volume-mount" title={vol.mountPoint}>

@@ -142,6 +142,7 @@ export interface VolumeInfoResponse {
   totalBytes: number;
   availableBytes: number;
   deviceType: string;
+  fileSystem: string | null;
   serialNumber: string | null;
   isMounted: boolean;
   usagePercent: number;

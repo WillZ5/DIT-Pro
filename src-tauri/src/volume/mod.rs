@@ -279,10 +279,26 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
         return DeviceType::RAID;
     }
 
+    // Determine internal media type from diskutil output
+    let info_lower = info.to_lowercase();
+
+    // Check "Solid State:" field FIRST — any device explicitly marked as
+    // solid state is an SSD (USB shuttle drives, NVMe, SATA SSD, etc.)
+    // This must come before SD detection to avoid misclassifying USB SSDs.
+    let is_solid_state = info
+        .lines()
+        .find(|l| l.contains("Solid State:"))
+        .map(|l| l.contains("Yes"))
+        .unwrap_or(false);
+
+    if is_solid_state || info_lower.contains("nvme") || info_lower.contains("nvmexpress") {
+        return DeviceType::SSD;
+    }
+
     // Check for SD / CF / memory cards via protocol or removable media.
     // diskutil shows "Protocol: Secure Digital" for SD cards,
-    // "Protocol: USB" + "Removable Media: Removable" for USB card readers,
-    // and various protocols for CFexpress/XQD.
+    // "Protocol: USB" + "Removable Media: Removable" for USB card readers.
+    // SD cards have "Solid State: Info not available" so they won't match above.
     let is_removable = info
         .lines()
         .find(|l| l.contains("Removable Media:"))
@@ -299,21 +315,6 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
         if proto.contains("usb") && is_removable {
             return DeviceType::SD;
         }
-    }
-
-    // Determine internal media type from diskutil output
-    let info_lower = info.to_lowercase();
-
-    // Check "Solid State:" field  (Yes = SSD, including NVMe drives)
-    let is_solid_state = info
-        .lines()
-        .find(|l| l.contains("Solid State:"))
-        .map(|l| l.contains("Yes"))
-        .unwrap_or(false);
-
-    // NVMe and SATA SSD are both classified as SSD
-    if is_solid_state || info_lower.contains("nvme") || info_lower.contains("nvmexpress") {
-        return DeviceType::SSD;
     }
 
     // If diskutil returned valid device info but not solid state, it's likely HDD

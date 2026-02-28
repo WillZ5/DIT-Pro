@@ -121,6 +121,12 @@
   }
   .nav-links a:hover { color: var(--text-primary); opacity: 1; }
 
+  .nav-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
   .nav-cta {
     padding: 8px 18px;
     background: var(--text-primary);
@@ -134,6 +140,38 @@
     transform: translateY(-1px);
     box-shadow: 0 4px 20px rgba(232, 230, 227, 0.15);
     opacity: 1 !important;
+  }
+
+  .lang-switch {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--bg-card);
+  }
+
+  .lang-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 7px 11px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .lang-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-card-hover);
+  }
+
+  .lang-btn.active {
+    background: var(--accent);
+    color: var(--bg-primary);
   }
 
   /* ── HERO ── */
@@ -760,6 +798,7 @@
   @media (max-width: 768px) {
     nav { padding: 16px 20px; }
     .nav-links { display: none; }
+    .nav-right { gap: 10px; }
     .hero { padding: 120px 24px 80px; }
     section { padding: 80px 24px; }
     .pillars-grid { grid-template-columns: 1fr; }
@@ -787,20 +826,26 @@
     <div class="logo-icon">D</div>
     DIT Pro
   </div>
-  <ul class="nav-links">
-    <li><a href="#safety">Safety</a></li>
-    <li><a href="#features">Features</a></li>
-    <li><a href="#stack">Stack</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="nav-cta">GitHub →</a></li>
-  </ul>
+  <div class="nav-right">
+    <ul class="nav-links">
+      <li><a href="#safety">Safety</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#stack">Stack</a></li>
+      <li><a href="#roadmap">Roadmap</a></li>
+      <li><a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="nav-cta">GitHub →</a></li>
+    </ul>
+    <div class="lang-switch" aria-label="Language switcher">
+      <button type="button" class="lang-btn active" data-lang-btn="en">EN</button>
+      <button type="button" class="lang-btn" data-lang-btn="zh">中</button>
+    </div>
+  </div>
 </nav>
 
 <!-- HERO -->
 <section class="hero">
   <div class="hero-badge">
     <span class="dot"></span>
-    v1.0.0-rc.2 · Releasing soon
+    <span class="hero-badge-text">v1.0.0-rc.2 · Releasing soon</span>
   </div>
   <h1>Secure backup<br>for <span class="accent">film.</span></h1>
   <p class="hero-sub">
@@ -810,7 +855,7 @@
   <div class="hero-actions">
     <a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="btn-primary">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      View on GitHub
+      <span class="hero-primary-text">View on GitHub</span>
     </a>
     <a href="#safety" class="btn-secondary">Learn more ↓</a>
   </div>
@@ -833,7 +878,7 @@
         <span class="success">✓</span> HDD_SHUTTLE ━━━━━━━━━━━━━━ <span class="value">100%</span> · <span class="success">verified</span><br>
         <span class="success">✓</span> ASC-MHL chain sealed · 2 generations<br>
         <br>
-        <span class="prompt">$</span> <span class="success">SAFE TO FORMAT</span><span class="cursor"></span>
+        <span class="prompt">$</span> <span class="success terminal-safe-text">SAFE TO FORMAT</span><span class="cursor"></span>
       </div>
     </div>
   </div>
@@ -1095,7 +1140,7 @@
     <div class="cta-actions">
       <a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="btn-primary">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        Star on GitHub
+        <span class="cta-primary-text">Star on GitHub</span>
       </a>
       <a href="https://github.com/WillZ5/DIT-Pro/releases" target="_blank" class="btn-secondary">
         Download RC →
@@ -1117,6 +1162,335 @@
 </footer>
 
 <script>
+  const i18n = {
+    en: {
+      pageTitle: "DIT Pro — Professional-Grade Secure Backup for Film",
+      nav: {
+        safety: "Safety",
+        features: "Features",
+        stack: "Stack",
+        roadmap: "Roadmap",
+        github: "GitHub →"
+      },
+      hero: {
+        badge: "v1.0.0-rc.2 · Releasing soon",
+        titleHtml: "Secure backup<br>for <span class=\"accent\">film.</span>",
+        sub: "Professional-grade data integrity for production. No gimmicks. No guesswork. Just bulletproof backup.",
+        primary: "View on GitHub",
+        secondary: "Learn more ↓",
+        terminalTitle: "dit-pro — offload",
+        terminalComment: "// offloading 847 files · 2.3 TB",
+        terminalSafe: "SAFE TO FORMAT"
+      },
+      safety: {
+        label: "// data integrity",
+        titleHtml: "Four pillars of<br>data safety.",
+        desc: "Every byte matters on set. DIT Pro is built around four non-negotiable safety dimensions that protect your footage from card to archive.",
+        pillarTitles: [
+          "Atomic Writes",
+          "Checkpoint Recovery",
+          "ASC MHL Chain",
+          "Multi-Hash Verify"
+        ],
+        pillarBodies: [
+          "Every file operation is atomic. Partial writes never corrupt your destination — if it fails, it rolls back cleanly.",
+          "Power loss? Drive disconnected? Resume exactly where you left off with persistent checkpoint state.",
+          "Industry-standard chain-of-custody. Every generation is sealed and traceable from set to post.",
+          "XXH3 for speed, MD5 for compatibility. Dual-hash verification ensures nothing slips through."
+        ]
+      },
+      features: {
+        label: "// capabilities",
+        titleHtml: "Built for the<br>chaos of set.",
+        desc: "From 6AM call times to overnight data wrangling — DIT Pro handles the pressure so you don't have to.",
+        tags: ["CORE", "CORE", "CORE", "ENGINE", "ENGINE", "WORKFLOW"],
+        titles: [
+          "Cascade Copy",
+          "Real-time Progress",
+          "Bilingual UI",
+          "44 Tauri Commands",
+          "117 Unit Tests",
+          "Preset System"
+        ],
+        bodies: [
+          "Prioritize the fastest SSD first to free up your card reader, then async-sync to shuttle drives in the background.",
+          "Per-file and per-destination progress tracking with speed metrics and ETA. Always know where you stand.",
+          "Full English and Chinese interface. Switch seamlessly — your entire team stays on the same page.",
+          "A comprehensive Rust backend with 12 modules powering everything from hash computation to MHL generation.",
+          "Every critical path is tested. CI pipeline ensures zero regressions from commit to release.",
+          "Save your multi-camera setup once, recall it instantly. Same destinations, same hash config, zero re-entry."
+        ]
+      },
+      stack: {
+        label: "// architecture",
+        titleHtml: "Serious tools<br>need serious tech.",
+        itemTitles: [
+          "Tauri 2.0 + Rust",
+          "React + TypeScript",
+          "SQLite + 16 Tables",
+          "Apple Silicon Native"
+        ],
+        itemBodies: [
+          "Native performance with minimal resource footprint. Rust's memory safety guarantees mean zero data corruption from runtime errors.",
+          "Type-safe frontend with 5 purpose-built views. Every interaction is designed for speed and clarity under pressure.",
+          "Local-first database schema covering jobs, files, checkpoints, MHL generations, and comprehensive audit trails.",
+          "Optimized for M-series chips. Maximum throughput on the hardware DIT workstations actually use."
+        ]
+      },
+      status: {
+        label: "// current build",
+        title: "Where we are.",
+        cards: [
+          "Rust Modules",
+          "Tauri Commands",
+          "Tests Passing",
+          "DB Tables"
+        ]
+      },
+      roadmap: {
+        label: "// roadmap",
+        title: "What's next.",
+        desc: "Shipping the core first, then expanding based on real feedback from real sets.",
+        phases: ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5"],
+        titles: [
+          "Bulletproof Backup Core",
+          "Data Safety Chain",
+          "Metadata Bridge",
+          "Intelligent Orchestration",
+          "Hybrid Collaboration"
+        ],
+        bodies: [
+          "Offload engine, atomic writes, checkpoint recovery, ASC MHL chain, multi-hash verification, cascade copy, preset system.",
+          "Safe-to-format indicator, source verification, bottleneck attribution dashboard, cascading copy strategies.",
+          "Project field dictionaries, ALE/XML delivery bundles, filename conflict resolution across multi-camera setups.",
+          "Declarative pipelines, automated task flows, performance monitoring, and enhanced preset workflows.",
+          "Offline-first metadata sync, content security controls, immutable audit trails, and role-based access."
+        ],
+        tags: ["rc.2 — stabilizing", "planned", "planned", "planned", "planned"]
+      },
+      cta: {
+        titleHtml: "Your footage<br>deserves <span style=\"color:var(--accent)\">better.</span>",
+        desc: "Open source. Built by a DIT, for DITs. Star the repo, try the RC, file an issue.",
+        primary: "Star on GitHub",
+        secondary: "Download RC →"
+      },
+      footer: {
+        left: "© 2026 DIT Pro · Built with Tauri, Rust, and React",
+        links: ["GitHub", "Releases", "Issues"]
+      }
+    },
+    zh: {
+      pageTitle: "DIT Pro — 面向影视制作的专业级安全备份",
+      nav: {
+        safety: "安全",
+        features: "功能",
+        stack: "技术栈",
+        roadmap: "路线图",
+        github: "GitHub 主页 →"
+      },
+      hero: {
+        badge: "v1.0.0-rc.2 · 即将发布",
+        titleHtml: "为<span class=\"accent\">影视制作</span><br>提供安全备份",
+        sub: "面向专业拍摄现场的数据完整性保障。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
+        primary: "在 GitHub 查看",
+        secondary: "了解更多 ↓",
+        terminalTitle: "dit-pro — 卸载",
+        terminalComment: "// 正在卸载 847 个文件 · 2.3 TB",
+        terminalSafe: "可以安全格式化"
+      },
+      safety: {
+        label: "// 数据完整性",
+        titleHtml: "数据安全的<br>四大支柱。",
+        desc: "在片场，每一个字节都重要。DIT Pro 围绕四个不可妥协的安全维度设计，从存储卡到归档全程保护素材。",
+        pillarTitles: [
+          "原子写入",
+          "断点恢复",
+          "ASC MHL 链路",
+          "多哈希校验"
+        ],
+        pillarBodies: [
+          "每一次文件操作都以原子方式执行。不会出现半写入污染目标盘，失败时可干净回滚。",
+          "断电？硬盘断开？依靠持久化检查点状态，从中断位置精准继续。",
+          "符合行业标准的素材交接链路。每一代数据都可封存并可追溯。",
+          "XXH3 保障速度，MD5 保障兼容。双重哈希让任何错误都无处遁形。"
+        ]
+      },
+      features: {
+        label: "// 核心能力",
+        titleHtml: "专为片场的<br>高压混乱打造。",
+        desc: "从清晨开机到通宵整理数据，DIT Pro 扛住流程压力，让你专注拍摄本身。",
+        tags: ["核心", "核心", "核心", "引擎", "引擎", "工作流"],
+        titles: [
+          "级联拷贝",
+          "实时进度",
+          "双语界面",
+          "44 个 Tauri 命令",
+          "117 项单元测试",
+          "预设系统"
+        ],
+        bodies: [
+          "优先写入最快 SSD，先释放读卡器，再把数据异步同步到周转硬盘。",
+          "按文件、按目标盘展示进度，附带速度与 ETA，任何时刻都能掌握状态。",
+          "完整支持中文与英文界面，一键切换，整组成员沟通零障碍。",
+          "后端基于 Rust，12 个模块覆盖哈希计算到 MHL 生成的完整能力。",
+          "关键路径全部覆盖测试，CI 流水线确保从提交到发布无回归。",
+          "多机位参数一次保存即可复用，相同目标盘与哈希配置无需重复录入。"
+        ]
+      },
+      stack: {
+        label: "// 系统架构",
+        titleHtml: "专业工具，<br>必须有专业技术。",
+        itemTitles: [
+          "Tauri 2.0 + Rust",
+          "React + TypeScript",
+          "SQLite + 16 张表",
+          "原生适配 Apple Silicon"
+        ],
+        itemBodies: [
+          "原生性能且资源占用低。Rust 的内存安全机制可避免运行时错误导致的数据损坏。",
+          "类型安全前端，5 个核心视图。所有交互都面向高压场景下的速度与清晰度设计。",
+          "本地优先的数据结构覆盖任务、文件、检查点、MHL 世代与完整审计轨迹。",
+          "针对 M 系列芯片优化，在真实 DIT 工作站上实现最大吞吐。"
+        ]
+      },
+      status: {
+        label: "// 当前构建",
+        title: "当前进度。",
+        cards: [
+          "Rust 模块",
+          "Tauri 命令",
+          "通过测试",
+          "数据库表"
+        ]
+      },
+      roadmap: {
+        label: "// 产品路线图",
+        title: "下一步计划。",
+        desc: "先把核心能力做到稳定，再根据真实片场反馈持续扩展。",
+        phases: ["阶段 1", "阶段 2", "阶段 3", "阶段 4", "阶段 5"],
+        titles: [
+          "高可靠备份内核",
+          "数据安全链路",
+          "元数据桥接",
+          "智能化编排",
+          "混合协作"
+        ],
+        bodies: [
+          "卸载引擎、原子写入、断点恢复、ASC MHL 链路、多哈希校验、级联拷贝与预设系统。",
+          "安全格式化提示、源盘校验、瓶颈归因看板与级联拷贝策略。",
+          "项目字段字典、ALE/XML 交付包、多机位命名冲突处理。",
+          "声明式流水线、自动任务流、性能监控与增强版预设工作流。",
+          "离线优先元数据同步、内容安全控制、不可篡改审计轨迹与角色权限。"
+        ],
+        tags: ["rc.2 — 稳定中", "计划中", "计划中", "计划中", "计划中"]
+      },
+      cta: {
+        titleHtml: "你的素材，<br>值得<span style=\"color:var(--accent)\">更可靠的保障。</span>",
+        desc: "开源项目，由 DIT 为 DIT 打造。欢迎 Star、试用 RC 并提交反馈。",
+        primary: "在 GitHub 点赞",
+        secondary: "下载 RC →"
+      },
+      footer: {
+        left: "© 2026 DIT Pro · 基于 Tauri、Rust 与 React 构建",
+        links: ["GitHub", "版本发布", "问题反馈"]
+      }
+    }
+  };
+
+  const setText = (selector, value) => {
+    const el = document.querySelector(selector);
+    if (el && typeof value === "string") el.textContent = value;
+  };
+
+  const setHtml = (selector, value) => {
+    const el = document.querySelector(selector);
+    if (el && typeof value === "string") el.innerHTML = value;
+  };
+
+  const setListText = (selector, values) => {
+    if (!Array.isArray(values)) return;
+    document.querySelectorAll(selector).forEach((el, index) => {
+      if (values[index] !== undefined) el.textContent = values[index];
+    });
+  };
+
+  const applyLanguage = (lang) => {
+    const language = i18n[lang] ? lang : "en";
+    const t = i18n[language];
+
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    document.title = t.pageTitle;
+
+    setText('a[href="#safety"]', t.nav.safety);
+    setText('a[href="#features"]', t.nav.features);
+    setText('a[href="#stack"]', t.nav.stack);
+    setText('a[href="#roadmap"]', t.nav.roadmap);
+    setText(".nav-cta", t.nav.github);
+
+    setText(".hero-badge-text", t.hero.badge);
+    setHtml(".hero h1", t.hero.titleHtml);
+    setText(".hero-sub", t.hero.sub);
+    setText(".hero-primary-text", t.hero.primary);
+    setText(".hero-actions .btn-secondary", t.hero.secondary);
+    setText(".terminal-title", t.hero.terminalTitle);
+    setText(".terminal-body .comment", t.hero.terminalComment);
+    setText(".terminal-safe-text", t.hero.terminalSafe);
+
+    setText("#safety .section-label", t.safety.label);
+    setHtml("#safety .section-title", t.safety.titleHtml);
+    setText("#safety .section-desc", t.safety.desc);
+    setListText("#safety .pillar h3", t.safety.pillarTitles);
+    setListText("#safety .pillar p", t.safety.pillarBodies);
+
+    setText("#features .section-label", t.features.label);
+    setHtml("#features .section-title", t.features.titleHtml);
+    setText("#features .section-desc", t.features.desc);
+    setListText("#features .feature-tag", t.features.tags);
+    setListText("#features .feature-card h3", t.features.titles);
+    setListText("#features .feature-card p", t.features.bodies);
+
+    setText("#stack .section-label", t.stack.label);
+    setHtml("#stack .section-title", t.stack.titleHtml);
+    setListText("#stack .stack-item h4", t.stack.itemTitles);
+    setListText("#stack .stack-item p", t.stack.itemBodies);
+
+    setText(".status-section .section-label", t.status.label);
+    setText(".status-section .section-title", t.status.title);
+    setListText(".status-card .status-label", t.status.cards);
+
+    setText("#roadmap .section-label", t.roadmap.label);
+    setText("#roadmap .section-title", t.roadmap.title);
+    setText("#roadmap .section-desc", t.roadmap.desc);
+    setListText(".roadmap-phase", t.roadmap.phases);
+    setListText(".roadmap-content h4", t.roadmap.titles);
+    setListText(".roadmap-content p", t.roadmap.bodies);
+    setListText(".roadmap-tag", t.roadmap.tags);
+
+    setHtml(".cta-section h2", t.cta.titleHtml);
+    setText(".cta-section .section-desc", t.cta.desc);
+    setText(".cta-primary-text", t.cta.primary);
+    setText(".cta-actions .btn-secondary", t.cta.secondary);
+
+    setText(".footer-left", t.footer.left);
+    setText('footer a[href="https://github.com/WillZ5/DIT-Pro"]', t.footer.links[0]);
+    setText('footer a[href="https://github.com/WillZ5/DIT-Pro/releases"]', t.footer.links[1]);
+    setText('footer a[href="https://github.com/WillZ5/DIT-Pro/issues"]', t.footer.links[2]);
+
+    document.querySelectorAll("[data-lang-btn]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.langBtn === language);
+    });
+
+    localStorage.setItem("ditpro_lang", language);
+  };
+
+  const savedLanguage = localStorage.getItem("ditpro_lang");
+  const browserLanguage = (navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en";
+  applyLanguage(savedLanguage || browserLanguage);
+
+  document.querySelectorAll("[data-lang-btn]").forEach((btn) => {
+    btn.addEventListener("click", () => applyLanguage(btn.dataset.langBtn));
+  });
+
   // Nav scroll effect
   const navbar = document.getElementById('navbar');
   window.addEventListener('scroll', () => {

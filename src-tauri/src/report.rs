@@ -39,6 +39,9 @@ pub struct TaskDetail {
     pub status: String,
     pub hash_xxh64: Option<String>,
     pub hash_sha256: Option<String>,
+    pub hash_md5: Option<String>,
+    pub hash_xxh128: Option<String>,
+    pub hash_xxh3: Option<String>,
 }
 
 /// A complete day report
@@ -157,7 +160,8 @@ pub fn get_job_report(conn: &Connection, job_id: &str) -> Result<JobReport> {
 
     // Get all task details
     let mut stmt = conn.prepare(
-        "SELECT source_path, dest_path, file_size, status, hash_xxh64, hash_sha256
+        "SELECT source_path, dest_path, file_size, status,
+                hash_xxh64, hash_sha256, hash_md5, hash_xxh128, hash_xxh3
          FROM copy_tasks WHERE job_id = ?1 ORDER BY source_path ASC",
     )?;
 
@@ -170,6 +174,9 @@ pub fn get_job_report(conn: &Connection, job_id: &str) -> Result<JobReport> {
                 status: row.get(3)?,
                 hash_xxh64: row.get(4)?,
                 hash_sha256: row.get(5)?,
+                hash_md5: row.get(6)?,
+                hash_xxh128: row.get(7)?,
+                hash_xxh3: row.get(8)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()
@@ -334,9 +341,32 @@ pub fn render_job_report_html(report: &JobReport) -> String {
         total_size = format_bytes(s.total_bytes),
     ));
 
+    // Detect which hash algorithms have data (dynamic columns)
+    let has_xxh64 = report.tasks.iter().any(|t| t.hash_xxh64.is_some());
+    let has_sha256 = report.tasks.iter().any(|t| t.hash_sha256.is_some());
+    let has_md5 = report.tasks.iter().any(|t| t.hash_md5.is_some());
+    let has_xxh128 = report.tasks.iter().any(|t| t.hash_xxh128.is_some());
+    let has_xxh3 = report.tasks.iter().any(|t| t.hash_xxh3.is_some());
+
     // Task table
     html.push_str("<h2>File Details</h2>\n<table>\n");
-    html.push_str("<tr><th>Source</th><th>Destination</th><th>Size</th><th>Status</th><th>XXH64</th><th>SHA-256</th></tr>\n");
+    html.push_str("<tr><th>Source</th><th>Destination</th><th>Size</th><th>Status</th>");
+    if has_xxh64 {
+        html.push_str("<th>XXH64</th>");
+    }
+    if has_sha256 {
+        html.push_str("<th>SHA-256</th>");
+    }
+    if has_md5 {
+        html.push_str("<th>MD5</th>");
+    }
+    if has_xxh128 {
+        html.push_str("<th>XXH128</th>");
+    }
+    if has_xxh3 {
+        html.push_str("<th>XXH3</th>");
+    }
+    html.push_str("</tr>\n");
 
     for task in &report.tasks {
         let status_class = if task.status == "completed" {
@@ -359,9 +389,7 @@ pub fn render_job_report_html(report: &JobReport) -> String {
             "<tr><td title=\"{src_full}\">{src_name}</td>\
              <td title=\"{dest_full}\">{dest_short}</td>\
              <td>{size}</td>\
-             <td class=\"{status_class}\">{status}</td>\
-             <td class=\"hash\">{xxh64}</td>\
-             <td class=\"hash\">{sha256}</td></tr>\n",
+             <td class=\"{status_class}\">{status}</td>",
             src_full = html_escape(&task.source_path),
             src_name = html_escape(&src_name),
             dest_full = html_escape(&task.dest_path),
@@ -369,13 +397,47 @@ pub fn render_job_report_html(report: &JobReport) -> String {
             size = format_bytes(task.file_size),
             status_class = status_class,
             status = html_escape(&task.status),
-            xxh64 = task.hash_xxh64.as_deref().unwrap_or("—"),
-            sha256 = task
-                .hash_sha256
-                .as_deref()
-                .map(|s| &s[..16.min(s.len())])
-                .unwrap_or("—"),
         ));
+        if has_xxh64 {
+            html.push_str(&format!(
+                "<td class=\"hash\">{}</td>",
+                task.hash_xxh64.as_deref().unwrap_or("—")
+            ));
+        }
+        if has_sha256 {
+            html.push_str(&format!(
+                "<td class=\"hash\">{}</td>",
+                task.hash_sha256
+                    .as_deref()
+                    .map(|s| &s[..16.min(s.len())])
+                    .unwrap_or("—")
+            ));
+        }
+        if has_md5 {
+            html.push_str(&format!(
+                "<td class=\"hash\">{}</td>",
+                task.hash_md5.as_deref().unwrap_or("—")
+            ));
+        }
+        if has_xxh128 {
+            html.push_str(&format!(
+                "<td class=\"hash\">{}</td>",
+                task.hash_xxh128
+                    .as_deref()
+                    .map(|s| &s[..16.min(s.len())])
+                    .unwrap_or("—")
+            ));
+        }
+        if has_xxh3 {
+            html.push_str(&format!(
+                "<td class=\"hash\">{}</td>",
+                task.hash_xxh3
+                    .as_deref()
+                    .map(|s| &s[..16.min(s.len())])
+                    .unwrap_or("—")
+            ));
+        }
+        html.push_str("</tr>\n");
     }
     html.push_str("</table>\n");
 
@@ -596,6 +658,7 @@ mod tests {
                 file_size INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 hash_xxh64 TEXT, hash_sha256 TEXT,
+                hash_md5 TEXT, hash_xxh128 TEXT, hash_xxh3 TEXT,
                 error_msg TEXT, retry_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -780,6 +843,9 @@ mod tests {
                 status: "completed".to_string(),
                 hash_xxh64: Some("abc123def456".to_string()),
                 hash_sha256: Some("0123456789abcdef0123456789abcdef".to_string()),
+                hash_md5: None,
+                hash_xxh128: None,
+                hash_xxh3: None,
             }],
             dest_paths: vec!["/Volumes/SSD".to_string()],
         };

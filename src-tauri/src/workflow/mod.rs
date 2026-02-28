@@ -29,7 +29,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-use crate::checkpoint::{self, STATUS_COPYING};
+use crate::checkpoint::{self, TaskHashes, STATUS_COPYING};
 use crate::copy_engine::{self, CopyEngineConfig};
 use crate::hash_engine::{self, HashAlgorithm, HashEngineConfig, HashResult};
 use crate::mhl::{self, MhlConfig, MhlProcessType};
@@ -234,6 +234,33 @@ struct SourceFile {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────
+
+/// Extract all hash values from a Vec<HashResult> into a TaskHashes struct
+fn extract_task_hashes(hash_results: &[crate::hash_engine::HashResult]) -> TaskHashes {
+    use crate::hash_engine::HashAlgorithm;
+    TaskHashes {
+        xxh64: hash_results
+            .iter()
+            .find(|h| h.algorithm == HashAlgorithm::XXH64)
+            .map(|h| h.hex_digest.clone()),
+        sha256: hash_results
+            .iter()
+            .find(|h| h.algorithm == HashAlgorithm::SHA256)
+            .map(|h| h.hex_digest.clone()),
+        md5: hash_results
+            .iter()
+            .find(|h| h.algorithm == HashAlgorithm::MD5)
+            .map(|h| h.hex_digest.clone()),
+        xxh128: hash_results
+            .iter()
+            .find(|h| h.algorithm == HashAlgorithm::XXH128)
+            .map(|h| h.hex_digest.clone()),
+        xxh3: hash_results
+            .iter()
+            .find(|h| h.algorithm == HashAlgorithm::XXH3)
+            .map(|h| h.hex_digest.clone()),
+    }
+}
 
 /// Generate a "keep both" path by appending _copy (or _copy_2, _copy_3, etc.)
 /// Example: photo.mov → photo_copy.mov → photo_copy_2.mov
@@ -702,7 +729,8 @@ impl OffloadWorkflow {
             let (all_files, all_hashes) = {
                 let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                 let mut stmt = conn.prepare(
-                    "SELECT DISTINCT source_path, file_size, hash_xxh64, hash_sha256
+                    "SELECT DISTINCT source_path, file_size,
+                            hash_xxh64, hash_sha256, hash_md5, hash_xxh128, hash_xxh3
                      FROM copy_tasks WHERE job_id = ?1 AND status = 'completed'",
                 )?;
                 let mut files: Vec<SourceFile> = Vec::new();
@@ -714,10 +742,13 @@ impl OffloadWorkflow {
                         row.get::<_, i64>(1)?,
                         row.get::<_, Option<String>>(2)?,
                         row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, Option<String>>(6)?,
                     ))
                 })?;
                 for row in rows {
-                    let (source_path, file_size, xxh64, sha256) = row?;
+                    let (source_path, file_size, xxh64, sha256, md5, xxh128, xxh3) = row?;
                     let abs_path = PathBuf::from(&source_path);
                     let rel_path = abs_path
                         .strip_prefix(&self.config.source_path)
@@ -733,17 +764,19 @@ impl OffloadWorkflow {
                     }
                     if let std::collections::hash_map::Entry::Vacant(e) = hashes.entry(rel_path) {
                         let mut h = Vec::new();
-                        if let Some(ref hex) = xxh64 {
-                            h.push(HashResult {
-                                algorithm: HashAlgorithm::XXH64,
-                                hex_digest: hex.clone(),
-                            });
-                        }
-                        if let Some(ref hex) = sha256 {
-                            h.push(HashResult {
-                                algorithm: HashAlgorithm::SHA256,
-                                hex_digest: hex.clone(),
-                            });
+                        for (algo, val) in [
+                            (HashAlgorithm::XXH64, &xxh64),
+                            (HashAlgorithm::SHA256, &sha256),
+                            (HashAlgorithm::MD5, &md5),
+                            (HashAlgorithm::XXH128, &xxh128),
+                            (HashAlgorithm::XXH3, &xxh3),
+                        ] {
+                            if let Some(ref hex) = val {
+                                h.push(HashResult {
+                                    algorithm: algo,
+                                    hex_digest: hex.clone(),
+                                });
+                            }
                         }
                         if !h.is_empty() {
                             e.insert(h);
@@ -1030,6 +1063,9 @@ impl OffloadWorkflow {
         let mut copy_hashes: HashMap<String, Vec<HashResult>> = HashMap::new();
         let mut completed_bytes: u64 = 0;
         let total_files = files.len();
+        // Scale total by destination count so speed reflects actual write throughput
+        let dest_count = self.config.dest_paths.len() as u64;
+        let effective_total = total_bytes * dest_count.max(1);
 
         let copy_config = CopyEngineConfig {
             buffer_size: self.config.buffer_size,
@@ -1091,7 +1127,7 @@ impl OffloadWorkflow {
 
             if dest_files.is_empty() {
                 // All destinations were skipped for this file
-                completed_bytes += file.size;
+                completed_bytes += file.size * dest_count;
                 self.emit(OffloadEvent::FileCopyCompleted {
                     rel_path: file.rel_path.clone(),
                     file_size: file.size,
@@ -1103,7 +1139,7 @@ impl OffloadWorkflow {
                     completed_files: i + 1,
                     total_files,
                     completed_bytes,
-                    total_bytes,
+                    total_bytes: effective_total,
                     phase: OffloadPhase::Copying,
                     elapsed_secs: start.elapsed().as_secs_f64(),
                     message: None,
@@ -1173,6 +1209,11 @@ impl OffloadWorkflow {
                 }
             } // lock released
 
+            // Account for skipped destinations upfront for smooth progress
+            let file_dest_count = dest_files.len() as u64;
+            let skipped_dests = dest_count - file_dest_count;
+            completed_bytes += file.size * skipped_dests;
+
             // Set up intra-file progress reporting (throttled to 100ms for responsive speed chart)
             let event_tx = self.event_tx.clone();
             let file_completed_bytes = completed_bytes;
@@ -1180,18 +1221,20 @@ impl OffloadWorkflow {
             let progress_file_index = i;
             let progress_start = *start;
             let progress_msg = file_msg.clone();
+            let progress_effective_total = effective_total;
             let last_progress_emit =
                 std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
             let progress_callback = move |file_bytes_written: u64, _file_total: u64| {
                 let mut last = last_progress_emit.lock().unwrap_or_else(|e| e.into_inner());
                 if last.elapsed() >= std::time::Duration::from_millis(100) {
-                    let current_total = file_completed_bytes + file_bytes_written;
+                    // Scale by destination count to reflect actual write throughput
+                    let current_total = file_completed_bytes + file_bytes_written * file_dest_count;
                     event_tx
                         .send(OffloadEvent::JobProgress {
                             completed_files: progress_file_index,
                             total_files: progress_total_files,
                             completed_bytes: current_total,
-                            total_bytes,
+                            total_bytes: progress_effective_total,
                             phase: OffloadPhase::Copying,
                             elapsed_secs: progress_start.elapsed().as_secs_f64(),
                             message: Some(progress_msg.clone()),
@@ -1242,7 +1285,11 @@ impl OffloadWorkflow {
                                 )
                                 .ok();
                             if let Some(tid) = task_id {
-                                checkpoint::update_task_completed(&conn, &tid, None, None)?;
+                                checkpoint::update_task_completed(
+                                    &conn,
+                                    &tid,
+                                    &TaskHashes::default(),
+                                )?;
                             }
                         }
                     } else {
@@ -1270,21 +1317,16 @@ impl OffloadWorkflow {
                                     )
                                     .ok();
                                 if let Some(tid) = task_id {
-                                    checkpoint::update_task_completed(&conn, &tid, None, None)?;
+                                    checkpoint::update_task_completed(
+                                        &conn,
+                                        &tid,
+                                        &TaskHashes::default(),
+                                    )?;
                                 }
                                 continue;
                             }
 
-                            let xxh64 = r
-                                .hash_results
-                                .iter()
-                                .find(|h| h.algorithm == HashAlgorithm::XXH64)
-                                .map(|h| h.hex_digest.as_str());
-                            let sha256 = r
-                                .hash_results
-                                .iter()
-                                .find(|h| h.algorithm == HashAlgorithm::SHA256)
-                                .map(|h| h.hex_digest.as_str());
+                            let hashes = extract_task_hashes(&r.hash_results);
 
                             let task_id: Option<String> = conn
                                 .query_row(
@@ -1301,7 +1343,7 @@ impl OffloadWorkflow {
 
                             if let Some(tid) = task_id {
                                 if r.success {
-                                    checkpoint::update_task_completed(&conn, &tid, xxh64, sha256)?;
+                                    checkpoint::update_task_completed(&conn, &tid, &hashes)?;
                                 } else {
                                     checkpoint::update_task_failed(
                                         &conn,
@@ -1348,8 +1390,9 @@ impl OffloadWorkflow {
             };
 
             // Only count completed bytes for successful copies (avoid inflated progress)
+            // Scale by active dest count (skipped dests already accounted for above)
             if copy_ok {
-                completed_bytes += file.size;
+                completed_bytes += file.size * file_dest_count;
             }
 
             self.emit(OffloadEvent::FileCopyCompleted {
@@ -1364,7 +1407,7 @@ impl OffloadWorkflow {
                 completed_files: i + 1,
                 total_files,
                 completed_bytes,
-                total_bytes,
+                total_bytes: effective_total,
                 phase: OffloadPhase::Copying,
                 elapsed_secs: start.elapsed().as_secs_f64(),
                 message: Some(file_msg),
@@ -1432,7 +1475,7 @@ impl OffloadWorkflow {
                             )
                             .ok();
                         if let Some(tid) = task_id {
-                            checkpoint::update_task_completed(&conn, &tid, None, None)?;
+                            checkpoint::update_task_completed(&conn, &tid, &TaskHashes::default())?;
                         }
                     }
                     completed_bytes += file.size;
@@ -1520,16 +1563,7 @@ impl OffloadWorkflow {
                     copy_hashes.insert(file.rel_path.clone(), result.hash_results.clone());
 
                     let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                    let xxh64 = result
-                        .hash_results
-                        .iter()
-                        .find(|h| h.algorithm == HashAlgorithm::XXH64)
-                        .map(|h| h.hex_digest.as_str());
-                    let sha256 = result
-                        .hash_results
-                        .iter()
-                        .find(|h| h.algorithm == HashAlgorithm::SHA256)
-                        .map(|h| h.hex_digest.as_str());
+                    let hashes = extract_task_hashes(&result.hash_results);
 
                     let task_id: Option<String> = conn
                         .query_row(
@@ -1545,7 +1579,7 @@ impl OffloadWorkflow {
                         .ok();
 
                     if let Some(tid) = task_id {
-                        checkpoint::update_task_completed(&conn, &tid, xxh64, sha256)?;
+                        checkpoint::update_task_completed(&conn, &tid, &hashes)?;
                     }
                 }
                 Err(e) => {
@@ -1681,7 +1715,7 @@ impl OffloadWorkflow {
                             )
                             .ok();
                         if let Some(tid) = task_id {
-                            checkpoint::update_task_completed(&conn, &tid, None, None)?;
+                            checkpoint::update_task_completed(&conn, &tid, &TaskHashes::default())?;
                         }
                         continue;
                     }
@@ -1762,16 +1796,7 @@ impl OffloadWorkflow {
                 Ok(results) => {
                     let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                     for r in &results {
-                        let xxh64 = r
-                            .hash_results
-                            .iter()
-                            .find(|h| h.algorithm == HashAlgorithm::XXH64)
-                            .map(|h| h.hex_digest.as_str());
-                        let sha256 = r
-                            .hash_results
-                            .iter()
-                            .find(|h| h.algorithm == HashAlgorithm::SHA256)
-                            .map(|h| h.hex_digest.as_str());
+                        let hashes = extract_task_hashes(&r.hash_results);
 
                         let task_id: Option<String> = conn
                             .query_row(
@@ -1788,7 +1813,7 @@ impl OffloadWorkflow {
 
                         if let Some(tid) = task_id {
                             if r.success {
-                                checkpoint::update_task_completed(&conn, &tid, xxh64, sha256)?;
+                                checkpoint::update_task_completed(&conn, &tid, &hashes)?;
                             } else {
                                 checkpoint::update_task_failed(
                                     &conn,
@@ -1872,6 +1897,8 @@ impl OffloadWorkflow {
         let mut failed = 0;
         let total_files = files.len();
         let total_bytes: u64 = files.iter().map(|f| f.size).sum();
+        let dest_count = self.config.dest_paths.len() as u64;
+        let effective_verify_total = total_bytes * dest_count.max(1);
         let total_verify_ops = total_files * self.config.dest_paths.len();
         let mut completed_ops: usize = 0;
         let mut completed_bytes: u64 = 0;
@@ -1942,6 +1969,7 @@ impl OffloadWorkflow {
                 let total_files_for_progress = total_files;
                 let fi_for_progress = fi;
                 let progress_msg = verify_msg.clone();
+                let progress_verify_total = effective_verify_total;
                 let last_emit =
                     std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
                 let verify_progress = move |bytes_hashed: u64, _file_total: u64| {
@@ -1952,7 +1980,7 @@ impl OffloadWorkflow {
                                 completed_files: fi_for_progress,
                                 total_files: total_files_for_progress,
                                 completed_bytes: base_completed_bytes + bytes_hashed,
-                                total_bytes,
+                                total_bytes: progress_verify_total,
                                 phase: OffloadPhase::Verifying,
                                 elapsed_secs: verify_start_clone.elapsed().as_secs_f64(),
                                 message: Some(progress_msg.clone()),
@@ -2001,17 +2029,17 @@ impl OffloadWorkflow {
                     verified: ok,
                     mismatch_detail: detail,
                 });
+
+                // Count each destination verification separately for accurate speed
+                completed_bytes += file.size;
             }
 
-            // Update completed bytes for this source file (count once even with multiple dests)
-            completed_bytes += file.size;
-
-            // Emit progress after each source file is fully verified
+            // Emit progress after each source file is fully verified across all dests
             self.emit(OffloadEvent::JobProgress {
                 completed_files: fi + 1,
                 total_files,
                 completed_bytes,
-                total_bytes,
+                total_bytes: effective_verify_total,
                 phase: OffloadPhase::Verifying,
                 elapsed_secs: verify_start.elapsed().as_secs_f64(),
                 message: None,
@@ -2146,6 +2174,7 @@ mod tests {
                 file_size INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 hash_xxh64 TEXT, hash_sha256 TEXT,
+                hash_md5 TEXT, hash_xxh128 TEXT, hash_xxh3 TEXT,
                 error_msg TEXT, retry_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))

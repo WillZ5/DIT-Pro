@@ -27,6 +27,16 @@ pub const STATUS_PAUSED: &str = "paused";
 pub const STATUS_TERMINATED: &str = "terminated";
 pub const STATUS_CONFLICT: &str = "conflict";
 
+/// All hash values for a completed copy task
+#[derive(Debug, Clone, Default)]
+pub struct TaskHashes {
+    pub xxh64: Option<String>,
+    pub sha256: Option<String>,
+    pub md5: Option<String>,
+    pub xxh128: Option<String>,
+    pub xxh3: Option<String>,
+}
+
 /// A checkpoint-managed copy task record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointRecord {
@@ -77,17 +87,20 @@ pub fn update_task_status(conn: &Connection, task_id: &str, status: &str) -> Res
     Ok(())
 }
 
-/// Update task status with hash results
-pub fn update_task_completed(
-    conn: &Connection,
-    task_id: &str,
-    hash_xxh64: Option<&str>,
-    hash_sha256: Option<&str>,
-) -> Result<()> {
+/// Update task status with hash results (all algorithms)
+pub fn update_task_completed(conn: &Connection, task_id: &str, hashes: &TaskHashes) -> Result<()> {
     conn.execute(
-        "UPDATE copy_tasks SET status = 'completed', hash_xxh64 = ?1, hash_sha256 = ?2,
-         updated_at = datetime('now') WHERE id = ?3",
-        params![hash_xxh64, hash_sha256, task_id],
+        "UPDATE copy_tasks SET status = 'completed',
+         hash_xxh64 = ?1, hash_sha256 = ?2, hash_md5 = ?3, hash_xxh128 = ?4, hash_xxh3 = ?5,
+         updated_at = datetime('now') WHERE id = ?6",
+        params![
+            hashes.xxh64,
+            hashes.sha256,
+            hashes.md5,
+            hashes.xxh128,
+            hashes.xxh3,
+            task_id
+        ],
     )?;
     Ok(())
 }
@@ -112,16 +125,19 @@ pub fn update_job_status(conn: &Connection, job_id: &str, status: &str) -> Resul
 }
 
 /// Mark task as skipped (existing file verified identical)
-pub fn update_task_skipped(
-    conn: &Connection,
-    task_id: &str,
-    hash_xxh64: Option<&str>,
-    hash_sha256: Option<&str>,
-) -> Result<()> {
+pub fn update_task_skipped(conn: &Connection, task_id: &str, hashes: &TaskHashes) -> Result<()> {
     conn.execute(
-        "UPDATE copy_tasks SET status = 'skipped', hash_xxh64 = ?1, hash_sha256 = ?2,
-         updated_at = datetime('now') WHERE id = ?3",
-        params![hash_xxh64, hash_sha256, task_id],
+        "UPDATE copy_tasks SET status = 'skipped',
+         hash_xxh64 = ?1, hash_sha256 = ?2, hash_md5 = ?3, hash_xxh128 = ?4, hash_xxh3 = ?5,
+         updated_at = datetime('now') WHERE id = ?6",
+        params![
+            hashes.xxh64,
+            hashes.sha256,
+            hashes.md5,
+            hashes.xxh128,
+            hashes.xxh3,
+            task_id
+        ],
     )?;
     Ok(())
 }
@@ -347,6 +363,7 @@ mod tests {
                 file_size INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 hash_xxh64 TEXT, hash_sha256 TEXT,
+                hash_md5 TEXT, hash_xxh128 TEXT, hash_xxh3 TEXT,
                 error_msg TEXT, retry_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -393,7 +410,16 @@ mod tests {
         let pending = get_pending_tasks(&conn, "job-1").unwrap();
         assert_eq!(pending.len(), 0); // no longer pending
 
-        update_task_completed(&conn, "t-1", Some("abc123"), Some("def456")).unwrap();
+        update_task_completed(
+            &conn,
+            "t-1",
+            &TaskHashes {
+                xxh64: Some("abc123".into()),
+                sha256: Some("def456".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let progress = get_job_progress(&conn, "job-1").unwrap();
         assert_eq!(progress.completed, 1);
@@ -440,7 +466,15 @@ mod tests {
         insert_task(&conn, "t-3", "job-1", "/src/c.mov", "/dst/c.mov", 300).unwrap();
 
         // Simulate: t-1 completed, t-2 was copying when crash happened
-        update_task_completed(&conn, "t-1", Some("hash1"), None).unwrap();
+        update_task_completed(
+            &conn,
+            "t-1",
+            &TaskHashes {
+                xxh64: Some("hash1".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         update_task_status(&conn, "t-2", STATUS_COPYING).unwrap();
 
         let recovered = recover_job(&conn, "job-1").await.unwrap();

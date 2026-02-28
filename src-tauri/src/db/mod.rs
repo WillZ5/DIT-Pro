@@ -44,6 +44,9 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
             status      TEXT NOT NULL DEFAULT 'pending',
             hash_xxh64  TEXT,
             hash_sha256 TEXT,
+            hash_md5    TEXT,
+            hash_xxh128 TEXT,
+            hash_xxh3   TEXT,
             error_msg   TEXT,
             retry_count INTEGER NOT NULL DEFAULT 0,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
@@ -94,6 +97,13 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
         CREATE INDEX IF NOT EXISTS idx_error_log_code ON error_log(error_code);
         ",
     )?;
+
+    // Migration: add hash columns for MD5, XXH128, XXH3 (safe to re-run)
+    for col in ["hash_md5", "hash_xxh128", "hash_xxh3"] {
+        let sql = format!("ALTER TABLE copy_tasks ADD COLUMN {} TEXT", col);
+        // Ignore error if column already exists
+        let _ = conn.execute_batch(&sql);
+    }
 
     Ok(conn)
 }

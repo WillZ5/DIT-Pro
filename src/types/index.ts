@@ -369,6 +369,9 @@ export interface TaskDetail {
   status: string;
   hashXxh64: string | null;
   hashSha256: string | null;
+  hashMd5: string | null;
+  hashXxh128: string | null;
+  hashXxh3: string | null;
 }
 
 export interface DayReport {

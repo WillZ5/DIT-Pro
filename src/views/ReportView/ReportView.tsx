@@ -392,82 +392,83 @@ export function ReportView() {
               </div>
 
               <div className="report-table-wrap">
-                <table className="report-table report-table--detail">
-                  <thead>
-                    <tr>
-                      <th>{t.reports.colFile}</th>
-                      <th>{t.reports.colDestination}</th>
-                      <th>{t.reports.colSize}</th>
-                      <th>{t.reports.colStatus}</th>
-                      <th>XXH64</th>
-                      <th>SHA-256</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {jobReport.tasks.map((task, i) => {
-                      const srcName =
-                        task.sourcePath?.split("/").pop() || task.sourcePath || "—";
-                      const destName =
-                        task.destPath?.split("/").pop() || task.destPath || "—";
-                      return (
-                        <tr key={i}>
-                          <td title={task.sourcePath || ""}>{srcName}</td>
-                          <td title={task.destPath || ""}>{destName}</td>
-                          <td>{formatBytes(task.fileSize)}</td>
-                          <td>
-                            <span
-                              className={`report-status ${
-                                task.status === "completed"
-                                  ? "report-status--ok"
-                                  : task.status === "pending" || task.status === "skipped"
-                                    ? "report-status--pending"
-                                    : task.status === "copying" || task.status === "verifying"
-                                      ? "report-status--active"
-                                      : task.status === "paused"
-                                        ? "report-status--paused"
-                                        : "report-status--error"
-                              }`}
-                            >
-                              {translateStatus(task.status, t)}
-                            </span>
-                          </td>
-                          <td className="report-hash">
-                            {task.hashXxh64 ? (
-                              <span
-                                className="hash-copy"
-                                onClick={() => handleCopyHash(task.hashXxh64!)}
-                                title={task.hashXxh64}
-                              >
-                                {task.hashXxh64.slice(0, 12)}…
-                                {copiedHash === task.hashXxh64 && (
-                                  <span className="hash-copy-toast">{t.common.copiedToClipboard}</span>
-                                )}
-                              </span>
-                            ) : (
-                              "\u2014"
-                            )}
-                          </td>
-                          <td className="report-hash">
-                            {task.hashSha256 ? (
-                              <span
-                                className="hash-copy"
-                                onClick={() => handleCopyHash(task.hashSha256!)}
-                                title={task.hashSha256}
-                              >
-                                {task.hashSha256.slice(0, 12)}…
-                                {copiedHash === task.hashSha256 && (
-                                  <span className="hash-copy-toast">{t.common.copiedToClipboard}</span>
-                                )}
-                              </span>
-                            ) : (
-                              "\u2014"
-                            )}
-                          </td>
+                {(() => {
+                  // Detect which hash algorithms have data (dynamic columns)
+                  const hashCols: { key: keyof typeof jobReport.tasks[0]; label: string }[] = [];
+                  if (jobReport.tasks.some(t => t.hashXxh64)) hashCols.push({ key: "hashXxh64", label: "XXH64" });
+                  if (jobReport.tasks.some(t => t.hashSha256)) hashCols.push({ key: "hashSha256", label: "SHA-256" });
+                  if (jobReport.tasks.some(t => t.hashMd5)) hashCols.push({ key: "hashMd5", label: "MD5" });
+                  if (jobReport.tasks.some(t => t.hashXxh128)) hashCols.push({ key: "hashXxh128", label: "XXH128" });
+                  if (jobReport.tasks.some(t => t.hashXxh3)) hashCols.push({ key: "hashXxh3", label: "XXH3" });
+                  return (
+                    <table className="report-table report-table--detail">
+                      <thead>
+                        <tr>
+                          <th>{t.reports.colFile}</th>
+                          <th>{t.reports.colDestination}</th>
+                          <th>{t.reports.colSize}</th>
+                          <th>{t.reports.colStatus}</th>
+                          {hashCols.map(col => (
+                            <th key={col.key}>{col.label}</th>
+                          ))}
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody>
+                        {jobReport.tasks.map((task, i) => {
+                          const srcName =
+                            task.sourcePath?.split("/").pop() || task.sourcePath || "—";
+                          const destName =
+                            task.destPath?.split("/").pop() || task.destPath || "—";
+                          return (
+                            <tr key={i}>
+                              <td title={task.sourcePath || ""}>{srcName}</td>
+                              <td title={task.destPath || ""}>{destName}</td>
+                              <td>{formatBytes(task.fileSize)}</td>
+                              <td>
+                                <span
+                                  className={`report-status ${
+                                    task.status === "completed"
+                                      ? "report-status--ok"
+                                      : task.status === "pending" || task.status === "skipped"
+                                        ? "report-status--pending"
+                                        : task.status === "copying" || task.status === "verifying"
+                                          ? "report-status--active"
+                                          : task.status === "paused"
+                                            ? "report-status--paused"
+                                            : "report-status--error"
+                                  }`}
+                                >
+                                  {translateStatus(task.status, t)}
+                                </span>
+                              </td>
+                              {hashCols.map(col => {
+                                const hash = task[col.key] as string | null;
+                                return (
+                                  <td key={col.key} className="report-hash">
+                                    {hash ? (
+                                      <span
+                                        className="hash-copy"
+                                        onClick={() => handleCopyHash(hash)}
+                                        title={hash}
+                                      >
+                                        {hash.slice(0, 16)}…
+                                        {copiedHash === hash && (
+                                          <span className="hash-copy-toast">{t.common.copiedToClipboard}</span>
+                                        )}
+                                      </span>
+                                    ) : (
+                                      "\u2014"
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  );
+                })()}
               </div>
             </section>
           )}

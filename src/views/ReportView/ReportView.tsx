@@ -96,9 +96,9 @@ export function ReportView() {
     }
   };
 
-  const handleCopyHash = (hash: string) => {
+  const handleCopyHash = (hash: string, cellId: string) => {
     navigator.clipboard.writeText(hash).then(() => {
-      setCopiedHash(hash);
+      setCopiedHash(cellId);
       setTimeout(() => setCopiedHash(null), 1500);
     }).catch(() => {
       // Clipboard API may be unavailable in some webview contexts
@@ -443,16 +443,17 @@ export function ReportView() {
                               </td>
                               {hashCols.map(col => {
                                 const hash = task[col.key] as string | null;
+                                const cellId = `${i}-${col.key}`;
                                 return (
                                   <td key={col.key} className="report-hash">
                                     {hash ? (
                                       <span
                                         className="hash-copy"
-                                        onClick={() => handleCopyHash(hash)}
+                                        onClick={() => handleCopyHash(hash, cellId)}
                                         title={hash}
                                       >
                                         {hash.slice(0, 16)}…
-                                        {copiedHash === hash && (
+                                        {copiedHash === cellId && (
                                           <span className="hash-copy-toast">{t.common.copiedToClipboard}</span>
                                         )}
                                       </span>

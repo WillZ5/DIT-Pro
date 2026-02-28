@@ -266,7 +266,7 @@ async fn cascade_hash_consistency_200_files_4_dests() {
         assert_eq!(progress.failed, 0);
     }
 
-    eprintln!("✅ cascade_hash_consistency_200_files_4_dests PASSED");
+    eprintln!("[PASS] cascade_hash_consistency_200_files_4_dests PASSED");
 }
 
 // ─── Test 2: Conflict Resolution in Cascade Mode ────────────────────────────
@@ -457,7 +457,7 @@ async fn cascade_conflict_resolution_mixed() {
     });
     assert!(has_cascade, "Cascading phase must be emitted");
 
-    eprintln!("✅ cascade_conflict_resolution_mixed PASSED");
+    eprintln!("[PASS] cascade_conflict_resolution_mixed PASSED");
 }
 
 // ─── Test 3: Cascade Interrupt & Resume ─────────────────────────────────────
@@ -597,7 +597,7 @@ async fn cascade_interrupt_and_resume() {
         assert_eq!(progress.failed, 0);
     }
 
-    eprintln!("✅ cascade_interrupt_and_resume PASSED");
+    eprintln!("[PASS] cascade_interrupt_and_resume PASSED");
 }
 
 // ─── Test 4: Large Scale Cascade — 500 files × 3 dests ─────────────────────
@@ -679,7 +679,7 @@ async fn cascade_500_files_3_dests_full_pipeline() {
     let total_copied_mb = (total_bytes as f64 * 3.0) / 1_048_576.0;
     let speed_mbps = total_copied_mb / elapsed.as_secs_f64();
     eprintln!(
-        "✅ cascade_500_files_3_dests: {:.1}MB across 3 dests in {:.1}s ({:.1} MB/s effective)",
+        "[PASS] cascade_500_files_3_dests: {:.1}MB across 3 dests in {:.1}s ({:.1} MB/s effective)",
         total_copied_mb,
         elapsed.as_secs_f64(),
         speed_mbps
@@ -750,7 +750,7 @@ async fn cascade_phase_event_ordering() {
         phase_order, expected
     );
 
-    eprintln!("✅ cascade_phase_event_ordering PASSED");
+    eprintln!("[PASS] cascade_phase_event_ordering PASSED");
 }
 
 // ─── Test 6: Cascade with MHL Verification ──────────────────────────────────
@@ -814,7 +814,7 @@ async fn cascade_mhl_integrity_all_destinations() {
         );
     }
 
-    eprintln!("✅ cascade_mhl_integrity_all_destinations PASSED");
+    eprintln!("[PASS] cascade_mhl_integrity_all_destinations PASSED");
 }
 
 // ─── Test 7: No .tmp Files After Cascade ────────────────────────────────────
@@ -874,7 +874,7 @@ async fn cascade_no_tmp_files_remain() {
     check_no_tmp(&primary);
     check_no_tmp(&sec1);
 
-    eprintln!("✅ cascade_no_tmp_files_remain PASSED");
+    eprintln!("[PASS] cascade_no_tmp_files_remain PASSED");
 }
 
 // ─── Test 8: Cascade DB State Consistency ───────────────────────────────────
@@ -953,5 +953,5 @@ async fn cascade_db_state_consistency() {
         "Both destinations must match source"
     );
 
-    eprintln!("✅ cascade_db_state_consistency PASSED");
+    eprintln!("[PASS] cascade_db_state_consistency PASSED");
 }

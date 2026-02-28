@@ -41,7 +41,7 @@ export class ErrorBoundary extends Component<Props, State> {
             textAlign: "center",
           }}
         >
-          <div style={{ fontSize: "48px", marginBottom: "1rem" }}>⚠</div>
+          <div style={{ fontSize: "48px", marginBottom: "1rem" }}>!</div>
           <h1 style={{ fontSize: "1.25rem", marginBottom: "0.5rem" }}>
             DIT Pro — Render Error
           </h1>

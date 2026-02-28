@@ -710,7 +710,7 @@ async fn stress_throughput_benchmark() {
         );
     } else {
         println!(
-            "⚠ Skipping throughput assertion in debug build ({:.1} MB/s)",
+            "[WARN] Skipping throughput assertion in debug build ({:.1} MB/s)",
             engine_mbps
         );
     }

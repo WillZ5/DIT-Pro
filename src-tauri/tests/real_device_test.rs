@@ -463,7 +463,7 @@ async fn real_device_full_offload() {
         let dest_hash = sha256_file(&dest_file).await;
         assert_eq!(src_hash, dest_hash, "Mismatch: {}", rel.display());
         verified += 1;
-        eprintln!("    Verified {}: {} ✓", verified, rel.display());
+        eprintln!("    [OK] Verified {}: {}", verified, rel.display());
     }
     eprintln!(
         "  [PASS] AC-1: {} sampled file hashes verified (SHA-256)",
@@ -508,7 +508,7 @@ async fn real_device_full_offload() {
     }
 
     eprintln!("\n╔══════════════════════════════════════════════════════════╗");
-    eprintln!("║  ✅ FULL OFFLOAD TEST PASSED                             ║");
+    eprintln!("║  [PASS] FULL OFFLOAD TEST PASSED                         ║");
     eprintln!("╠══════════════════════════════════════════════════════════╣");
     eprintln!(
         "║  Files:      {:>6}                                     ║",

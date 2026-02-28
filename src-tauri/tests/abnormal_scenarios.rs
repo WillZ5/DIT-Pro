@@ -10,7 +10,7 @@
 //! - .tmp files are cleaned up after recovery
 //! - The final result matches what a clean copy would produce
 
-use app_lib::checkpoint::{self, STATUS_COPYING};
+use app_lib::checkpoint::{self, TaskHashes, STATUS_COPYING};
 use app_lib::copy_engine::atomic_writer::{self, AtomicWriter};
 use app_lib::hash_engine::{hash_bytes, HashAlgorithm};
 use rusqlite::Connection;
@@ -129,11 +129,14 @@ async fn test_power_failure_mid_copy_recovery() {
         .unwrap();
 
         let hashes = hash_bytes(content.as_bytes(), &[HashAlgorithm::XXH64]);
+        let task_hashes = TaskHashes {
+            xxh64: Some(hashes[0].hex_digest.clone()),
+            ..Default::default()
+        };
         checkpoint::update_task_completed(
             &conn,
             &format!("t-{}", i),
-            Some(&hashes[0].hex_digest),
-            None,
+            &task_hashes,
         )
         .unwrap();
     }
@@ -319,7 +322,11 @@ async fn test_recovery_all_completed_noop() {
     let conn = setup_db();
     checkpoint::create_job(&conn, "job-clean", "Clean Job", "/src").unwrap();
     checkpoint::insert_task(&conn, "t-1", "job-clean", "/src/a.mov", "/dst/a.mov", 100).unwrap();
-    checkpoint::update_task_completed(&conn, "t-1", Some("hash"), None).unwrap();
+    let task_hashes = TaskHashes {
+        xxh64: Some("hash".to_string()),
+        ..Default::default()
+    };
+    checkpoint::update_task_completed(&conn, "t-1", &task_hashes).unwrap();
 
     let recovered = checkpoint::recover_job(&conn, "job-clean").await.unwrap();
     assert!(recovered.is_empty());
@@ -526,11 +533,14 @@ async fn test_large_job_recovery_100_files() {
 
     // Complete first 60
     for i in 1..=60 {
+        let task_hashes = TaskHashes {
+            xxh64: Some(format!("hash_{}", i)),
+            ..Default::default()
+        };
         checkpoint::update_task_completed(
             &conn,
             &format!("t-{}", i),
-            Some(&format!("hash_{}", i)),
-            None,
+            &task_hashes,
         )
         .unwrap();
     }

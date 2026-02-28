@@ -641,7 +641,7 @@ export function JobsView() {
               break;
 
             case "sourceHashCompleted":
-              updated.currentFile = `✓ ${ev.relPath}`;
+              updated.currentFile = `[HASH] ${ev.relPath}`;
               updated.completedFiles = ev.fileIndex + 1;
               updated.totalFiles = ev.totalFiles;
               break;
@@ -651,14 +651,14 @@ export function JobsView() {
               break;
 
             case "fileCopyCompleted": {
-              updated.currentFile = `✓ ${ev.relPath}`;
+              updated.currentFile = `[COPIED] ${ev.relPath}`;
               updated.completedFiles = ev.fileIndex + 1;
               updated.totalFiles = ev.totalFiles;
               break;
             }
 
             case "fileVerified":
-              updated.currentFile = `${ev.verified ? "✓" : "✗"} ${ev.relPath}${ev.destPath ? ` → ${ev.destPath.split("/").pop() || ev.destPath}` : ""}`;
+              updated.currentFile = `${ev.verified ? "[OK]" : "[FAIL]"} ${ev.relPath}${ev.destPath ? ` → ${ev.destPath.split("/").pop() || ev.destPath}` : ""}`;
               if (!ev.verified && ev.mismatchDetail) {
                 updated.warnings = [
                   ...updated.warnings,

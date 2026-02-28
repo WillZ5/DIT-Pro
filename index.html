@@ -151,6 +151,30 @@
     background: var(--bg-card);
   }
 
+  .nav-top-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    transition: border-color 0.2s, background 0.2s, transform 0.2s;
+  }
+
+  .nav-top-btn:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-card);
+    transform: translateY(-1px);
+    opacity: 1;
+    color: var(--text-primary);
+  }
+
   .lang-btn {
     border: none;
     background: transparent;
@@ -799,6 +823,7 @@
     nav { padding: 16px 20px; }
     .nav-links { display: none; }
     .nav-right { gap: 10px; }
+    .nav-top-btn { padding: 8px 12px; font-size: 11px; }
     .hero { padding: 120px 24px 80px; }
     section { padding: 80px 24px; }
     .pillars-grid { grid-template-columns: 1fr; }
@@ -834,6 +859,7 @@
       <li><a href="#roadmap">Roadmap</a></li>
       <li><a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="nav-cta">GitHub →</a></li>
     </ul>
+    <a href="https://github.com/WillZ5/DIT-Pro/releases" target="_blank" class="nav-top-btn">Download RC</a>
     <div class="lang-switch" aria-label="Language switcher">
       <button type="button" class="lang-btn active" data-lang-btn="en">EN</button>
       <button type="button" class="lang-btn" data-lang-btn="zh">中</button>
@@ -1170,7 +1196,8 @@
         features: "Features",
         stack: "Stack",
         roadmap: "Roadmap",
-        github: "GitHub →"
+        github: "GitHub →",
+        topButton: "Download RC"
       },
       hero: {
         badge: "v1.0.0-rc.2 · Releasing soon",
@@ -1286,7 +1313,8 @@
         features: "功能",
         stack: "技术栈",
         roadmap: "路线图",
-        github: "GitHub 主页 →"
+        github: "GitHub 主页 →",
+        topButton: "下载 RC"
       },
       hero: {
         badge: "v1.0.0-rc.2 · 即将发布",
@@ -1426,6 +1454,7 @@
     setText('a[href="#stack"]', t.nav.stack);
     setText('a[href="#roadmap"]', t.nav.roadmap);
     setText(".nav-cta", t.nav.github);
+    setText(".nav-top-btn", t.nav.topButton);
 
     setText(".hero-badge-text", t.hero.badge);
     setHtml(".hero h1", t.hero.titleHtml);

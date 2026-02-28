@@ -21,6 +21,13 @@ function DeviceIcon({ type }: { type: string }) {
           <path d="M10 12h4" stroke="#60a5fa" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
       );
+    case "SD":
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M6 3h5l5 5v9a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="#a78bfa" strokeWidth="1.4" />
+          <path d="M8 6v3M10 6v3M12 6v3" stroke="#a78bfa" strokeWidth="1.2" strokeLinecap="round" />
+        </svg>
+      );
     case "HDD":
       return (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">

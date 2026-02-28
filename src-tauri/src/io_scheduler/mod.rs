@@ -46,6 +46,7 @@ impl DeviceSchedulerConfig {
         let (max_concurrent, buffer_size) = match device_type {
             DeviceType::HDD => (1, 1024 * 1024), // 1 concurrent, 1MB buffer
             DeviceType::SSD => (8, 8 * 1024 * 1024), // 8 concurrent, 8MB buffer (includes NVMe)
+            DeviceType::SD => (2, 2 * 1024 * 1024), // 2 concurrent, 2MB buffer (SD/CF cards)
             DeviceType::RAID => (4, 4 * 1024 * 1024), // 4 concurrent, 4MB buffer
             DeviceType::Network => (2, 1024 * 1024), // 2 concurrent, 1MB buffer
             DeviceType::Unknown => (2, 2 * 1024 * 1024), // 2 concurrent, 2MB buffer

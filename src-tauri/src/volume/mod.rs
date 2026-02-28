@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 pub enum DeviceType {
     HDD,
     SSD,
+    SD,
     RAID,
     Network,
     Unknown,
@@ -27,6 +28,7 @@ impl std::fmt::Display for DeviceType {
         match self {
             DeviceType::HDD => write!(f, "HDD"),
             DeviceType::SSD => write!(f, "SSD"),
+            DeviceType::SD => write!(f, "SD"),
             DeviceType::RAID => write!(f, "RAID"),
             DeviceType::Network => write!(f, "Network"),
             DeviceType::Unknown => write!(f, "Unknown"),
@@ -40,6 +42,7 @@ impl DeviceType {
         match s.to_uppercase().as_str() {
             "HDD" => DeviceType::HDD,
             "SSD" | "NVME" => DeviceType::SSD, // NVMe merged into SSD
+            "SD" | "SDCARD" | "CF" | "CFEXPRESS" => DeviceType::SD,
             "RAID" => DeviceType::RAID,
             "NETWORK" => DeviceType::Network,
             _ => DeviceType::Unknown,
@@ -274,6 +277,28 @@ fn detect_device_type(mount_point: &str) -> DeviceType {
     // Check for RAID (AppleRAID or software RAID)
     if info.contains("RAID") || info.contains("AppleRAID") {
         return DeviceType::RAID;
+    }
+
+    // Check for SD / CF / memory cards via protocol or removable media.
+    // diskutil shows "Protocol: Secure Digital" for SD cards,
+    // "Protocol: USB" + "Removable Media: Removable" for USB card readers,
+    // and various protocols for CFexpress/XQD.
+    let is_removable = info
+        .lines()
+        .find(|l| l.contains("Removable Media:"))
+        .map(|l| l.contains("Removable"))
+        .unwrap_or(false);
+
+    if let Some(proto_line) = info.lines().find(|l| l.contains("Protocol:")) {
+        let proto = proto_line.to_lowercase();
+        // "Secure Digital" = SD/SDHC/SDXC via built-in reader
+        if proto.contains("secure digital") {
+            return DeviceType::SD;
+        }
+        // USB removable media (card reader with SD/CF inside)
+        if proto.contains("usb") && is_removable {
+            return DeviceType::SD;
+        }
     }
 
     // Determine internal media type from diskutil output

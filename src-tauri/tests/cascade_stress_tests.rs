@@ -383,23 +383,23 @@ async fn cascade_conflict_resolution_mixed() {
     );
 
     // clip_0: Skipped → original (different content) should remain
-    let skip_primary = std::fs::read(&primary.join("clip_0.mov")).unwrap();
-    let skip_source = std::fs::read(&source.join("clip_0.mov")).unwrap();
+    let skip_primary = std::fs::read(primary.join("clip_0.mov")).unwrap();
+    let skip_source = std::fs::read(source.join("clip_0.mov")).unwrap();
     assert_ne!(
         skip_primary, skip_source,
         "Skip: primary should keep original content"
     );
 
     // clip_1: Overwrite → should match source
-    let ow_primary = std::fs::read(&primary.join("clip_1.mov")).unwrap();
-    let ow_source = std::fs::read(&source.join("clip_1.mov")).unwrap();
+    let ow_primary = std::fs::read(primary.join("clip_1.mov")).unwrap();
+    let ow_source = std::fs::read(source.join("clip_1.mov")).unwrap();
     assert_eq!(
         ow_primary, ow_source,
         "Overwrite: primary should match source"
     );
 
     // clip_1: Overwrite on secondary too
-    let ow_sec = std::fs::read(&sec1.join("clip_1.mov")).unwrap();
+    let ow_sec = std::fs::read(sec1.join("clip_1.mov")).unwrap();
     assert_eq!(
         ow_sec, ow_source,
         "Overwrite: secondary should match source"
@@ -417,7 +417,7 @@ async fn cascade_conflict_resolution_mixed() {
         "KeepBoth: _copy variant must exist on primary"
     );
     let kb_meta = std::fs::metadata(&keepboth_copy).unwrap();
-    let src_meta = std::fs::metadata(&source.join("clip_2.mov")).unwrap();
+    let src_meta = std::fs::metadata(source.join("clip_2.mov")).unwrap();
     assert_eq!(
         kb_meta.len(),
         src_meta.len(),
@@ -427,15 +427,15 @@ async fn cascade_conflict_resolution_mixed() {
     // clip_3, clip_4: no conflict → should match source on both dests
     for i in 3..5 {
         let name = format!("clip_{}.mov", i);
-        let p_content = std::fs::read(&primary.join(&name)).unwrap();
-        let s_content = std::fs::read(&source.join(&name)).unwrap();
+        let p_content = std::fs::read(primary.join(&name)).unwrap();
+        let s_content = std::fs::read(source.join(&name)).unwrap();
         assert_eq!(
             p_content, s_content,
             "Fresh file {} must match source",
             name
         );
 
-        let sec_content = std::fs::read(&sec1.join(&name)).unwrap();
+        let sec_content = std::fs::read(sec1.join(&name)).unwrap();
         assert_eq!(
             sec_content, s_content,
             "Fresh file {} must match on secondary",
@@ -726,7 +726,7 @@ async fn cascade_phase_event_ordering() {
     for ev in &events {
         if let OffloadEvent::PhaseChanged { phase, .. } = ev {
             if phase_order.last() != Some(phase) {
-                phase_order.push(phase.clone());
+                phase_order.push(*phase);
             }
         }
     }

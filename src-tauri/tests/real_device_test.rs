@@ -172,6 +172,7 @@ async fn drain_events_with_progress(
                 total_bytes,
                 duration_secs,
                 mhl_paths,
+                ..
             } => {
                 eprintln!("\n  ━━━ COMPLETE ━━━");
                 eprintln!("  Files: {}", total_files);

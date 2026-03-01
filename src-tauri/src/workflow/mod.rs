@@ -548,7 +548,7 @@ impl OffloadWorkflow {
             });
 
             let (copy_hashes, _copy_failed) = self
-                .copy_all_files(&source_files, &start, total_bytes)
+                .copy_all_files(&source_files, &start, total_bytes, false)
                 .await?;
 
             if !self.config.source_verify {
@@ -592,9 +592,15 @@ impl OffloadWorkflow {
                             rusqlite::params![self.config.job_id],
                         )?;
                     }
-                    let (_retry_hashes, _retry_failed) = self
-                        .copy_all_files(&retry_files, &start, retry_bytes)
+                    let (retry_hashes_map, _retry_failed) = self
+                        .copy_all_files(&retry_files, &start, retry_bytes, true)
                         .await?;
+
+                    // Merge retry hashes into source_hashes for re-verification
+                    let mut merged_hashes = source_hashes.clone();
+                    for (k, v) in retry_hashes_map {
+                        merged_hashes.insert(k, v);
+                    }
 
                     // ── Phase 4c: Re-verify retried files ─────────────────
                     {
@@ -612,7 +618,7 @@ impl OffloadWorkflow {
 
                     let mut retry_errors: Vec<String> = Vec::new();
                     let reverify_failures = self
-                        .verify_destinations(&retry_files, &source_hashes, &mut retry_errors)
+                        .verify_destinations(&retry_files, &merged_hashes, &mut retry_errors)
                         .await?;
                     errors.extend(retry_errors);
 
@@ -755,9 +761,9 @@ impl OffloadWorkflow {
             name: Some(self.config.job_name.clone()),
         });
 
-        // Copy pending files
+        // Copy pending files (force_overwrite=true: crash may have left corrupt same-size files)
         let (copy_hashes, _copy_failed) = self
-            .copy_all_files(&source_files, &start, total_bytes)
+            .copy_all_files(&source_files, &start, total_bytes, true)
             .await?;
 
         // Post-copy verification (optional)
@@ -796,9 +802,15 @@ impl OffloadWorkflow {
                             rusqlite::params![self.config.job_id],
                         )?;
                     }
-                    let (_retry_hashes, _retry_failed) = self
-                        .copy_all_files(&retry_files, &start, retry_bytes)
+                    let (retry_hashes_map2, _retry_failed) = self
+                        .copy_all_files(&retry_files, &start, retry_bytes, true)
                         .await?;
+
+                    // Merge retry hashes into copy_hashes for re-verification
+                    let mut merged_hashes2 = copy_hashes.clone();
+                    for (k, v) in retry_hashes_map2 {
+                        merged_hashes2.insert(k, v);
+                    }
 
                     // Re-verify retried files
                     {
@@ -816,7 +828,7 @@ impl OffloadWorkflow {
 
                     let mut retry_errors: Vec<String> = Vec::new();
                     let reverify_failures = self
-                        .verify_destinations(&retry_files, &copy_hashes, &mut retry_errors)
+                        .verify_destinations(&retry_files, &merged_hashes2, &mut retry_errors)
                         .await?;
                     errors.extend(retry_errors);
 
@@ -1257,6 +1269,7 @@ impl OffloadWorkflow {
         files: &[SourceFile],
         start: &Instant,
         total_bytes: u64,
+        force_overwrite: bool,
     ) -> Result<(HashMap<String, Vec<HashResult>>, usize)> {
         let mut copy_hashes: HashMap<String, Vec<HashResult>> = HashMap::new();
         let mut completed_bytes: u64 = 0;
@@ -1272,7 +1285,11 @@ impl OffloadWorkflow {
             max_retries: self.config.max_retries,
             cascading_enabled: false,
             hash_algorithms: self.config.hash_algorithms.clone(),
-            conflict_policy: copy_engine::FileConflictPolicy::SkipIfSameSize,
+            conflict_policy: if force_overwrite {
+                copy_engine::FileConflictPolicy::Overwrite
+            } else {
+                copy_engine::FileConflictPolicy::SkipIfSameSize
+            },
         };
 
         for (i, file) in files.iter().enumerate() {
@@ -2193,13 +2210,116 @@ impl OffloadWorkflow {
             // Check pause/cancel between files
             self.check_paused().await?;
 
+            let fallback_hashes;
             let expected = match source_hashes.get(&file.rel_path) {
                 Some(h) => h,
                 None => {
+                    // Source hash missing (e.g. file was skipped during copy).
+                    // Compute source hash on the spot — never skip verification.
                     self.emit(OffloadEvent::Warning {
-                        message: format!("No source hash for {}, skipping verify", file.rel_path),
+                        message: format!(
+                            "No cached hash for {}, computing from source...",
+                            file.rel_path
+                        ),
                     });
-                    continue;
+                    if file.abs_path.exists() {
+                        match hash_engine::hash_file(&file.abs_path, &cfg).await {
+                            Ok(hashes) => {
+                                fallback_hashes = hashes;
+                                &fallback_hashes
+                            }
+                            Err(e) => {
+                                failed += files.len(); // count all dests as failed
+                                errors.push(format!("Cannot hash source {}: {}", file.rel_path, e));
+                                continue;
+                            }
+                        }
+                    } else {
+                        // Source file no longer available (e.g. card ejected)
+                        // Try to load hash from DB (previous completed tasks)
+                        #[allow(clippy::type_complexity)]
+                        let db_hashes: Option<(
+                            Option<String>,
+                            Option<String>,
+                            Option<String>,
+                            Option<String>,
+                            Option<String>,
+                        )> = {
+                            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                            conn.query_row(
+                                "SELECT hash_xxh64, hash_sha256, hash_md5, hash_xxh128, hash_xxh3
+                                     FROM copy_tasks
+                                     WHERE job_id = ?1 AND source_path = ?2
+                                     AND hash_xxh64 IS NOT NULL
+                                     LIMIT 1",
+                                rusqlite::params![
+                                    self.config.job_id,
+                                    file.abs_path.to_string_lossy().as_ref(),
+                                ],
+                                |row| {
+                                    Ok((
+                                        row.get(0)?,
+                                        row.get(1)?,
+                                        row.get(2)?,
+                                        row.get(3)?,
+                                        row.get(4)?,
+                                    ))
+                                },
+                            )
+                            .ok()
+                        };
+                        if let Some((xxh64, sha256, md5, xxh128, xxh3)) = db_hashes {
+                            let mut h = Vec::new();
+                            if let Some(v) = xxh64 {
+                                h.push(HashResult {
+                                    algorithm: HashAlgorithm::XXH64,
+                                    hex_digest: v,
+                                });
+                            }
+                            if let Some(v) = sha256 {
+                                h.push(HashResult {
+                                    algorithm: HashAlgorithm::SHA256,
+                                    hex_digest: v,
+                                });
+                            }
+                            if let Some(v) = md5 {
+                                h.push(HashResult {
+                                    algorithm: HashAlgorithm::MD5,
+                                    hex_digest: v,
+                                });
+                            }
+                            if let Some(v) = xxh128 {
+                                h.push(HashResult {
+                                    algorithm: HashAlgorithm::XXH128,
+                                    hex_digest: v,
+                                });
+                            }
+                            if let Some(v) = xxh3 {
+                                h.push(HashResult {
+                                    algorithm: HashAlgorithm::XXH3,
+                                    hex_digest: v,
+                                });
+                            }
+                            if !h.is_empty() {
+                                fallback_hashes = h;
+                                &fallback_hashes
+                            } else {
+                                failed += self.config.dest_paths.len();
+                                errors.push(format!(
+                                    "No hash available for {} (source ejected, no DB hash)",
+                                    file.rel_path
+                                ));
+                                continue;
+                            }
+                        } else {
+                            failed += self.config.dest_paths.len();
+                            errors.push(format!(
+                                "No hash available for {} (source ejected, no DB hash)",
+                                file.rel_path
+                            ));
+                            continue;
+                        }
+                    }
                 }
             };
 

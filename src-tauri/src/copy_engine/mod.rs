@@ -58,11 +58,13 @@ pub struct CopyTask {
 /// Policy for handling existing destination files
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 pub enum FileConflictPolicy {
-    /// Overwrite without checking (original behavior)
+    /// Overwrite without checking (used for retries of known failures)
     Overwrite,
-    /// Skip if destination exists and size matches source
+    /// Skip if destination exists AND content is verified identical via XXH3 hash.
+    /// File size alone is NEVER used as proof of data integrity.
+    /// Process: size differs → overwrite; size matches → hash both files → compare.
     #[default]
-    SkipIfSameSize,
+    SkipIfVerified,
     /// Skip if destination exists (regardless of content)
     SkipAlways,
 }
@@ -90,7 +92,7 @@ impl Default for CopyEngineConfig {
             max_retries: 3,
             cascading_enabled: false,
             hash_algorithms: vec![HashAlgorithm::XXH64],
-            conflict_policy: FileConflictPolicy::SkipIfSameSize,
+            conflict_policy: FileConflictPolicy::SkipIfVerified,
         }
     }
 }
@@ -201,20 +203,72 @@ async fn check_cancel_pause(
     Ok(())
 }
 
+/// Compute XXH3-128 hash of a file for content verification.
+/// Uses XXH3 (fastest available algorithm, ~12+ GB/s) for skip-check purposes.
+async fn quick_content_hash(path: &Path, buffer_size: usize) -> Result<u128> {
+    use xxhash_rust::xxh3::Xxh3;
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .with_context(|| format!("Cannot open file for hash verification: {:?}", path))?;
+    let mut hasher = Xxh3::new();
+    let mut buffer = vec![0u8; buffer_size];
+    loop {
+        let n = file.read(&mut buffer).await?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+    Ok(hasher.digest128())
+}
+
 /// Check if a single destination file should be skipped based on conflict policy.
-/// Returns true if the file should be skipped.
-async fn should_skip_conflict(dest: &Path, source_size: u64, policy: FileConflictPolicy) -> bool {
+///
+/// For `SkipIfVerified`: file size is NEVER used as proof of data integrity.
+/// If the destination exists with matching size, XXH3-128 hashes of BOTH source
+/// and destination are computed and compared. Only skips if hashes are identical.
+///
+/// `source_hash` allows pre-computed source hash reuse across multiple destinations.
+/// Returns `(should_skip, source_hash_for_reuse)`.
+async fn should_skip_conflict(
+    source: &Path,
+    dest: &Path,
+    source_size: u64,
+    policy: FileConflictPolicy,
+    buffer_size: usize,
+    source_hash: Option<u128>,
+) -> (bool, Option<u128>) {
     if policy == FileConflictPolicy::Overwrite {
-        return false;
+        return (false, source_hash);
     }
     if let Ok(meta) = tokio::fs::metadata(dest).await {
         match policy {
-            FileConflictPolicy::SkipAlways => true,
-            FileConflictPolicy::SkipIfSameSize => meta.len() == source_size,
-            FileConflictPolicy::Overwrite => false,
+            FileConflictPolicy::SkipAlways => (true, source_hash),
+            FileConflictPolicy::SkipIfVerified => {
+                // Fast pre-filter: if sizes differ, files are definitely different → overwrite
+                if meta.len() != source_size {
+                    return (false, source_hash);
+                }
+                // Size matches — MUST verify with hash (size alone is never trusted)
+                let src_hash = match source_hash {
+                    Some(h) => h,
+                    None => match quick_content_hash(source, buffer_size).await {
+                        Ok(h) => h,
+                        Err(_) => return (false, None), // can't hash source → don't skip → copy
+                    },
+                };
+                match quick_content_hash(dest, buffer_size).await {
+                    Ok(dest_hash) => {
+                        let identical = src_hash == dest_hash;
+                        (identical, Some(src_hash))
+                    }
+                    Err(_) => (false, Some(src_hash)), // can't hash dest → don't skip → overwrite
+                }
+            }
+            FileConflictPolicy::Overwrite => (false, source_hash),
         }
     } else {
-        false // destination doesn't exist, proceed with copy
+        (false, source_hash) // destination doesn't exist, proceed with copy
     }
 }
 
@@ -231,8 +285,17 @@ pub async fn copy_file_single(
         .with_context(|| format!("Cannot read source file: {:?}", source))?
         .len();
 
-    // Check conflict policy
-    if should_skip_conflict(dest, file_size, config.conflict_policy).await {
+    // Check conflict policy (hash-based verification for SkipIfVerified)
+    let (should_skip, _) = should_skip_conflict(
+        source,
+        dest,
+        file_size,
+        config.conflict_policy,
+        config.buffer_size,
+        None,
+    )
+    .await;
+    if should_skip {
         return Ok(CopyFileResult {
             source_path: source.to_path_buf(),
             dest_path: dest.to_path_buf(),
@@ -315,11 +378,22 @@ pub async fn copy_file_multi(
         .with_context(|| format!("Cannot read source file: {:?}", source))?
         .len();
 
-    // Check conflict policy for each destination — track which ones to skip
+    // Check conflict policy for each destination — track which ones to skip.
+    // Source hash is computed once and reused across all destinations.
     let mut skip_flags = Vec::with_capacity(destinations.len());
     let mut any_needs_copy = false;
+    let mut cached_source_hash: Option<u128> = None;
     for dest in destinations {
-        let skip = should_skip_conflict(dest, file_size, config.conflict_policy).await;
+        let (skip, src_hash) = should_skip_conflict(
+            source,
+            dest,
+            file_size,
+            config.conflict_policy,
+            config.buffer_size,
+            cached_source_hash,
+        )
+        .await;
+        cached_source_hash = src_hash;
         if !skip {
             any_needs_copy = true;
         }
@@ -564,27 +638,53 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_skip_existing_same_size() {
+    async fn test_skip_verified_identical_content() {
         let dir = tempfile::tempdir().unwrap();
         let content = b"video data here";
         let source = create_test_file(dir.path(), "source.mov", content);
         let dest = dir.path().join("dest.mov");
-        // Pre-create dest with same size
+        // Pre-create dest with identical content (same size AND same hash)
         {
             let mut f = std::fs::File::create(&dest).unwrap();
             f.write_all(content).unwrap();
         }
 
         let config = CopyEngineConfig {
-            conflict_policy: FileConflictPolicy::SkipIfSameSize,
+            conflict_policy: FileConflictPolicy::SkipIfVerified,
             ..Default::default()
         };
         let result = copy_file_single(&source, &dest, &config, &CopyControl::none())
             .await
             .unwrap();
         assert!(result.success);
-        assert!(result.skipped);
+        assert!(result.skipped); // identical content → skip
         assert_eq!(result.bytes_copied, 0);
+    }
+
+    #[tokio::test]
+    async fn test_overwrite_same_size_different_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = create_test_file(dir.path(), "source.mov", b"correct data!!!");
+        let dest = dir.path().join("dest.mov");
+        // Pre-create dest with SAME SIZE but DIFFERENT content (simulates corruption)
+        {
+            let mut f = std::fs::File::create(&dest).unwrap();
+            f.write_all(b"corrupt data!!!").unwrap();
+        }
+
+        let config = CopyEngineConfig {
+            conflict_policy: FileConflictPolicy::SkipIfVerified,
+            ..Default::default()
+        };
+        let result = copy_file_single(&source, &dest, &config, &CopyControl::none())
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(!result.skipped); // same size but different hash → overwrite
+        assert_eq!(result.bytes_copied, 15);
+        // Verify dest now has correct content
+        let dest_content = std::fs::read(&dest).unwrap();
+        assert_eq!(dest_content, b"correct data!!!");
     }
 
     #[tokio::test]
@@ -599,7 +699,7 @@ mod tests {
         }
 
         let config = CopyEngineConfig {
-            conflict_policy: FileConflictPolicy::SkipIfSameSize,
+            conflict_policy: FileConflictPolicy::SkipIfVerified,
             ..Default::default()
         };
         let result = copy_file_single(&source, &dest, &config, &CopyControl::none())
@@ -633,7 +733,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_multi_partial_skip() {
+    async fn test_multi_partial_skip_verified() {
         let dir = tempfile::tempdir().unwrap();
         let content = b"raw camera data";
         let source = create_test_file(dir.path(), "source.r3d", content);
@@ -641,7 +741,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("backup1")).unwrap();
         std::fs::create_dir_all(dir.path().join("backup2")).unwrap();
 
-        // Pre-create backup1 with same size (will be skipped)
+        // Pre-create backup1 with identical content (will be hash-verified and skipped)
         {
             let dest1 = dir.path().join("backup1").join("source.r3d");
             let mut f = std::fs::File::create(&dest1).unwrap();
@@ -654,7 +754,7 @@ mod tests {
         ];
 
         let config = CopyEngineConfig {
-            conflict_policy: FileConflictPolicy::SkipIfSameSize,
+            conflict_policy: FileConflictPolicy::SkipIfVerified,
             ..Default::default()
         };
         let results = copy_file_multi(&source, &dests, &config, &CopyControl::none())
@@ -662,10 +762,49 @@ mod tests {
             .unwrap();
 
         assert_eq!(results.len(), 2);
-        assert!(results[0].skipped); // backup1 skipped
-        assert!(!results[1].skipped); // backup2 copied
+        assert!(results[0].skipped); // backup1: identical hash → skipped
+        assert!(!results[1].skipped); // backup2: doesn't exist → copied
         assert!(results[1].success);
         assert_eq!(results[1].bytes_copied, 15);
+    }
+
+    #[tokio::test]
+    async fn test_multi_skip_corrupt_same_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"raw camera data";
+        let source = create_test_file(dir.path(), "source.r3d", content);
+
+        std::fs::create_dir_all(dir.path().join("backup1")).unwrap();
+        std::fs::create_dir_all(dir.path().join("backup2")).unwrap();
+
+        // Pre-create backup1 with SAME SIZE but DIFFERENT content (corrupt file)
+        {
+            let dest1 = dir.path().join("backup1").join("source.r3d");
+            let mut f = std::fs::File::create(&dest1).unwrap();
+            f.write_all(b"corrupt data!!!").unwrap(); // same 15 bytes, different content
+        }
+
+        let dests = vec![
+            dir.path().join("backup1").join("source.r3d"),
+            dir.path().join("backup2").join("source.r3d"),
+        ];
+
+        let config = CopyEngineConfig {
+            conflict_policy: FileConflictPolicy::SkipIfVerified,
+            ..Default::default()
+        };
+        let results = copy_file_multi(&source, &dests, &config, &CopyControl::none())
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(!results[0].skipped); // backup1: hash mismatch → overwritten
+        assert!(results[0].success);
+        assert!(!results[1].skipped); // backup2: doesn't exist → copied
+        assert!(results[1].success);
+        // Verify backup1 now has correct content
+        let dest1_content = std::fs::read(dir.path().join("backup1").join("source.r3d")).unwrap();
+        assert_eq!(dest1_content, content);
     }
 
     #[tokio::test]

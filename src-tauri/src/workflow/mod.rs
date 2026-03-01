@@ -761,9 +761,9 @@ impl OffloadWorkflow {
             name: Some(self.config.job_name.clone()),
         });
 
-        // Copy pending files (force_overwrite=true: crash may have left corrupt same-size files)
+        // Copy pending files (SkipIfVerified: hash-verifies existing files, overwrites corrupt ones)
         let (copy_hashes, _copy_failed) = self
-            .copy_all_files(&source_files, &start, total_bytes, true)
+            .copy_all_files(&source_files, &start, total_bytes, false)
             .await?;
 
         // Post-copy verification (optional)
@@ -1210,7 +1210,7 @@ impl OffloadWorkflow {
             checkpoint::update_task_status(&conn, &task.task_id, checkpoint::STATUS_PENDING)?;
             failed_source_paths.insert(task.source_path.clone());
 
-            // Delete corrupt destination file so copy won't skip it via SkipIfSameSize
+            // Delete corrupt destination file so copy won't skip it via SkipIfVerified
             let dest = Path::new(&task.dest_path);
             if dest.exists() {
                 std::fs::remove_file(dest).ok();
@@ -1288,7 +1288,7 @@ impl OffloadWorkflow {
             conflict_policy: if force_overwrite {
                 copy_engine::FileConflictPolicy::Overwrite
             } else {
-                copy_engine::FileConflictPolicy::SkipIfSameSize
+                copy_engine::FileConflictPolicy::SkipIfVerified
             },
         };
 
@@ -1696,7 +1696,7 @@ impl OffloadWorkflow {
             max_retries: self.config.max_retries,
             cascading_enabled: true,
             hash_algorithms: self.config.hash_algorithms.clone(),
-            conflict_policy: copy_engine::FileConflictPolicy::SkipIfSameSize,
+            conflict_policy: copy_engine::FileConflictPolicy::SkipIfVerified,
         };
 
         for (i, file) in files.iter().enumerate() {
@@ -1943,7 +1943,7 @@ impl OffloadWorkflow {
             max_retries: self.config.max_retries,
             cascading_enabled: true,
             hash_algorithms: self.config.hash_algorithms.clone(),
-            conflict_policy: copy_engine::FileConflictPolicy::SkipIfSameSize,
+            conflict_policy: copy_engine::FileConflictPolicy::SkipIfVerified,
         };
 
         for (i, file) in files.iter().enumerate() {
@@ -2026,7 +2026,7 @@ impl OffloadWorkflow {
                     }
                     Some(ConflictAction::Overwrite) => {
                         // Delete existing file so copy_file_multi won't skip it
-                        // via SkipIfSameSize policy.
+                        // via SkipIfVerified policy.
                         if raw_dest.exists() {
                             let _ = std::fs::remove_file(&raw_dest);
                         }

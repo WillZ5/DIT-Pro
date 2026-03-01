@@ -97,6 +97,58 @@ jobs:
       - name: TypeScript type check
         run: npx tsc --noEmit
 
+  # ─── Universal macOS DMG Build ─────────────────────────────────────
+  build-universal:
+    name: Build Universal DMG (Intel + Apple Silicon)
+    runs-on: macos-latest
+    needs: [rust-tests, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-universal-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-universal-
+
+      - name: Build Universal macOS app
+        run: cargo tauri build --target universal-apple-darwin
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ""
+
+      - name: Verify Universal binary
+        run: file target/universal-apple-darwin/release/dit-pro
+
+      - name: Upload Universal DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: DIT-Pro-universal-dmg
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+      - name: Upload Universal App
+        uses: actions/upload-artifact@v4
+        with:
+          name: DIT-Pro-universal-app
+          path: target/universal-apple-darwin/release/bundle/macos/*.app
+
   # ─── MHL Verify CLI ───────────────────────────────────────────────
   mhl-cli:
     name: MHL Verify CLI Build

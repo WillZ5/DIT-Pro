@@ -49,6 +49,7 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
             hash_xxh3   TEXT,
             error_msg   TEXT,
             retry_count INTEGER NOT NULL DEFAULT 0,
+            retry_note  TEXT,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -104,6 +105,9 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
         // Ignore error if column already exists
         let _ = conn.execute_batch(&sql);
     }
+
+    // Migration: add retry_note column for tracking retry history per file
+    let _ = conn.execute_batch("ALTER TABLE copy_tasks ADD COLUMN retry_note TEXT");
 
     Ok(conn)
 }

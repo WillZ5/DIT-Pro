@@ -94,6 +94,7 @@ interface ActiveOffload {
   currentSpeed: number;
   isPaused: boolean;
   speedHistoryByPhase: Record<string, number[]>;
+  failedFiles: number;
 }
 
 function createActiveOffload(jobId: string, name: string): ActiveOffload {
@@ -119,6 +120,7 @@ function createActiveOffload(jobId: string, name: string): ActiveOffload {
     currentSpeed: 0,
     isPaused: false,
     speedHistoryByPhase: {},
+    failedFiles: 0,
   };
 }
 
@@ -717,10 +719,18 @@ export function JobsView() {
               updated.warnings = [...updated.warnings, ev.message];
               break;
 
-            case "complete":
-              updated.phase = "Complete";
-              updated.phaseMessage = tRef.current.jobs.phaseOffloadComplete;
-              updated.completedFiles = ev.totalFiles;
+            case "complete": {
+              const evFailedFiles = ev.failedFiles ?? 0;
+              updated.failedFiles = evFailedFiles;
+              if (evFailedFiles > 0) {
+                // Some files failed — show as Failed, not Complete
+                updated.phase = "Failed";
+                updated.phaseMessage = `${evFailedFiles} ${tRef.current.jobs.filesFailed}`;
+              } else {
+                updated.phase = "Complete";
+                updated.phaseMessage = tRef.current.jobs.phaseOffloadComplete;
+              }
+              updated.completedFiles = Math.max(0, ev.totalFiles - evFailedFiles);
               updated.totalFiles = ev.totalFiles;
               updated.completedBytes = ev.totalBytes;
               updated.totalBytes = ev.totalBytes;
@@ -729,6 +739,7 @@ export function JobsView() {
               updated.currentSpeed = 0;
               loadJobs();
               break;
+            }
 
             case "error":
               updated.phase = "Failed";
@@ -1501,7 +1512,7 @@ export function JobsView() {
                 {offload.phase === "Complete" && (
                   <div className="job-complete-summary">
                     <span className="complete-check">&#x2713;</span>
-                    {offload.totalFiles} {t.jobs.filesCopiedIn}{" "}
+                    {offload.completedFiles} {t.jobs.filesCopiedIn}{" "}
                     {formatDuration(offload.durationSecs || offload.elapsedSecs)}
                     {offload.totalBytes > 0 && (
                       <> &mdash; {formatBytes(offload.totalBytes)} {t.common.total}</>
@@ -1509,6 +1520,24 @@ export function JobsView() {
                     {(offload.mhlPaths?.length ?? 0) > 0 && (
                       <span className="mhl-badge">MHL</span>
                     )}
+                  </div>
+                )}
+
+                {/* Failed summary with recover button */}
+                {offload.phase === "Failed" && offload.failedFiles > 0 && (
+                  <div className="job-failed-summary">
+                    <span className="failed-icon">&#x2717;</span>
+                    {offload.failedFiles} {t.jobs.filesFailed}
+                    {offload.completedFiles > 0 && (
+                      <>, {offload.completedFiles} {t.jobs.filesSucceeded}</>
+                    )}
+                    <button
+                      className="btn-resume btn-sm"
+                      onClick={() => handleRecover(offload.jobId)}
+                      style={{ marginLeft: 12 }}
+                    >
+                      {t.common.recover}
+                    </button>
                   </div>
                 )}
 

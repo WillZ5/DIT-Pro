@@ -190,6 +190,9 @@ pub enum OffloadEvent {
         total_bytes: u64,
         duration_secs: f64,
         mhl_paths: Vec<String>,
+        /// Number of files that failed during copy or verification
+        #[serde(default)]
+        failed_files: usize,
     },
     Error {
         message: String,
@@ -510,7 +513,7 @@ impl OffloadWorkflow {
                 name: None,
             });
 
-            let copy_hashes_primary = self
+            let (copy_hashes_primary, _primary_failed) = self
                 .copy_to_primary(&source_files, &start, total_bytes)
                 .await?;
 
@@ -529,7 +532,8 @@ impl OffloadWorkflow {
                 name: None,
             });
 
-            self.cascade_from_primary(&source_files, &start, total_bytes)
+            let _cascade_failed = self
+                .cascade_from_primary(&source_files, &start, total_bytes)
                 .await?;
         } else {
             // Standard: read source once → write all destinations simultaneously
@@ -543,7 +547,7 @@ impl OffloadWorkflow {
                 name: None,
             });
 
-            let copy_hashes = self
+            let (copy_hashes, _copy_failed) = self
                 .copy_all_files(&source_files, &start, total_bytes)
                 .await?;
 
@@ -553,8 +557,6 @@ impl OffloadWorkflow {
         }
 
         // ── Phase 4: Post-Copy Verification (optional) ──────────────
-        let mut failed_count = 0;
-
         if self.config.post_verify {
             {
                 let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -568,10 +570,69 @@ impl OffloadWorkflow {
                 message: "Re-reading destination files for verification...".into(),
                 name: None,
             });
-            failed_count = self
+            let verify_failures = self
                 .verify_destinations(&source_files, &source_hashes, &mut errors)
                 .await?;
+
+            // ── Phase 4b: Auto-retry failed files ─────────────────────
+            if verify_failures > 0 {
+                self.emit(OffloadEvent::PhaseChanged {
+                    phase: OffloadPhase::Copying,
+                    message: format!("Retrying {} verification failure(s)...", verify_failures),
+                    name: None,
+                });
+
+                let retry_files = self.prepare_retry_files(&source_files)?;
+                if !retry_files.is_empty() {
+                    let retry_bytes: u64 = retry_files.iter().map(|f| f.size).sum();
+                    {
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        conn.execute(
+                            "UPDATE jobs SET status = 'copying', updated_at = datetime('now') WHERE id = ?1",
+                            rusqlite::params![self.config.job_id],
+                        )?;
+                    }
+                    let (_retry_hashes, _retry_failed) = self
+                        .copy_all_files(&retry_files, &start, retry_bytes)
+                        .await?;
+
+                    // ── Phase 4c: Re-verify retried files ─────────────────
+                    {
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        conn.execute(
+                            "UPDATE jobs SET status = 'verifying', updated_at = datetime('now') WHERE id = ?1",
+                            rusqlite::params![self.config.job_id],
+                        )?;
+                    }
+                    self.emit(OffloadEvent::PhaseChanged {
+                        phase: OffloadPhase::Verifying,
+                        message: format!("Re-verifying {} retried file(s)...", retry_files.len()),
+                        name: None,
+                    });
+
+                    let mut retry_errors: Vec<String> = Vec::new();
+                    let reverify_failures = self
+                        .verify_destinations(&retry_files, &source_hashes, &mut retry_errors)
+                        .await?;
+                    errors.extend(retry_errors);
+
+                    // Mark tasks that passed re-verification with a success note
+                    self.mark_retry_successes(&retry_files)?;
+
+                    if reverify_failures > 0 {
+                        self.emit(OffloadEvent::Warning {
+                            message: format!(
+                                "{} file(s) still failed after retry verification",
+                                reverify_failures
+                            ),
+                        });
+                    }
+                }
+            }
         }
+
+        // Count actual remaining failures from DB (authoritative source)
+        let failed_count = self.count_failed_tasks()?;
 
         // ── Phase 5: MHL Sealing (optional) ─────────────────────────
         if self.config.generate_mhl && failed_count == 0 {
@@ -631,6 +692,7 @@ impl OffloadWorkflow {
                 .iter()
                 .map(|p| p.to_string_lossy().into())
                 .collect(),
+            failed_files: failed_count,
         });
 
         Ok(OffloadResult {
@@ -694,12 +756,11 @@ impl OffloadWorkflow {
         });
 
         // Copy pending files
-        let copy_hashes = self
+        let (copy_hashes, _copy_failed) = self
             .copy_all_files(&source_files, &start, total_bytes)
             .await?;
 
         // Post-copy verification (optional)
-        let mut failed_count = 0;
         if self.config.post_verify && !copy_hashes.is_empty() {
             {
                 let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -713,10 +774,69 @@ impl OffloadWorkflow {
                 message: "Re-reading destination files for verification...".into(),
                 name: None,
             });
-            failed_count = self
+            let verify_failures = self
                 .verify_destinations(&source_files, &copy_hashes, &mut errors)
                 .await?;
+
+            // Auto-retry failed files
+            if verify_failures > 0 {
+                self.emit(OffloadEvent::PhaseChanged {
+                    phase: OffloadPhase::Copying,
+                    message: format!("Retrying {} verification failure(s)...", verify_failures),
+                    name: None,
+                });
+
+                let retry_files = self.prepare_retry_files(&source_files)?;
+                if !retry_files.is_empty() {
+                    let retry_bytes: u64 = retry_files.iter().map(|f| f.size).sum();
+                    {
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        conn.execute(
+                            "UPDATE jobs SET status = 'copying', updated_at = datetime('now') WHERE id = ?1",
+                            rusqlite::params![self.config.job_id],
+                        )?;
+                    }
+                    let (_retry_hashes, _retry_failed) = self
+                        .copy_all_files(&retry_files, &start, retry_bytes)
+                        .await?;
+
+                    // Re-verify retried files
+                    {
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        conn.execute(
+                            "UPDATE jobs SET status = 'verifying', updated_at = datetime('now') WHERE id = ?1",
+                            rusqlite::params![self.config.job_id],
+                        )?;
+                    }
+                    self.emit(OffloadEvent::PhaseChanged {
+                        phase: OffloadPhase::Verifying,
+                        message: format!("Re-verifying {} retried file(s)...", retry_files.len()),
+                        name: None,
+                    });
+
+                    let mut retry_errors: Vec<String> = Vec::new();
+                    let reverify_failures = self
+                        .verify_destinations(&retry_files, &copy_hashes, &mut retry_errors)
+                        .await?;
+                    errors.extend(retry_errors);
+
+                    // Mark tasks that passed re-verification with a success note
+                    self.mark_retry_successes(&retry_files)?;
+
+                    if reverify_failures > 0 {
+                        self.emit(OffloadEvent::Warning {
+                            message: format!(
+                                "{} file(s) still failed after retry verification",
+                                reverify_failures
+                            ),
+                        });
+                    }
+                }
+            }
         }
+
+        // Count actual remaining failures from DB
+        let failed_count = self.count_failed_tasks()?;
 
         // ── MHL Sealing (optional) — covers ALL completed files in the job ──
         if self.config.generate_mhl && failed_count == 0 {
@@ -842,6 +962,7 @@ impl OffloadWorkflow {
                 .iter()
                 .map(|p| p.to_string_lossy().into())
                 .collect(),
+            failed_files: failed_count,
         });
 
         Ok(OffloadResult {
@@ -1050,18 +1171,97 @@ impl OffloadWorkflow {
         Ok(map)
     }
 
+    // ── Internal: Retry / Failure Helpers ───────────────────────────
+
+    /// Count **source files** that still have at least one `failed` task (authoritative from DB).
+    /// This counts distinct source files, not individual tasks — so it's on the same
+    /// dimension as `total_files` (source file count) for the Complete event.
+    fn count_failed_tasks(&self) -> Result<usize> {
+        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT source_path) FROM copy_tasks WHERE job_id = ?1 AND status = 'failed'",
+            rusqlite::params![self.config.job_id],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    /// Prepare for retry: reset failed tasks to pending, delete corrupt dest files,
+    /// and return the list of source files that need re-copying.
+    fn prepare_retry_files(&self, all_source_files: &[SourceFile]) -> Result<Vec<SourceFile>> {
+        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+        let failed_tasks = checkpoint::get_interrupted_tasks(&conn, &self.config.job_id)?;
+
+        // Reset failed tasks to pending and clean up corrupt/tmp files
+        let mut failed_source_paths = std::collections::HashSet::new();
+        for task in &failed_tasks {
+            checkpoint::update_task_status(&conn, &task.task_id, checkpoint::STATUS_PENDING)?;
+            failed_source_paths.insert(task.source_path.clone());
+
+            // Delete corrupt destination file so copy won't skip it via SkipIfSameSize
+            let dest = Path::new(&task.dest_path);
+            if dest.exists() {
+                std::fs::remove_file(dest).ok();
+            }
+            // Clean up .tmp files
+            let tmp = copy_engine::atomic_writer::AtomicWriter::temp_path_for(dest);
+            if tmp.exists() {
+                std::fs::remove_file(&tmp).ok();
+            }
+        }
+
+        // Build source file list from only the files that have failed tasks
+        let retry_files: Vec<SourceFile> = all_source_files
+            .iter()
+            .filter(|f| failed_source_paths.contains(&*f.abs_path.to_string_lossy()))
+            .cloned()
+            .collect();
+
+        Ok(retry_files)
+    }
+
+    /// After re-verification of retried files, mark tasks that now have
+    /// `completed` status with a retry success note in `retry_note`.
+    /// Only annotates tasks that have a `retry_note` (i.e. were previously failed).
+    fn mark_retry_successes(&self, retry_files: &[SourceFile]) -> Result<()> {
+        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+        for file in retry_files {
+            let source_str = file.abs_path.to_string_lossy();
+            // Find all tasks for this source file that are now completed AND have a previous retry_note
+            let mut stmt = conn.prepare(
+                "SELECT id FROM copy_tasks
+                 WHERE job_id = ?1 AND source_path = ?2
+                 AND status = 'completed' AND retry_note IS NOT NULL",
+            )?;
+            let task_ids: Vec<String> = stmt
+                .query_map(
+                    rusqlite::params![self.config.job_id, source_str.as_ref()],
+                    |row| row.get(0),
+                )?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            for tid in task_ids {
+                checkpoint::append_retry_success(&conn, &tid)?;
+            }
+        }
+        Ok(())
+    }
+
     // ── Internal: Copy ───────────────────────────────────────────────
 
-    /// Copy every source file to all destinations. Returns inline hashes.
+    /// Copy every source file to all destinations. Returns (inline hashes, failed task count).
     /// Supports chunk-level pause/cancel and intra-file progress reporting.
     async fn copy_all_files(
         &self,
         files: &[SourceFile],
         start: &Instant,
         total_bytes: u64,
-    ) -> Result<HashMap<String, Vec<HashResult>>> {
+    ) -> Result<(HashMap<String, Vec<HashResult>>, usize)> {
         let mut copy_hashes: HashMap<String, Vec<HashResult>> = HashMap::new();
         let mut completed_bytes: u64 = 0;
+        let mut copy_failed_count: usize = 0;
+        let mut consecutive_all_dest_failures: usize = 0;
         let total_files = files.len();
         // Scale total by destination count so speed reflects actual write throughput
         let dest_count = self.config.dest_paths.len() as u64;
@@ -1299,6 +1499,31 @@ impl OffloadWorkflow {
                                 .insert(file.rel_path.clone(), first_copied.hash_results.clone());
                         }
 
+                        // Count per-destination failures
+                        let non_skipped: Vec<_> = results.iter().filter(|r| !r.skipped).collect();
+                        let file_failures = non_skipped.iter().filter(|r| !r.success).count();
+                        copy_failed_count += file_failures;
+
+                        // Emit warnings for failed destinations
+                        for r in non_skipped.iter().filter(|r| !r.success) {
+                            self.emit(OffloadEvent::Warning {
+                                message: format!(
+                                    "Copy failed for {}: {}",
+                                    file.rel_path,
+                                    r.error.as_deref().unwrap_or("Unknown error")
+                                ),
+                            });
+                        }
+
+                        // Track consecutive all-destination failures for early abort
+                        let all_non_skipped_failed =
+                            !non_skipped.is_empty() && non_skipped.iter().all(|r| !r.success);
+                        if all_non_skipped_failed {
+                            consecutive_all_dest_failures += 1;
+                        } else {
+                            consecutive_all_dest_failures = 0;
+                        }
+
                         // Update each per-destination task in DB
                         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                         for r in &results {
@@ -1366,6 +1591,9 @@ impl OffloadWorkflow {
                     self.emit(OffloadEvent::Warning {
                         message: format!("Copy failed for {}: {}", file.rel_path, e),
                     });
+                    // Count all destinations as failed
+                    copy_failed_count += dest_files.len();
+                    consecutive_all_dest_failures += 1;
                     // Mark all tasks for this file as failed
                     let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                     for dest in &dest_files {
@@ -1413,26 +1641,37 @@ impl OffloadWorkflow {
                 message: Some(file_msg),
             });
 
+            // Early abort: if ALL destinations failed for 3+ consecutive files,
+            // the destination is likely disconnected — stop wasting time
+            if consecutive_all_dest_failures >= 3 {
+                self.emit(OffloadEvent::Warning {
+                    message: "Destination appears unavailable (3+ consecutive failures). Aborting copy phase.".into(),
+                });
+                break;
+            }
+
             // Check for pause/cancel after each file (chunk-level checks also in copy_engine)
             self.check_paused().await?;
         }
 
-        Ok(copy_hashes)
+        Ok((copy_hashes, copy_failed_count))
     }
 
     // ── Internal: Cascade Copy ─────────────────────────────────────────
 
     /// Phase 3a (cascade mode): Copy source files to the PRIMARY destination only.
-    /// Returns inline hashes from the copy.
+    /// Returns (inline hashes, failed task count).
     async fn copy_to_primary(
         &self,
         files: &[SourceFile],
         start: &Instant,
         total_bytes: u64,
-    ) -> Result<HashMap<String, Vec<HashResult>>> {
+    ) -> Result<(HashMap<String, Vec<HashResult>>, usize)> {
         let primary_dest = &self.config.dest_paths[0];
         let mut copy_hashes: HashMap<String, Vec<HashResult>> = HashMap::new();
         let mut completed_bytes: u64 = 0;
+        let mut copy_failed_count: usize = 0;
+        let mut consecutive_failures: usize = 0;
         let total_files = files.len();
 
         let copy_config = CopyEngineConfig {
@@ -1560,7 +1799,20 @@ impl OffloadWorkflow {
             .await
             {
                 Ok(result) => {
-                    copy_hashes.insert(file.rel_path.clone(), result.hash_results.clone());
+                    if result.success {
+                        copy_hashes.insert(file.rel_path.clone(), result.hash_results.clone());
+                        consecutive_failures = 0;
+                    } else {
+                        copy_failed_count += 1;
+                        consecutive_failures += 1;
+                        self.emit(OffloadEvent::Warning {
+                            message: format!(
+                                "Primary copy failed for {}: {}",
+                                file.rel_path,
+                                result.error.as_deref().unwrap_or("Unknown error")
+                            ),
+                        });
+                    }
 
                     let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                     let hashes = extract_task_hashes(&result.hash_results);
@@ -1579,7 +1831,15 @@ impl OffloadWorkflow {
                         .ok();
 
                     if let Some(tid) = task_id {
-                        checkpoint::update_task_completed(&conn, &tid, &hashes)?;
+                        if result.success {
+                            checkpoint::update_task_completed(&conn, &tid, &hashes)?;
+                        } else {
+                            checkpoint::update_task_failed(
+                                &conn,
+                                &tid,
+                                result.error.as_deref().unwrap_or("Unknown copy error"),
+                            )?;
+                        }
                     }
                 }
                 Err(e) => {
@@ -1588,6 +1848,8 @@ impl OffloadWorkflow {
                     if err_str.contains("cancelled by user") {
                         return Err(e);
                     }
+                    copy_failed_count += 1;
+                    consecutive_failures += 1;
                     self.emit(OffloadEvent::Warning {
                         message: format!("Primary copy failed for {}: {}", file.rel_path, e),
                     });
@@ -1630,11 +1892,19 @@ impl OffloadWorkflow {
                 message: None,
             });
 
+            // Early abort: if 3+ consecutive failures, destination likely disconnected
+            if consecutive_failures >= 3 {
+                self.emit(OffloadEvent::Warning {
+                    message: "Primary destination appears unavailable (3+ consecutive failures). Aborting copy phase.".into(),
+                });
+                break;
+            }
+
             // Check for pause/cancel after each file
             self.check_paused().await?;
         }
 
-        Ok(copy_hashes)
+        Ok((copy_hashes, copy_failed_count))
     }
 
     /// Phase 3b (cascade mode): Copy from PRIMARY destination → all SECONDARY destinations.
@@ -1644,11 +1914,12 @@ impl OffloadWorkflow {
         files: &[SourceFile],
         start: &Instant,
         total_bytes: u64,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         let primary_dest = &self.config.dest_paths[0];
         let secondary_dests = &self.config.dest_paths[1..];
         let total_files = files.len();
         let mut completed_bytes: u64 = 0;
+        let mut cascade_failed_count: usize = 0;
 
         let copy_config = CopyEngineConfig {
             buffer_size: self.config.buffer_size,
@@ -1794,6 +2065,19 @@ impl OffloadWorkflow {
             .await
             {
                 Ok(results) => {
+                    // Count cascade failures
+                    let file_failures = results.iter().filter(|r| !r.skipped && !r.success).count();
+                    cascade_failed_count += file_failures;
+                    for r in results.iter().filter(|r| !r.skipped && !r.success) {
+                        self.emit(OffloadEvent::Warning {
+                            message: format!(
+                                "Cascade failed for {}: {}",
+                                file.rel_path,
+                                r.error.as_deref().unwrap_or("Unknown error")
+                            ),
+                        });
+                    }
+
                     let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                     for r in &results {
                         let hashes = extract_task_hashes(&r.hash_results);
@@ -1812,7 +2096,7 @@ impl OffloadWorkflow {
                             .ok();
 
                         if let Some(tid) = task_id {
-                            if r.success {
+                            if r.success || r.skipped {
                                 checkpoint::update_task_completed(&conn, &tid, &hashes)?;
                             } else {
                                 checkpoint::update_task_failed(
@@ -1830,6 +2114,7 @@ impl OffloadWorkflow {
                     if err_str.contains("cancelled by user") {
                         return Err(e);
                     }
+                    cascade_failed_count += secondary_files.len();
                     self.emit(OffloadEvent::Warning {
                         message: format!("Cascade failed for {}: {}", file.rel_path, e),
                     });
@@ -1878,7 +2163,7 @@ impl OffloadWorkflow {
             self.check_paused().await?;
         }
 
-        Ok(())
+        Ok(cascade_failed_count)
     }
 
     // ── Internal: Verify ─────────────────────────────────────────────
@@ -1952,6 +2237,32 @@ impl OffloadWorkflow {
                 if !dest_file.exists() {
                     failed += 1;
                     errors.push(format!("Missing: {:?}", dest_file));
+                    // Mark task as failed in DB so retry can pick it up
+                    // (skip if already marked failed by copy phase to avoid double-counting)
+                    {
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        let task_row: Option<(String, String)> = conn
+                            .query_row(
+                                "SELECT id, status FROM copy_tasks
+                                 WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                                rusqlite::params![
+                                    self.config.job_id,
+                                    file.abs_path.to_string_lossy().as_ref(),
+                                    dest_file.to_string_lossy().as_ref(),
+                                ],
+                                |row| Ok((row.get(0)?, row.get(1)?)),
+                            )
+                            .ok();
+                        if let Some((tid, status)) = task_row {
+                            if status != "failed" {
+                                checkpoint::update_task_failed(
+                                    &conn,
+                                    &tid,
+                                    "Verify failed: file not found after copy",
+                                )?;
+                            }
+                        }
+                    }
                     self.emit(OffloadEvent::FileVerified {
                         rel_path: file.rel_path.clone(),
                         dest_path: dest_file.to_string_lossy().into(),
@@ -2015,12 +2326,37 @@ impl OffloadWorkflow {
 
                 if !ok {
                     failed += 1;
+                    let err_detail = detail.clone().unwrap_or_else(|| "Hash mismatch".into());
                     errors.push(format!(
-                        "Hash mismatch: {} → {:?}: {}",
-                        file.rel_path,
-                        dest_file,
-                        detail.as_deref().unwrap_or("unknown")
+                        "Hash mismatch: {} -> {:?}: {}",
+                        file.rel_path, dest_file, err_detail
                     ));
+                    // Mark task as failed in DB so retry can pick it up
+                    // (skip if already marked failed to avoid double-counting)
+                    {
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        let task_row: Option<(String, String)> = conn
+                            .query_row(
+                                "SELECT id, status FROM copy_tasks
+                                 WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                                rusqlite::params![
+                                    self.config.job_id,
+                                    file.abs_path.to_string_lossy().as_ref(),
+                                    dest_file.to_string_lossy().as_ref(),
+                                ],
+                                |row| Ok((row.get(0)?, row.get(1)?)),
+                            )
+                            .ok();
+                        if let Some((tid, status)) = task_row {
+                            if status != "failed" {
+                                checkpoint::update_task_failed(
+                                    &conn,
+                                    &tid,
+                                    &format!("Verify failed: {}", err_detail),
+                                )?;
+                            }
+                        }
+                    }
                 }
 
                 self.emit(OffloadEvent::FileVerified {
@@ -2176,6 +2512,7 @@ mod tests {
                 hash_xxh64 TEXT, hash_sha256 TEXT,
                 hash_md5 TEXT, hash_xxh128 TEXT, hash_xxh3 TEXT,
                 error_msg TEXT, retry_count INTEGER NOT NULL DEFAULT 0,
+                retry_note TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );",

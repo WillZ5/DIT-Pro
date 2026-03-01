@@ -133,12 +133,7 @@ async fn test_power_failure_mid_copy_recovery() {
             xxh64: Some(hashes[0].hex_digest.clone()),
             ..Default::default()
         };
-        checkpoint::update_task_completed(
-            &conn,
-            &format!("t-{}", i),
-            &task_hashes,
-        )
-        .unwrap();
+        checkpoint::update_task_completed(&conn, &format!("t-{}", i), &task_hashes).unwrap();
     }
 
     // Simulate: File 3 was being written when power cut (only .tmp exists)
@@ -537,12 +532,7 @@ async fn test_large_job_recovery_100_files() {
             xxh64: Some(format!("hash_{}", i)),
             ..Default::default()
         };
-        checkpoint::update_task_completed(
-            &conn,
-            &format!("t-{}", i),
-            &task_hashes,
-        )
-        .unwrap();
+        checkpoint::update_task_completed(&conn, &format!("t-{}", i), &task_hashes).unwrap();
     }
 
     // Mark tasks 61-65 as in-progress (crash happened here)

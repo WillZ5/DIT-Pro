@@ -105,12 +105,54 @@ pub fn update_task_completed(conn: &Connection, task_id: &str, hashes: &TaskHash
     Ok(())
 }
 
-/// Update task as failed with error message
+/// Update task as failed with error message.
+/// Also appends the error to `retry_note` so the report can show the failure history
+/// even if the file is later retried and succeeds.
 pub fn update_task_failed(conn: &Connection, task_id: &str, error_msg: &str) -> Result<()> {
+    // Append to retry_note: "Round 1 verify failed: <reason>"
+    let retry_count: i32 = conn
+        .query_row(
+            "SELECT retry_count FROM copy_tasks WHERE id = ?1",
+            params![task_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let round = retry_count + 1;
+    let note_entry = format!("Round {} failed: {}", round, error_msg);
+
     conn.execute(
         "UPDATE copy_tasks SET status = 'failed', error_msg = ?1,
-         retry_count = retry_count + 1, updated_at = datetime('now') WHERE id = ?2",
-        params![error_msg, task_id],
+         retry_count = retry_count + 1,
+         retry_note = CASE
+             WHEN retry_note IS NULL THEN ?3
+             ELSE retry_note || '; ' || ?3
+         END,
+         updated_at = datetime('now') WHERE id = ?2",
+        params![error_msg, task_id, note_entry],
+    )?;
+    Ok(())
+}
+
+/// Append a success note to retry_note after a successful retry.
+/// Called when a previously-failed task is re-copied and re-verified successfully.
+pub fn append_retry_success(conn: &Connection, task_id: &str) -> Result<()> {
+    let retry_count: i32 = conn
+        .query_row(
+            "SELECT retry_count FROM copy_tasks WHERE id = ?1",
+            params![task_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(1);
+    let note_entry = format!("Round {} retry succeeded", retry_count + 1);
+
+    conn.execute(
+        "UPDATE copy_tasks SET
+         retry_note = CASE
+             WHEN retry_note IS NULL THEN ?2
+             ELSE retry_note || '; ' || ?2
+         END,
+         updated_at = datetime('now') WHERE id = ?1",
+        params![task_id, note_entry],
     )?;
     Ok(())
 }
@@ -365,6 +407,7 @@ mod tests {
                 hash_xxh64 TEXT, hash_sha256 TEXT,
                 hash_md5 TEXT, hash_xxh128 TEXT, hash_xxh3 TEXT,
                 error_msg TEXT, retry_count INTEGER NOT NULL DEFAULT 0,
+                retry_note TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );",

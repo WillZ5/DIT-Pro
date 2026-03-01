@@ -89,6 +89,8 @@ const zh: TranslationKeys = {
     phaseFailed: "失败",
     // Job card
     filesCopiedIn: "个文件已拷贝，耗时",
+    filesFailed: "个文件拷贝失败",
+    filesSucceeded: "个成功",
     failed: "失败",
     // Status labels (backend values → display text)
     statusCompleted: "已完成",
@@ -332,6 +334,11 @@ const zh: TranslationKeys = {
     gitHash: "Git 提交",
     system: "系统",
     close: "关闭",
+  },
+  betaWarning: {
+    title: "测试提醒",
+    message: "本软件目前仍处于测试阶段，数据完整性无法完全保证。请务必保留原始源素材，直到您已独立验证所有拷贝文件。使用本软件所产生的风险由用户自行承担。",
+    understand: "我已了解",
   },
 } as const;
 

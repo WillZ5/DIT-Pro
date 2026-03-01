@@ -74,6 +74,9 @@ function App() {
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
   const [showQuitHint, setShowQuitHint] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showBetaWarning, setShowBetaWarning] = useState(() => {
+    return sessionStorage.getItem("dit-beta-dismissed") !== "1";
+  });
   const [activeJobCount, setActiveJobCountState] = useState(0);
   const { t } = useI18n();
 
@@ -181,6 +184,31 @@ function App() {
         {currentView === "reports" && <ReportView />}
         {currentView === "settings" && <SettingsView />}
       </main>
+
+      {/* Beta warning dialog */}
+      {showBetaWarning && (
+        <div className="dialog-overlay">
+          <div className="dialog dialog--sm" onClick={(e) => e.stopPropagation()}>
+            <div className="dialog-header">
+              <h3>{t.betaWarning.title}</h3>
+            </div>
+            <div className="dialog-body">
+              <p className="beta-warning-text">{t.betaWarning.message}</p>
+            </div>
+            <div className="dialog-footer">
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  sessionStorage.setItem("dit-beta-dismissed", "1");
+                  setShowBetaWarning(false);
+                }}
+              >
+                {t.betaWarning.understand}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* About dialog */}
       {showAbout && versionInfo && (

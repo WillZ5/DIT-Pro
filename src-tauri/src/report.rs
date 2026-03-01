@@ -42,6 +42,9 @@ pub struct TaskDetail {
     pub hash_md5: Option<String>,
     pub hash_xxh128: Option<String>,
     pub hash_xxh3: Option<String>,
+    /// Retry history note, e.g. "Round 1 verify failed: hash mismatch; Round 2 retry succeeded"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_note: Option<String>,
 }
 
 /// A complete day report
@@ -161,7 +164,8 @@ pub fn get_job_report(conn: &Connection, job_id: &str) -> Result<JobReport> {
     // Get all task details
     let mut stmt = conn.prepare(
         "SELECT source_path, dest_path, file_size, status,
-                hash_xxh64, hash_sha256, hash_md5, hash_xxh128, hash_xxh3
+                hash_xxh64, hash_sha256, hash_md5, hash_xxh128, hash_xxh3,
+                retry_note
          FROM copy_tasks WHERE job_id = ?1 ORDER BY source_path ASC",
     )?;
 
@@ -177,6 +181,7 @@ pub fn get_job_report(conn: &Connection, job_id: &str) -> Result<JobReport> {
                 hash_md5: row.get(6)?,
                 hash_xxh128: row.get(7)?,
                 hash_xxh3: row.get(8)?,
+                retry_note: row.get(9)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()
@@ -319,6 +324,8 @@ pub fn render_job_report_html(report: &JobReport) -> String {
   .status-completed {{ color: #4caf50; }}
   .status-failed {{ color: #f44336; }}
   .hash {{ font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 10px; color: #9c27b0; word-break: break-all; }}
+  .retry-note-row td {{ padding: 2px 10px 6px 20px; border-bottom: 1px solid #222; background: #0f0f1f; }}
+  .retry-note {{ font-size: 11px; color: #ff9800; font-style: italic; }}
   .footer {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid #333; font-size: 11px; color: #666; }}
 </style>
 </head>
@@ -438,6 +445,22 @@ pub fn render_job_report_html(report: &JobReport) -> String {
             ));
         }
         html.push_str("</tr>\n");
+
+        // Show retry note below the file row if present
+        if let Some(ref note) = task.retry_note {
+            let col_count = 4
+                + has_xxh64 as usize
+                + has_sha256 as usize
+                + has_md5 as usize
+                + has_xxh128 as usize
+                + has_xxh3 as usize;
+            html.push_str(&format!(
+                "<tr class=\"retry-note-row\"><td colspan=\"{}\">\
+                 <span class=\"retry-note\">{}</span></td></tr>\n",
+                col_count,
+                html_escape(note),
+            ));
+        }
     }
     html.push_str("</table>\n");
 
@@ -533,6 +556,9 @@ pub fn render_job_report_txt(report: &JobReport) -> String {
             &task.status,
             task.hash_xxh64.as_deref().unwrap_or("—"),
         ));
+        if let Some(ref note) = task.retry_note {
+            txt.push_str(&format!("    >> {}\n", note));
+        }
     }
 
     txt.push_str(&format!(
@@ -660,6 +686,7 @@ mod tests {
                 hash_xxh64 TEXT, hash_sha256 TEXT,
                 hash_md5 TEXT, hash_xxh128 TEXT, hash_xxh3 TEXT,
                 error_msg TEXT, retry_count INTEGER NOT NULL DEFAULT 0,
+                retry_note TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );",
@@ -846,6 +873,7 @@ mod tests {
                 hash_md5: None,
                 hash_xxh128: None,
                 hash_xxh3: None,
+                retry_note: None,
             }],
             dest_paths: vec!["/Volumes/SSD".to_string()],
         };

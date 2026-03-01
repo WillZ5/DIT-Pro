@@ -232,6 +232,7 @@ export type OffloadEvent =
       totalBytes: number;
       durationSecs: number;
       mhlPaths: string[];
+      failedFiles?: number;
     }
   | { type: "error"; message: string }
   | { type: "fileSkipped"; relPath: string; reason: string }

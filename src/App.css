@@ -593,6 +593,20 @@
   font-weight: 700;
 }
 
+.job-failed-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #ef4444;
+}
+
+.failed-icon {
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .mhl-badge {
   display: inline-block;
   font-size: 10px;
@@ -2238,6 +2252,15 @@
   border-radius: 4px;
   font-family: 'SF Mono', Monaco, Consolas, monospace;
   font-size: 12px;
+}
+
+/* ─── Beta Warning ─────────────────────────────────────────────────────── */
+
+.beta-warning-text {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #fbbf24;
+  margin: 0;
 }
 
 /* ─── System Log ───────────────────────────────────────────────────────── */

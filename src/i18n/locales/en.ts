@@ -88,6 +88,8 @@ const en = {
     phaseFailed: "Failed",
     // Job card
     filesCopiedIn: "files copied in",
+    filesFailed: "file(s) failed",
+    filesSucceeded: "succeeded",
     failed: "failed",
     // Status labels (backend values → display text)
     statusCompleted: "COMPLETED",
@@ -335,6 +337,11 @@ const en = {
     gitHash: "Git Commit",
     system: "System",
     close: "Close",
+  },
+  betaWarning: {
+    title: "Testing Notice",
+    message: "This software is currently in testing. Data integrity cannot be fully guaranteed. Please always keep the original source media until you have independently verified all copied files. Use at your own risk.",
+    understand: "I Understand",
   },
 };
 

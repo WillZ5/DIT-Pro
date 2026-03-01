@@ -2010,6 +2010,7 @@ mod tests {
                     total_bytes: 5000,
                     duration_secs: 30.5,
                     mhl_paths: vec![],
+                    failed_files: 0,
                 },
             ),
             (

@@ -652,7 +652,12 @@ impl OffloadWorkflow {
 
         // ── Finalize ────────────────────────────────────────────────
         let duration = start.elapsed().as_secs_f64();
-        let success = failed_count == 0 && errors.is_empty();
+        let pending_count = {
+            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+            let progress = checkpoint::get_job_progress(&conn, &self.config.job_id)?;
+            progress.pending
+        };
+        let success = failed_count == 0 && errors.is_empty() && pending_count == 0;
 
         // Update job status
         {
@@ -738,11 +743,36 @@ impl OffloadWorkflow {
         for task in &pending_tasks {
             if seen.insert(task.source_path.clone()) {
                 let abs_path = PathBuf::from(&task.source_path);
-                let rel_path = abs_path
-                    .strip_prefix(&self.config.source_path)
-                    .unwrap_or(&abs_path)
-                    .to_string_lossy()
-                    .replace('\\', "/");
+                let rel_path = match abs_path.strip_prefix(&self.config.source_path) {
+                    Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+                    Err(_) => {
+                        // Path escape: abs_path is outside source_path — mark as failed
+                        // to prevent writing to arbitrary locations via dest_root.join(abs_path)
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        // Fail all tasks for this source_path
+                        let mut stmt = conn.prepare(
+                            "SELECT id FROM copy_tasks WHERE job_id = ?1 AND source_path = ?2 AND status = 'pending'",
+                        )?;
+                        let task_ids: Vec<String> = stmt
+                            .query_map(
+                                rusqlite::params![self.config.job_id, task.source_path],
+                                |row| row.get(0),
+                            )?
+                            .filter_map(|r| r.ok())
+                            .collect();
+                        for tid in &task_ids {
+                            checkpoint::update_task_status(&conn, tid, checkpoint::STATUS_FAILED)?;
+                        }
+                        self.emit(OffloadEvent::Warning {
+                            message: format!(
+                                "Marking {} task(s) as failed — mismatched source path: {}",
+                                task_ids.len(),
+                                abs_path.display()
+                            ),
+                        });
+                        continue;
+                    }
+                };
                 source_files.push(SourceFile {
                     rel_path,
                     abs_path,
@@ -766,8 +796,9 @@ impl OffloadWorkflow {
             .copy_all_files(&source_files, &start, total_bytes, false)
             .await?;
 
-        // Post-copy verification (optional)
-        if self.config.post_verify && !copy_hashes.is_empty() {
+        // Post-copy verification — always run on resume (files may have been skipped
+        // by SkipIfVerified; verify_destinations will compute hashes as needed)
+        if self.config.post_verify {
             {
                 let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                 conn.execute(
@@ -863,7 +894,7 @@ impl OffloadWorkflow {
                 let mut stmt = conn.prepare(
                     "SELECT DISTINCT source_path, file_size,
                             hash_xxh64, hash_sha256, hash_md5, hash_xxh128, hash_xxh3
-                     FROM copy_tasks WHERE job_id = ?1 AND status = 'completed'",
+                     FROM copy_tasks WHERE job_id = ?1 AND status IN ('completed', 'skipped')",
                 )?;
                 let mut files: Vec<SourceFile> = Vec::new();
                 let mut hashes: HashMap<String, Vec<HashResult>> = HashMap::new();
@@ -882,11 +913,10 @@ impl OffloadWorkflow {
                 for row in rows {
                     let (source_path, file_size, xxh64, sha256, md5, xxh128, xxh3) = row?;
                     let abs_path = PathBuf::from(&source_path);
-                    let rel_path = abs_path
-                        .strip_prefix(&self.config.source_path)
-                        .unwrap_or(&abs_path)
-                        .to_string_lossy()
-                        .replace('\\', "/");
+                    let rel_path = match abs_path.strip_prefix(&self.config.source_path) {
+                        Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+                        Err(_) => continue, // skip mismatched paths
+                    };
                     if seen_sources.insert(source_path.clone()) {
                         files.push(SourceFile {
                             rel_path: rel_path.clone(),
@@ -925,15 +955,16 @@ impl OffloadWorkflow {
         let success = failed_count == 0 && errors.is_empty();
 
         // Check overall job status (including previously completed tasks)
-        let overall_failed = {
+        let (overall_failed, overall_pending) = {
             let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
             let progress = checkpoint::get_job_progress(&conn, &self.config.job_id)?;
-            progress.failed
+            (progress.failed, progress.pending)
         };
 
         {
             let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-            let status = if success && overall_failed == 0 {
+            // pending > 0 means some tasks were never processed (e.g. path mismatch)
+            let status = if success && overall_failed == 0 && overall_pending == 0 {
                 "completed"
             } else {
                 "completed_with_errors"
@@ -1202,9 +1233,27 @@ impl OffloadWorkflow {
     /// and return the list of source files that need re-copying.
     fn prepare_retry_files(&self, all_source_files: &[SourceFile]) -> Result<Vec<SourceFile>> {
         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-        let failed_tasks = checkpoint::get_interrupted_tasks(&conn, &self.config.job_id)?;
+        let all_failed_tasks = checkpoint::get_interrupted_tasks(&conn, &self.config.job_id)?;
 
-        // Reset failed tasks to pending and clean up corrupt/tmp files
+        // Filter out tasks that have already exceeded max_retries
+        let max = self.config.max_retries as i32;
+        let total_failed = all_failed_tasks.len();
+        let failed_tasks: Vec<_> = all_failed_tasks
+            .into_iter()
+            .filter(|t| t.retry_count < max)
+            .collect();
+
+        if failed_tasks.len() < total_failed {
+            let skipped = total_failed - failed_tasks.len();
+            self.emit(OffloadEvent::Warning {
+                message: format!(
+                    "{} task(s) exceeded max retry limit ({}) and will not be retried",
+                    skipped, self.config.max_retries
+                ),
+            });
+        }
+
+        // Reset retryable tasks to pending and clean up corrupt/tmp files
         let mut failed_source_paths = std::collections::HashSet::new();
         for task in &failed_tasks {
             checkpoint::update_task_status(&conn, &task.task_id, checkpoint::STATUS_PENDING)?;
@@ -1302,7 +1351,29 @@ impl OffloadWorkflow {
                 let key = format!("{}::{}", file.rel_path, dest.to_string_lossy());
                 match self.config.conflict_resolutions.get(&key) {
                     Some(ConflictAction::Skip) => {
-                        // Skip this destination for this file
+                        // Skip this destination for this file — mark task in DB
+                        {
+                            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                            let task_id: Option<String> = conn
+                                .query_row(
+                                    "SELECT id FROM copy_tasks
+                                     WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
+                                    rusqlite::params![
+                                        self.config.job_id,
+                                        file.abs_path.to_string_lossy().as_ref(),
+                                        dest.to_string_lossy().as_ref(),
+                                    ],
+                                    |row| row.get(0),
+                                )
+                                .ok();
+                            if let Some(tid) = task_id {
+                                checkpoint::update_task_skipped(
+                                    &conn,
+                                    &tid,
+                                    &checkpoint::TaskHashes::default(),
+                                )?;
+                            }
+                        }
                         self.emit(OffloadEvent::FileSkipped {
                             rel_path: file.rel_path.clone(),
                             reason: format!(
@@ -1481,12 +1552,26 @@ impl OffloadWorkflow {
                     let all_skipped = results.iter().all(|r| r.skipped);
 
                     if all_skipped {
-                        // All destinations already had this file — emit skip event
+                        // All destinations verified identical by hash — compute full
+                        // hashes (XXH64, SHA256, etc.) for DB/MHL and post-verify.
+                        let hash_cfg = hash_engine::HashEngineConfig {
+                            algorithms: self.config.hash_algorithms.clone(),
+                            buffer_size: self.config.buffer_size,
+                        };
+                        let skip_hashes = hash_engine::hash_file(&file.abs_path, &hash_cfg).await;
+                        let task_hashes = match &skip_hashes {
+                            Ok(h) => {
+                                copy_hashes.insert(file.rel_path.clone(), h.clone());
+                                extract_task_hashes(h)
+                            }
+                            Err(_) => TaskHashes::default(),
+                        };
+
                         self.emit(OffloadEvent::FileSkipped {
                             rel_path: file.rel_path.clone(),
                             reason: "verified identical (hash match)".into(),
                         });
-                        // Mark tasks as completed (already existed)
+                        // Mark tasks as skipped with hashes for MHL/reports
                         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                         for r in &results {
                             let task_id: Option<String> = conn
@@ -1502,11 +1587,7 @@ impl OffloadWorkflow {
                                 )
                                 .ok();
                             if let Some(tid) = task_id {
-                                checkpoint::update_task_completed(
-                                    &conn,
-                                    &tid,
-                                    &TaskHashes::default(),
-                                )?;
+                                checkpoint::update_task_skipped(&conn, &tid, &task_hashes)?;
                             }
                         }
                     } else {
@@ -1543,9 +1624,16 @@ impl OffloadWorkflow {
 
                         // Update each per-destination task in DB
                         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        // For skipped dests, use the hashes from a copied dest (if any)
+                        let skip_task_hashes = results
+                            .iter()
+                            .find(|r| !r.skipped && r.success)
+                            .map(|r| extract_task_hashes(&r.hash_results))
+                            .unwrap_or_default();
+
                         for r in &results {
                             if r.skipped {
-                                // Mark skipped task as completed
+                                // Mark skipped task with hashes (from copied sibling)
                                 let task_id: Option<String> = conn
                                     .query_row(
                                         "SELECT id FROM copy_tasks
@@ -1559,10 +1647,10 @@ impl OffloadWorkflow {
                                     )
                                     .ok();
                                 if let Some(tid) = task_id {
-                                    checkpoint::update_task_completed(
+                                    checkpoint::update_task_skipped(
                                         &conn,
                                         &tid,
-                                        &TaskHashes::default(),
+                                        &skip_task_hashes,
                                     )?;
                                 }
                                 continue;
@@ -1715,7 +1803,7 @@ impl OffloadWorkflow {
                                 .to_string_lossy()
                         ),
                     });
-                    // Mark task as completed (skipped) in DB
+                    // Mark task as skipped in DB (not completed — file was not copied)
                     {
                         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                         let task_id: Option<String> = conn
@@ -1731,7 +1819,11 @@ impl OffloadWorkflow {
                             )
                             .ok();
                         if let Some(tid) = task_id {
-                            checkpoint::update_task_completed(&conn, &tid, &TaskHashes::default())?;
+                            checkpoint::update_task_skipped(
+                                &conn,
+                                &tid,
+                                &checkpoint::TaskHashes::default(),
+                            )?;
                         }
                     }
                     completed_bytes += file.size;
@@ -1947,30 +2039,58 @@ impl OffloadWorkflow {
         };
 
         for (i, file) in files.iter().enumerate() {
-            // Look up actual primary path from DB (may be renamed by KeepBoth)
-            let primary_file = {
+            // Look up primary task status and actual path from DB
+            let (primary_file, primary_status) = {
                 let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                let actual: Option<String> = conn
+                let row: Option<(String, String)> = conn
                     .query_row(
-                        "SELECT dest_path FROM copy_tasks
+                        "SELECT dest_path, status FROM copy_tasks
                          WHERE job_id = ?1 AND source_path = ?2
-                         AND dest_path LIKE ?3 AND status = 'completed'",
+                         AND dest_path LIKE ?3
+                         LIMIT 1",
                         rusqlite::params![
                             self.config.job_id,
                             file.abs_path.to_string_lossy().as_ref(),
                             format!("{}/%", primary_dest.to_string_lossy()),
                         ],
-                        |row| row.get(0),
+                        |row| Ok((row.get(0)?, row.get(1)?)),
                     )
                     .ok();
-                match actual {
-                    Some(p) => PathBuf::from(p),
-                    None => primary_dest.join(&file.rel_path),
+                match row {
+                    Some((path, status)) => (PathBuf::from(path), status),
+                    None => (primary_dest.join(&file.rel_path), String::new()),
                 }
             };
 
-            // If primary was skipped or failed, skip cascade
-            if !primary_file.exists() {
+            // If primary was skipped (user-Skip) or failed, skip cascade —
+            // don't cascade from an old file that wasn't freshly copied.
+            // Mark ALL secondary tasks for this file as skipped so they don't
+            // linger as 'pending' and cause false verify failures.
+            if primary_status == "skipped" || primary_status == "failed" || !primary_file.exists() {
+                let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                for d in secondary_dests {
+                    let dest = d.join(&file.rel_path);
+                    let task_id: Option<String> = conn
+                        .query_row(
+                            "SELECT id FROM copy_tasks
+                             WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3
+                             AND status = 'pending'",
+                            rusqlite::params![
+                                self.config.job_id,
+                                file.abs_path.to_string_lossy().as_ref(),
+                                dest.to_string_lossy().as_ref(),
+                            ],
+                            |row| row.get(0),
+                        )
+                        .ok();
+                    if let Some(tid) = task_id {
+                        checkpoint::update_task_skipped(
+                            &conn,
+                            &tid,
+                            &checkpoint::TaskHashes::default(),
+                        )?;
+                    }
+                }
                 completed_bytes += file.size;
                 continue;
             }
@@ -1989,6 +2109,7 @@ impl OffloadWorkflow {
                                 d.file_name().unwrap_or_default().to_string_lossy()
                             ),
                         });
+                        // Mark task as skipped (not completed — file was not copied)
                         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                         let task_id: Option<String> = conn
                             .query_row(
@@ -2003,7 +2124,11 @@ impl OffloadWorkflow {
                             )
                             .ok();
                         if let Some(tid) = task_id {
-                            checkpoint::update_task_completed(&conn, &tid, &TaskHashes::default())?;
+                            checkpoint::update_task_skipped(
+                                &conn,
+                                &tid,
+                                &checkpoint::TaskHashes::default(),
+                            )?;
                         }
                         continue;
                     }
@@ -2229,7 +2354,7 @@ impl OffloadWorkflow {
                                 &fallback_hashes
                             }
                             Err(e) => {
-                                failed += files.len(); // count all dests as failed
+                                failed += self.config.dest_paths.len(); // all dests fail for this file
                                 errors.push(format!("Cannot hash source {}: {}", file.rel_path, e));
                                 continue;
                             }
@@ -2250,7 +2375,7 @@ impl OffloadWorkflow {
                                 "SELECT hash_xxh64, hash_sha256, hash_md5, hash_xxh128, hash_xxh3
                                      FROM copy_tasks
                                      WHERE job_id = ?1 AND source_path = ?2
-                                     AND hash_xxh64 IS NOT NULL
+                                     AND (hash_xxh64 IS NOT NULL OR hash_sha256 IS NOT NULL OR hash_md5 IS NOT NULL OR hash_xxh128 IS NOT NULL OR hash_xxh3 IS NOT NULL)
                                      LIMIT 1",
                                 rusqlite::params![
                                     self.config.job_id,
@@ -2325,27 +2450,39 @@ impl OffloadWorkflow {
 
             for dest_root in &self.config.dest_paths {
                 self.check_cancelled()?;
-                // Look up actual dest_path from DB (may differ due to KeepBoth rename)
-                let dest_file = {
+
+                // Look up task status and actual dest_path from DB.
+                // Skipped tasks (user-Skip or SkipIfVerified) must NOT be verified:
+                // user-Skip files are the OLD file (not a copy), verification would
+                // mismatch → retry → delete → data loss.
+                let (dest_file, task_status) = {
                     let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                    let actual: Option<String> = conn
+                    let row: Option<(String, String)> = conn
                         .query_row(
-                            "SELECT dest_path FROM copy_tasks
+                            "SELECT dest_path, status FROM copy_tasks
                              WHERE job_id = ?1 AND source_path = ?2
-                             AND dest_path LIKE ?3 AND status = 'completed'",
+                             AND dest_path LIKE ?3
+                             LIMIT 1",
                             rusqlite::params![
                                 self.config.job_id,
                                 file.abs_path.to_string_lossy().as_ref(),
                                 format!("{}/%", dest_root.to_string_lossy()),
                             ],
-                            |row| row.get(0),
+                            |row| Ok((row.get(0)?, row.get(1)?)),
                         )
                         .ok();
-                    match actual {
-                        Some(p) => PathBuf::from(p),
-                        None => dest_root.join(&file.rel_path),
+                    match row {
+                        Some((path, status)) => (PathBuf::from(path), status),
+                        None => (dest_root.join(&file.rel_path), String::new()),
                     }
                 };
+
+                // Skip verification for tasks that were skipped
+                if task_status == "skipped" {
+                    completed_ops += 1;
+                    completed_bytes += file.size;
+                    continue;
+                }
 
                 let verify_msg = format!(
                     "Verifying ({}/{}) {}...",
@@ -2521,31 +2658,40 @@ impl OffloadWorkflow {
                 HashMap::new();
 
             for file in files {
-                if let Some(h) = source_hashes.get(&file.rel_path) {
-                    file_hashes.insert(file.rel_path.clone(), h.clone());
-                }
-
-                // Look up actual dest_path from DB (may differ due to KeepBoth rename)
-                let dest_file = {
+                // Look up task status and actual dest_path from DB.
+                // Skipped files (user-Skip or SkipIfVerified) weren't copied in this
+                // operation and should not appear in this MHL generation.
+                let (dest_file, task_status) = {
                     let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                    let actual: Option<String> = conn
+                    let row: Option<(String, String)> = conn
                         .query_row(
-                            "SELECT dest_path FROM copy_tasks
+                            "SELECT dest_path, status FROM copy_tasks
                              WHERE job_id = ?1 AND source_path = ?2
-                             AND dest_path LIKE ?3 AND status = 'completed'",
+                             AND dest_path LIKE ?3
+                             LIMIT 1",
                             rusqlite::params![
                                 self.config.job_id,
                                 file.abs_path.to_string_lossy().as_ref(),
                                 format!("{}/%", dest_root.to_string_lossy()),
                             ],
-                            |row| row.get(0),
+                            |row| Ok((row.get(0)?, row.get(1)?)),
                         )
                         .ok();
-                    match actual {
-                        Some(p) => PathBuf::from(p),
-                        None => dest_root.join(&file.rel_path),
+                    match row {
+                        Some((path, status)) => (PathBuf::from(path), status),
+                        None => (dest_root.join(&file.rel_path), String::new()),
                     }
                 };
+
+                // Skip MHL entry for tasks that were skipped (not copied this run)
+                if task_status == "skipped" {
+                    continue;
+                }
+
+                if let Some(h) = source_hashes.get(&file.rel_path) {
+                    file_hashes.insert(file.rel_path.clone(), h.clone());
+                }
+
                 let modified = tokio::fs::metadata(&dest_file)
                     .await
                     .ok()

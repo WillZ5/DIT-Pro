@@ -892,6 +892,8 @@ export function JobsView() {
   const handleRecover = async (jobId: string) => {
     try {
       setError(null);
+      // Guard: prevent double-click / concurrent resume of same job
+      if (activeOffloads.has(jobId)) return;
       // 1. Register ActiveOffload FIRST so the event listener can match events
       //    from the moment the backend starts emitting (fixes race condition where
       //    events were dropped because ActiveOffload wasn't in the map yet)

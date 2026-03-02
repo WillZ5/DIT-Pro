@@ -296,7 +296,7 @@ pub fn get_job_progress(conn: &Connection, job_id: &str) -> Result<JobProgress> 
     )?;
 
     let completed: usize = conn.query_row(
-        "SELECT COUNT(*) FROM copy_tasks WHERE job_id = ?1 AND status = 'completed'",
+        "SELECT COUNT(*) FROM copy_tasks WHERE job_id = ?1 AND status IN ('completed', 'skipped')",
         params![job_id],
         |row| row.get(0),
     )?;

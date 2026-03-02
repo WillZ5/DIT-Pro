@@ -896,6 +896,8 @@ pub async fn start_offload(
     let pause_token = PauseToken::new();
     {
         let mut workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+        // No contains_key guard needed here: job_id is a fresh UUID (line 845)
+        // and can never already exist. Concurrent guard is only on resume_offload.
         workflows.insert(
             job_id.clone(),
             WorkflowHandle {
@@ -1222,10 +1224,19 @@ pub async fn resume_offload(
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     // Create cancel/pause tokens and register workflow handle
+    // Guard: prevent concurrent resume of the same job (race condition)
     let cancel_token = CancelToken::new();
     let pause_token = PauseToken::new();
     {
         let mut workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+        if workflows.contains_key(&job_id) {
+            return Ok(CommandResult {
+                success: false,
+                data: None,
+                error: Some(format!("Job {} is already running", job_id)),
+                error_info: None,
+            });
+        }
         workflows.insert(
             job_id.clone(),
             WorkflowHandle {

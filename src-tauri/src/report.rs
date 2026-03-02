@@ -602,7 +602,7 @@ fn query_job_stats(conn: &Connection, job_id: &str) -> Result<(usize, usize, usi
     )?;
 
     let completed_files: usize = conn.query_row(
-        "SELECT COUNT(*) FROM copy_tasks WHERE job_id = ?1 AND status = 'completed'",
+        "SELECT COUNT(*) FROM copy_tasks WHERE job_id = ?1 AND status IN ('completed', 'skipped')",
         rusqlite::params![job_id],
         |row| row.get(0),
     )?;
@@ -620,7 +620,7 @@ fn query_job_stats(conn: &Connection, job_id: &str) -> Result<(usize, usize, usi
     )?;
 
     let completed_bytes: u64 = conn.query_row(
-        "SELECT COALESCE(SUM(file_size), 0) FROM copy_tasks WHERE job_id = ?1 AND status = 'completed'",
+        "SELECT COALESCE(SUM(file_size), 0) FROM copy_tasks WHERE job_id = ?1 AND status IN ('completed', 'skipped')",
         rusqlite::params![job_id],
         |row| row.get(0),
     )?;

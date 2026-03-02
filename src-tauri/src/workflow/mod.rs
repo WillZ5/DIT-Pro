@@ -1484,7 +1484,7 @@ impl OffloadWorkflow {
                         // All destinations already had this file — emit skip event
                         self.emit(OffloadEvent::FileSkipped {
                             rel_path: file.rel_path.clone(),
-                            reason: "destination file exists with matching size".into(),
+                            reason: "verified identical (hash match)".into(),
                         });
                         // Mark tasks as completed (already existed)
                         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;

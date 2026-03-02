@@ -1532,7 +1532,7 @@ export function JobsView() {
                       <>, {offload.completedFiles} {t.jobs.filesSucceeded}</>
                     )}
                     <button
-                      className="btn-resume btn-sm"
+                      className="btn-recover btn-sm"
                       onClick={() => handleRecover(offload.jobId)}
                       style={{ marginLeft: 12 }}
                     >
@@ -1578,16 +1578,10 @@ export function JobsView() {
                       <span className={getStatusBadgeClass(job.status)}>
                         {translateStatus(job.status, t)}
                       </span>
-                      {/* DB-only jobs with "copying"/"verifying" status are orphaned (crashed mid-operation).
-                          No active workflow to pause — show recover button instead. */}
-                      {isJobActive(job.status) && (
-                        <button className="btn-resume" onClick={() => handleRecover(job.id)} title={t.common.recover}>&#x25B6;</button>
-                      )}
-                      {isJobPaused(job.status) && (
-                        <>
-                          <button className="btn-resume" onClick={() => handleResumePaused(job.id)} title={t.jobs.resume}>&#x25B6;</button>
-                          <button className="btn-terminate" onClick={() => handleTerminateConfirm(job.id)} title={t.jobs.terminate}>&#x23F9;</button>
-                        </>
+                      {/* DB-only jobs are orphaned (no active workflow).
+                          Always show recover button — never "continue" (workflow is gone). */}
+                      {(isJobActive(job.status) || isJobPaused(job.status)) && (
+                        <button className="btn-recover" onClick={() => handleRecover(job.id)} title={t.common.recover}>&#x25B6;</button>
                       )}
                       <button
                         className={`job-expand-btn ${isExpanded ? "job-expand-btn--open" : ""}`}
@@ -1670,12 +1664,11 @@ export function JobsView() {
                   {job.failedTasks > 0 && (
                     <span className="failed-badge">{job.failedTasks} {t.jobs.failed}</span>
                   )}
-                  {(job.status === "pending" || job.status === "failed" || isJobActive(job.status) || job.failedTasks > 0) &&
-                    !isJobPaused(job.status) &&
+                  {(job.status === "pending" || job.status === "failed" || isJobActive(job.status) || isJobPaused(job.status) || job.failedTasks > 0) &&
                     job.status !== "completed" &&
                     job.status !== "terminated" && (
                       <button
-                        className="btn-secondary btn-sm"
+                        className="btn-recover btn-sm"
                         onClick={() => handleRecover(job.id)}
                       >
                         {t.common.recover}

@@ -2105,6 +2105,25 @@
   background: #22c55e15;
 }
 
+.btn-recover {
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid #f59e0b;
+  background: transparent;
+  color: #fbbf24;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-recover:hover {
+  background: #f59e0b15;
+}
+
+.btn-recover.btn-sm {
+  border-color: #f59e0b;
+  color: #fbbf24;
+}
+
 .btn-terminate {
   padding: 4px 12px;
   border-radius: 5px;

@@ -938,7 +938,7 @@
     <span class="hero-badge-text">Open Source · v1.0.0 · Coming soon</span>
   </div>
   <div class="hero-kicker">DIT PRO</div>
-  <h1>Open-source<br><span class="accent">film offload tool.</span></h1>
+  <h1><span class="hero-typing-line"><span class="hero-typing-prefix accent"></span></span><br><span class="hero-typing-suffix"></span></h1>
   <p class="hero-sub">
     Professional-grade, open-source data integrity with a clear GUI for production teams.
     No gimmicks. No guesswork. Just bulletproof backup.
@@ -1193,7 +1193,7 @@
       },
       hero: {
         badge: "Open Source · v1.0.0 · Coming soon",
-        titleHtml: "Open-source<br><span class=\"accent\">film offload tool.</span>",
+        titleHtml: "<span class=\"hero-typing-line\"><span class=\"hero-typing-prefix accent\"></span></span><br><span class=\"hero-typing-suffix\"></span>",
         sub: "Professional-grade, open-source data integrity with a clear GUI for production teams. No gimmicks. No guesswork. Just bulletproof backup.",
         primary: "Download · Coming Soon",
         secondary: "Learn more ↓",
@@ -1415,8 +1415,16 @@
     });
   };
 
-  const heroPrefixWords = ["开源的", "安全的", "免费的", "用爱发电的", "你的第一个"];
-  const heroZhSuffix = "影视拷卡工具";
+  const heroTypingConfig = {
+    en: {
+      prefixWords: ["Open-source", "Secure", "Free", "Community-powered", "Your first"],
+      suffix: "film offload tool."
+    },
+    zh: {
+      prefixWords: ["开源的", "安全的", "免费的", "用爱发电的", "你的第一个"],
+      suffix: "影视拷卡工具"
+    }
+  };
   let heroTypingTimer = null;
   let heroTypingToken = 0;
 
@@ -1428,10 +1436,11 @@
     }
   };
 
-  const startHeroTyping = (token) => {
+  const startHeroTyping = (token, language) => {
     const prefixEl = document.querySelector(".hero-typing-prefix");
     const suffixEl = document.querySelector(".hero-typing-suffix");
-    if (!prefixEl || !suffixEl) return;
+    const config = heroTypingConfig[language];
+    if (!prefixEl || !suffixEl || !config) return;
 
     let wordIndex = 0;
     let prefixLen = 0;
@@ -1439,9 +1448,9 @@
     let phase = "typePrefixInitial";
 
     const render = () => {
-      const prefixWord = heroPrefixWords[wordIndex];
+      const prefixWord = config.prefixWords[wordIndex];
       prefixEl.textContent = prefixWord.slice(0, prefixLen);
-      suffixEl.textContent = heroZhSuffix.slice(0, suffixLen);
+      suffixEl.textContent = config.suffix.slice(0, suffixLen);
     };
 
     const next = (delay) => {
@@ -1450,7 +1459,7 @@
 
     const step = () => {
       if (token !== heroTypingToken) return;
-      const currentWord = heroPrefixWords[wordIndex];
+      const currentWord = config.prefixWords[wordIndex];
 
       if (phase === "typePrefixInitial") {
         if (prefixLen < currentWord.length) {
@@ -1465,7 +1474,7 @@
       }
 
       if (phase === "typeSuffixInitial") {
-        if (suffixLen < heroZhSuffix.length) {
+        if (suffixLen < config.suffix.length) {
           suffixLen += 1;
           render();
           next(120);
@@ -1483,14 +1492,14 @@
           next(90);
           return;
         }
-        wordIndex = (wordIndex + 1) % heroPrefixWords.length;
+        wordIndex = (wordIndex + 1) % config.prefixWords.length;
         phase = "typePrefixLoop";
         next(220);
         return;
       }
 
       if (phase === "typePrefixLoop") {
-        const nextWord = heroPrefixWords[wordIndex];
+        const nextWord = config.prefixWords[wordIndex];
         if (prefixLen < nextWord.length) {
           prefixLen += 1;
           render();
@@ -1512,8 +1521,8 @@
 
   const refreshHeroTyping = (language) => {
     stopHeroTyping();
-    if (language !== "zh") return;
-    startHeroTyping(heroTypingToken);
+    if (!heroTypingConfig[language]) return;
+    startHeroTyping(heroTypingToken, language);
   };
 
   const applyLanguage = (lang) => {

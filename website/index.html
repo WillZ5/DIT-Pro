@@ -681,6 +681,39 @@
     font-weight: 400;
   }
 
+  /* ── FEEDBACK ── */
+  .feedback-section {
+    border-top: 1px solid var(--border);
+  }
+
+  .feedback-grid {
+    margin-top: 56px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px;
+  }
+
+  .feedback-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .feedback-card h3 {
+    font-size: 18px;
+    letter-spacing: -0.02em;
+  }
+
+  .feedback-card p {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.75;
+  }
+
   /* ── CTA ── */
   .cta-section {
     border-top: 1px solid var(--border);
@@ -754,6 +787,7 @@
     .features-grid { grid-template-columns: repeat(2, 1fr); }
     .status-grid { grid-template-columns: repeat(2, 1fr); }
     .stack-layout { grid-template-columns: 1fr; gap: 40px; }
+    .feedback-grid { grid-template-columns: 1fr; }
   }
 
   @media (max-width: 768px) {
@@ -790,6 +824,7 @@
       <li><a href="#safety">Safety</a></li>
       <li><a href="#features">Features</a></li>
       <li><a href="#stack">Stack</a></li>
+      <li><a href="#feedback">Feedback</a></li>
     </ul>
     <a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="nav-top-btn">GitHub →</a>
     <div class="lang-switch" aria-label="Language switcher">
@@ -984,6 +1019,34 @@
   </div>
 </section>
 
+<!-- FEEDBACK -->
+<section id="feedback" class="feedback-section">
+  <div class="reveal">
+    <div class="section-label feedback-label">// feedback</div>
+    <h2 class="section-title feedback-title">Questions or suggestions?</h2>
+    <p class="section-desc feedback-desc">
+      Choose a channel below to report issues or share product feedback.
+    </p>
+  </div>
+
+  <div class="feedback-grid reveal">
+    <div class="feedback-card">
+      <h3 class="feedback-github-title">GitHub Issues</h3>
+      <p class="feedback-github-desc">
+        Bug reports, feature requests, and technical discussion happen in GitHub Issues.
+      </p>
+      <a href="https://github.com/WillZ5/DIT-Pro/issues" target="_blank" class="btn-primary feedback-github-btn">Go to GitHub</a>
+    </div>
+    <div class="feedback-card">
+      <h3 class="feedback-survey-title">Survey</h3>
+      <p class="feedback-survey-desc">
+        Survey link will be added soon. You can continue using GitHub Issues for now.
+      </p>
+      <button type="button" class="btn-secondary btn-disabled feedback-survey-btn">Survey coming soon</button>
+    </div>
+  </div>
+</section>
+
 <!-- CTA -->
 <section class="cta-section">
   <div class="reveal">
@@ -1013,6 +1076,7 @@
         safety: "Safety",
         features: "Features",
         stack: "Stack",
+        feedback: "Feedback",
         topButton: "GitHub →"
       },
       hero: {
@@ -1090,6 +1154,17 @@
           "DB Tables"
         ]
       },
+      feedback: {
+        label: "// feedback",
+        title: "Questions or suggestions?",
+        desc: "Choose a channel below to report issues or share product feedback.",
+        githubTitle: "GitHub Issues",
+        githubDesc: "Bug reports, feature requests, and technical discussion happen in GitHub Issues.",
+        githubBtn: "Go to GitHub",
+        surveyTitle: "Survey",
+        surveyDesc: "Survey link will be added soon. You can continue using GitHub Issues for now.",
+        surveyBtn: "Survey coming soon"
+      },
       cta: {
         titleHtml: "Your footage<br>deserves <span style=\"color:var(--accent)\">better.</span>",
         desc: "Built as an open-source tool for production teams that need dependable data safety. Public download is being prepared.",
@@ -1106,6 +1181,7 @@
         safety: "安全",
         features: "功能",
         stack: "技术栈",
+        feedback: "反馈",
         topButton: "GitHub 主页 →"
       },
       hero: {
@@ -1183,6 +1259,17 @@
           "数据库表"
         ]
       },
+      feedback: {
+        label: "// 问题反馈",
+        title: "遇到问题或想提建议？",
+        desc: "你可以通过下面两个渠道反馈：GitHub 问题区或问卷调查。",
+        githubTitle: "GitHub 问题反馈",
+        githubDesc: "Bug 报告、功能建议与技术讨论请直接提交到 GitHub Issues。",
+        githubBtn: "前往 GitHub",
+        surveyTitle: "问卷调查",
+        surveyDesc: "问卷链接将稍后补充。在此之前可先通过 GitHub Issues 反馈。",
+        surveyBtn: "问卷链接即将开放"
+      },
       cta: {
         titleHtml: "你的素材，<br>值得<span style=\"color:var(--accent)\">更可靠的保障。</span>",
         desc: "这是一个面向专业制作团队的开源数据安全工具。公开下载版本正在准备中。",
@@ -1222,6 +1309,7 @@
     setText('a[href="#safety"]', t.nav.safety);
     setText('a[href="#features"]', t.nav.features);
     setText('a[href="#stack"]', t.nav.stack);
+    setText('a[href="#feedback"]', t.nav.feedback);
     setText(".nav-top-btn", t.nav.topButton);
 
     setText(".hero-badge-text", t.hero.badge);
@@ -1254,6 +1342,16 @@
     setText(".status-section .section-label", t.status.label);
     setText(".status-section .section-title", t.status.title);
     setListText(".status-card .status-label", t.status.cards);
+
+    setText(".feedback-label", t.feedback.label);
+    setText(".feedback-title", t.feedback.title);
+    setText(".feedback-desc", t.feedback.desc);
+    setText(".feedback-github-title", t.feedback.githubTitle);
+    setText(".feedback-github-desc", t.feedback.githubDesc);
+    setText(".feedback-github-btn", t.feedback.githubBtn);
+    setText(".feedback-survey-title", t.feedback.surveyTitle);
+    setText(".feedback-survey-desc", t.feedback.surveyDesc);
+    setText(".feedback-survey-btn", t.feedback.surveyBtn);
 
     setHtml(".cta-section h2", t.cta.titleHtml);
     setText(".cta-section .section-desc", t.cta.desc);

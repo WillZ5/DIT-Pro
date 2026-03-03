@@ -1268,6 +1268,7 @@
         sub: "Professional-grade, open-source data integrity with a clear GUI for production teams. No gimmicks. No guesswork. Just bulletproof backup.",
         primary: "Download latest",
         primaryUrl: "https://github.com/WillZ5/DIT-Pro/releases/download/v1.0.0/DIT.Pro_1.0.0_universal.dmg",
+        primaryFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
         installNote: "DIT Pro is not signed by an Apple-verified developer. After installation, open \"System Settings\" >> \"Privacy & Security\", scroll down, then click \"Open Anyway\".",
         secondary: "Learn more ↓",
         terminalTitle: "dit-pro — offload",
@@ -1376,7 +1377,8 @@
         titleHtml: "<span class=\"hero-typing-line\"><span class=\"hero-typing-prefix accent\"></span></span><br><span class=\"hero-typing-suffix\"></span>",
         sub: "面向专业拍摄现场的开源数据完整性保障，配备清晰直观的图形操作界面。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
         primary: "下载最新版",
-        primaryUrl: "https://gitee.com/madmants/DIT-Pro/releases/download/v1.0.0/DIT.Pro_1.0.0_universal.dmg",
+        primaryUrl: "https://github.com/WillZ5/DIT-Pro/releases/download/v1.0.0/DIT.Pro_1.0.0_universal.dmg",
+        primaryFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
         installNote: "由于 DIT Pro 当前未通过 Apple 开发者签名验证，安装完成后请按以下步骤操作：<br>打开“系统设置”>>“隐私与安全性”，向下滚动后点击“仍要打开”。",
         secondary: "了解更多 ↓",
         terminalTitle: "dit-pro — 数据转储",
@@ -1617,8 +1619,41 @@
     startHeroTyping(heroTypingToken, language);
   };
 
+  let currentLanguage = "en";
+  let githubDownloadReachable = null;
+
+  const applyHeroDownloadHref = (heroConfig) => {
+    const heroDownloadBtn = document.querySelector(".hero-download-btn");
+    if (!heroDownloadBtn || !heroConfig) return;
+    const fallbackUrl = heroConfig.primaryFallbackUrl || "./software/DIT-Pro_latest_universal.dmg";
+    const targetUrl = githubDownloadReachable === false ? fallbackUrl : heroConfig.primaryUrl;
+    heroDownloadBtn.setAttribute("href", targetUrl);
+  };
+
+  const probeGithubDownloadReachability = async () => {
+    if (typeof fetch !== "function") return;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    try {
+      await fetch("https://github.com/favicon.ico", {
+        method: "HEAD",
+        mode: "no-cors",
+        cache: "no-store",
+        signal: controller.signal
+      });
+      githubDownloadReachable = true;
+    } catch (_) {
+      githubDownloadReachable = false;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    const heroConfig = i18n[currentLanguage] && i18n[currentLanguage].hero;
+    applyHeroDownloadHref(heroConfig);
+  };
+
   const applyLanguage = (lang) => {
     const language = i18n[lang] ? lang : "en";
+    currentLanguage = language;
     const t = i18n[language];
 
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
@@ -1635,10 +1670,7 @@
     refreshHeroTyping(language);
     setText(".hero-sub", t.hero.sub);
     setText(".hero-primary-text", t.hero.primary);
-    const heroDownloadBtn = document.querySelector(".hero-download-btn");
-    if (heroDownloadBtn && t.hero.primaryUrl) {
-      heroDownloadBtn.setAttribute("href", t.hero.primaryUrl);
-    }
+    applyHeroDownloadHref(t.hero);
     setHtml(".hero-install-note", t.hero.installNote);
     setText(".hero-actions .btn-secondary", t.hero.secondary);
     setText(".terminal-title", t.hero.terminalTitle);
@@ -1703,6 +1735,8 @@
   document.querySelectorAll("[data-lang-btn]").forEach((btn) => {
     btn.addEventListener("click", () => applyLanguage(btn.dataset.langBtn));
   });
+
+  probeGithubDownloadReachability();
 
   // Nav scroll effect
   const navbar = document.getElementById('navbar');

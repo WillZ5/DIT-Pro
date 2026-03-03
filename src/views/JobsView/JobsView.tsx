@@ -95,6 +95,20 @@ interface ActiveOffload {
   isPaused: boolean;
   speedHistoryByPhase: Record<string, number[]>;
   failedFiles: number;
+  sourceReleased: boolean;
+  sourceReleasedPath: string;
+}
+
+interface SpaceIssueInfo {
+  path: string;
+  availableBytes: number;
+  requiredBytes: number;
+  deficitBytes: number;
+}
+
+interface SourceSizeInfo {
+  totalFiles: number;
+  totalBytes: number;
 }
 
 function createActiveOffload(jobId: string, name: string): ActiveOffload {
@@ -121,10 +135,61 @@ function createActiveOffload(jobId: string, name: string): ActiveOffload {
     isPaused: false,
     speedHistoryByPhase: {},
     failedFiles: 0,
+    sourceReleased: false,
+    sourceReleasedPath: "",
   };
 }
 
 // ─── Conflict Resolution Dialog ─────────────────────────────────────────
+
+// ─── Space Check Dialog ──────────────────────────────────────────────────
+
+interface SpaceCheckDialogProps {
+  issues: SpaceIssueInfo[];
+  onClose: () => void;
+}
+
+function SpaceCheckDialog({ issues, onClose }: SpaceCheckDialogProps) {
+  const { t } = useI18n();
+  return (
+    <div className="dialog-overlay" onClick={onClose}>
+      <div className="dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div className="dialog-header">
+          <h3 style={{ color: "#ef4444" }}>{t.jobs.spaceCheckTitle}</h3>
+          <button className="dialog-close" onClick={onClose}>&times;</button>
+        </div>
+        <div className="dialog-body">
+          <p style={{ marginBottom: 16, color: "#a1a1aa" }}>{t.jobs.spaceCheckDesc}</p>
+          <table className="conflict-table" style={{ width: "100%" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left" }}>{t.jobs.spaceCheckDest}</th>
+                <th style={{ textAlign: "right" }}>{t.jobs.spaceCheckAvailable}</th>
+                <th style={{ textAlign: "right" }}>{t.jobs.spaceCheckRequired}</th>
+                <th style={{ textAlign: "right" }}>{t.jobs.spaceCheckDeficit}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {issues.map((issue, i) => (
+                <tr key={i}>
+                  <td style={{ fontSize: 13, wordBreak: "break-all" }}>{issue.path}</td>
+                  <td style={{ textAlign: "right", color: "#f59e0b" }}>{formatBytes(issue.availableBytes)}</td>
+                  <td style={{ textAlign: "right" }}>{formatBytes(issue.requiredBytes)}</td>
+                  <td style={{ textAlign: "right", color: "#ef4444", fontWeight: 600 }}>-{formatBytes(issue.deficitBytes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="dialog-footer" style={{ justifyContent: "flex-end" }}>
+          <button className="btn-primary" onClick={onClose}>OK</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Conflict Resolution Dialog ──────────────────────────────────────────
 
 interface ConflictResolutionDialogProps {
   conflicts: FileConflict[];
@@ -577,6 +642,9 @@ export function JobsView() {
   const [pendingRequest, setPendingRequest] = useState<StartOffloadRequest | null>(null);
   const [detectedConflicts, setDetectedConflicts] = useState<FileConflict[]>([]);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
+  // Space check state
+  const [spaceIssues, setSpaceIssues] = useState<SpaceIssueInfo[]>([]);
+  const [showSpaceDialog, setShowSpaceDialog] = useState(false);
 
   // Report active job count for exit confirmation dialog
   useEffect(() => {
@@ -719,6 +787,11 @@ export function JobsView() {
               updated.warnings = [...updated.warnings, ev.message];
               break;
 
+            case "sourceReleased":
+              updated.sourceReleased = true;
+              updated.sourceReleasedPath = ev.sourcePath;
+              break;
+
             case "complete": {
               const evFailedFiles = ev.failedFiles ?? 0;
               updated.failedFiles = evFailedFiles;
@@ -845,7 +918,34 @@ export function JobsView() {
 
     try {
       setLoading(true);
-      // Step 1: Detect conflicts before starting
+
+      // Step 1: Scan source to get total size
+      const sizeResult = await safeInvoke<CommandResult<SourceSizeInfo>>(
+        "scan_source_size",
+        { sourcePath: request.sourcePath }
+      );
+      if (!sizeResult.success || !sizeResult.data) {
+        setError(sizeResult.error || "Failed to scan source");
+        setLoading(false);
+        return;
+      }
+      const { totalBytes } = sizeResult.data;
+
+      // Step 2: Pre-flight space check on all destinations
+      const destinations = request.destPaths.map((p) => [p, totalBytes] as [string, number]);
+      const spaceResult = await safeInvoke<CommandResult<SpaceIssueInfo[]>>(
+        "preflight_check",
+        { destinations }
+      );
+      if (spaceResult.success && spaceResult.data && spaceResult.data.length > 0) {
+        // Space insufficient — show blocking dialog
+        setSpaceIssues(spaceResult.data);
+        setShowSpaceDialog(true);
+        setLoading(false);
+        return;
+      }
+
+      // Step 3: Detect conflicts before starting
       const conflictResult = await safeInvoke<CommandResult<FileConflict[]>>(
         "detect_conflicts",
         { sourcePath: request.sourcePath, destPaths: request.destPaths }
@@ -860,7 +960,7 @@ export function JobsView() {
         return;
       }
 
-      // No conflicts — proceed directly
+      // No issues — proceed directly
       await executeStartOffload(request);
     } catch (err) {
       setError(String(err));
@@ -1206,6 +1306,14 @@ export function JobsView() {
         />
       )}
 
+      {/* Space Check Dialog */}
+      {showSpaceDialog && spaceIssues.length > 0 && (
+        <SpaceCheckDialog
+          issues={spaceIssues}
+          onClose={() => { setShowSpaceDialog(false); setSpaceIssues([]); }}
+        />
+      )}
+
       {/* Conflict Resolution Dialog */}
       {showConflictDialog && detectedConflicts.length > 0 && (
         <ConflictResolutionDialog
@@ -1444,68 +1552,114 @@ export function JobsView() {
                       </div>
                     </div>
 
-                    {/* Per-phase speed charts */}
-                    {Object.keys(offload.speedHistoryByPhase).length > 0 && (
-                      <div className="speed-charts-container">
-                        {Object.entries(offload.speedHistoryByPhase)
-                          .filter(([phase, hist]) => hist.length >= 1 && phase === offload.phase)
-                          .map(([phase, history]) => {
-                            const info = PHASE_INFO[phase as OffloadPhase];
-                            const color = info?.color || "#3b82f6";
-                            const raw = history;
-                            const WIN = 5;
-                            const smoothed: number[] = raw.map((_, i) => {
-                              const start = Math.max(0, i - Math.floor(WIN / 2));
-                              const end = Math.min(raw.length, i + Math.floor(WIN / 2) + 1);
-                              let sum = 0;
-                              for (let j = start; j < end; j++) sum += raw[j];
-                              return sum / (end - start);
-                            });
-                            const data = smoothed.length === 1 ? [smoothed[0], smoothed[0]] : smoothed;
-                            const max = Math.max(...data, 1);
-                            const W = 400, H = 60, PAD = 4;
-                            const plotH = H - PAD * 2;
-                            const plotW = W - PAD * 2;
-                            const step = plotW / Math.max(data.length - 1, 1);
-                            const points = data.map((v, idx) => `${PAD + idx * step},${PAD + plotH - (v / max) * plotH}`).join(" ");
-                            const areaPoints = `${PAD},${PAD + plotH} ${points} ${PAD + (data.length - 1) * step},${PAD + plotH}`;
-                            const gradientId = `sg-${offload.jobId}-${phase}`;
-                            return (
-                              <div key={phase} className="speed-chart">
-                                <div className="speed-chart-phase-label" style={{ color }}>{info?.label || phase}</div>
-                                <svg viewBox={`0 0 ${W} ${H}`} className="speed-chart-svg" preserveAspectRatio="none">
-                                  <defs>
-                                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                                      <stop offset="0%" stopColor={color} stopOpacity="0.35" />
-                                      <stop offset="100%" stopColor={color} stopOpacity="0.03" />
-                                    </linearGradient>
-                                  </defs>
-                                  <polyline points={areaPoints} fill={`url(#${gradientId})`} stroke="none" vectorEffect="non-scaling-stroke" />
-                                  <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                                  {data.length > 0 && (
+                    {/* Unified speed chart (all phases on one graph) */}
+                    {Object.keys(offload.speedHistoryByPhase).length > 0 && (() => {
+                      const phases = Object.entries(offload.speedHistoryByPhase)
+                        .filter(([, hist]) => hist.length >= 1);
+                      if (phases.length === 0) return null;
+
+                      // Compute total data length (all phases concatenated on timeline)
+                      const totalLen = phases.reduce((sum, [, h]) => sum + h.length, 0);
+                      if (totalLen === 0) return null;
+
+                      // Smooth each phase independently
+                      const WIN = 5;
+                      const smooth = (raw: number[]) => raw.map((_, i) => {
+                        const s = Math.max(0, i - Math.floor(WIN / 2));
+                        const e = Math.min(raw.length, i + Math.floor(WIN / 2) + 1);
+                        let sum = 0;
+                        for (let j = s; j < e; j++) sum += raw[j];
+                        return sum / (e - s);
+                      });
+
+                      // Build segments: each phase starts where the previous ended
+                      type Segment = { phase: string; color: string; label: string; data: number[]; offset: number };
+                      const segments: Segment[] = [];
+                      let offset = 0;
+                      for (const [phase, history] of phases) {
+                        const info = PHASE_INFO[phase as OffloadPhase];
+                        const smoothed = smooth(history);
+                        const data = smoothed.length === 1 ? [smoothed[0], smoothed[0]] : smoothed;
+                        segments.push({
+                          phase,
+                          color: info?.color || "#3b82f6",
+                          label: info?.label || phase,
+                          data,
+                          offset,
+                        });
+                        offset += data.length;
+                      }
+
+                      const globalMax = Math.max(...segments.flatMap((s) => s.data), 1);
+                      const W = 400, H = 70, PAD = 4;
+                      const plotH = H - PAD * 2;
+                      const plotW = W - PAD * 2;
+                      const step = plotW / Math.max(offset - 1, 1);
+
+                      return (
+                        <div className="speed-chart">
+                          <div className="speed-chart-legend">
+                            {segments.map((seg) => (
+                              <span key={seg.phase} className="speed-chart-legend-item">
+                                <span className="speed-chart-legend-dot" style={{ backgroundColor: seg.color }} />
+                                <span style={{ color: seg.phase === offload.phase ? seg.color : "#71717a" }}>
+                                  {seg.label}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                          <svg viewBox={`0 0 ${W} ${H}`} className="speed-chart-svg" preserveAspectRatio="none">
+                            <defs>
+                              {segments.map((seg) => (
+                                <linearGradient key={seg.phase} id={`sg-${offload.jobId}-${seg.phase}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor={seg.color} stopOpacity={seg.phase === offload.phase ? 0.3 : 0.1} />
+                                  <stop offset="100%" stopColor={seg.color} stopOpacity="0.02" />
+                                </linearGradient>
+                              ))}
+                            </defs>
+                            {segments.map((seg) => {
+                              const pts = seg.data.map((v, idx) =>
+                                `${PAD + (seg.offset + idx) * step},${PAD + plotH - (v / globalMax) * plotH}`
+                              ).join(" ");
+                              const areaPts = `${PAD + seg.offset * step},${PAD + plotH} ${pts} ${PAD + (seg.offset + seg.data.length - 1) * step},${PAD + plotH}`;
+                              const isActive = seg.phase === offload.phase;
+                              return (
+                                <g key={seg.phase}>
+                                  <polyline points={areaPts} fill={`url(#sg-${offload.jobId}-${seg.phase})`} stroke="none" vectorEffect="non-scaling-stroke" />
+                                  <polyline points={pts} fill="none" stroke={seg.color} strokeWidth={isActive ? "1.5" : "1"} strokeLinejoin="round" vectorEffect="non-scaling-stroke" opacity={isActive ? 1 : 0.5} />
+                                  {isActive && seg.data.length > 0 && (
                                     <circle
-                                      cx={PAD + (data.length - 1) * step}
-                                      cy={PAD + plotH - (data[data.length - 1] / max) * plotH}
-                                      r="2.5" fill={color} vectorEffect="non-scaling-stroke"
+                                      cx={PAD + (seg.offset + seg.data.length - 1) * step}
+                                      cy={PAD + plotH - (seg.data[seg.data.length - 1] / globalMax) * plotH}
+                                      r="2.5" fill={seg.color} vectorEffect="non-scaling-stroke"
                                     />
                                   )}
-                                </svg>
-                                <div className="speed-chart-current">
-                                  <span className="speed-chart-value">
-                                    {formatSpeed(offload.currentSpeed)}
-                                  </span>
-                                  <span className="speed-chart-label">
-                                    {t.jobs.speed}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
+                                </g>
+                              );
+                            })}
+                          </svg>
+                          <div className="speed-chart-current">
+                            <span className="speed-chart-value">
+                              {formatSpeed(offload.currentSpeed)}
+                            </span>
+                            <span className="speed-chart-label">
+                              {t.jobs.speed}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {offload.phaseMessage && (
                       <div className="job-detail-phase-msg">{offload.phaseMessage}</div>
+                    )}
+
+                    {/* Source released notice (cascade mode) */}
+                    {offload.sourceReleased && offload.phase !== "Complete" && offload.phase !== "Failed" && (
+                      <div className="source-released-notice">
+                        <span className="source-released-icon">&#x23CF;</span>
+                        {t.jobs.sourceReleased}
+                      </div>
                     )}
                   </div>
                 )}

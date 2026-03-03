@@ -239,7 +239,8 @@ export type OffloadEvent =
   | { type: "duplicateConflict"; relPath: string; sourceHash: string; destHash: string }
   | { type: "paused" }
   | { type: "resumed" }
-  | { type: "terminated" };
+  | { type: "terminated" }
+  | { type: "sourceReleased"; sourcePath: string };
 
 /** Request to start an offload workflow */
 export interface StartOffloadRequest {

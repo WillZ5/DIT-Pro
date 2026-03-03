@@ -134,6 +134,10 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
       return ok(0) as T;
     case "export_debug_bundle":
       return ok("/tmp/dit-debug-demo.json") as T;
+    case "scan_source_size":
+      return ok({ totalFiles: 342, totalBytes: 453_800_000_000 }) as T;
+    case "preflight_check":
+      return ok([]) as T;
     default:
       return ok(null) as T;
   }

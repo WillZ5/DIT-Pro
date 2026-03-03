@@ -145,6 +145,16 @@ const en = {
     conflictChecking: "Checking for conflicts...",
     conflictProceed: "Proceed",
     conflictCount: "{count} conflicts found",
+    // Space check
+    spaceCheckTitle: "Insufficient Disk Space",
+    spaceCheckDesc: "The following destinations do not have enough space for this offload:",
+    spaceCheckDest: "Destination",
+    spaceCheckAvailable: "Available",
+    spaceCheckRequired: "Required",
+    spaceCheckDeficit: "Deficit",
+    spaceCheckScanning: "Scanning source...",
+    // Source released (cascade mode)
+    sourceReleased: "Source card copy complete -- safe to eject",
     // Phase messages (i18n)
     phaseOffloadComplete: "Offload complete",
     phasePaused: "Paused",

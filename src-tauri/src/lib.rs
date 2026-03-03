@@ -223,6 +223,7 @@ pub fn run() {
             commands::get_space_info,
             commands::reveal_in_finder,
             commands::preflight_check,
+            commands::scan_source_size,
             // Hash
             commands::hash_file,
             // IO Scheduler

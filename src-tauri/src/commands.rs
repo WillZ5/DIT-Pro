@@ -472,6 +472,75 @@ pub struct SpaceIssue {
     pub deficit_bytes: u64,
 }
 
+/// Scan a source directory and return total file count and total bytes.
+/// Used by the frontend for pre-flight space estimation before starting an offload.
+#[tauri::command]
+pub async fn scan_source_size(
+    source_path: String,
+) -> Result<CommandResult<SourceSizeInfo>, String> {
+    let source_root = PathBuf::from(&source_path);
+    if !source_root.exists() {
+        return Ok(CommandResult::err(format!(
+            "Source path does not exist: {}",
+            source_path
+        )));
+    }
+
+    let ignore_patterns: Vec<String> = crate::mhl::DEFAULT_IGNORE_PATTERNS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let mut total_files: u64 = 0;
+    let mut total_bytes: u64 = 0;
+    let mut stack = vec![source_root.clone()];
+
+    while let Some(dir) = stack.pop() {
+        let mut entries = match tokio::fs::read_dir(&dir).await {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            let ft = match entry.file_type().await {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            let rel_path = path
+                .strip_prefix(&source_root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            if mhl::should_ignore(&rel_path, &ignore_patterns) {
+                continue;
+            }
+            if ft.is_symlink() {
+                continue;
+            } else if ft.is_dir() {
+                stack.push(path);
+            } else if ft.is_file() {
+                if let Ok(meta) = entry.metadata().await {
+                    total_files += 1;
+                    total_bytes += meta.len();
+                }
+            }
+        }
+    }
+
+    Ok(CommandResult::ok(SourceSizeInfo {
+        total_files,
+        total_bytes,
+    }))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSizeInfo {
+    pub total_files: u64,
+    pub total_bytes: u64,
+}
+
 // ─── Hash Commands ────────────────────────────────────────────────────────
 
 /// Hash a single file with specified algorithms

@@ -209,6 +209,10 @@ pub enum OffloadEvent {
     Paused,
     Resumed,
     Terminated,
+    /// Source card/disk is no longer needed (cascade: primary copy done)
+    SourceReleased {
+        source_path: String,
+    },
 }
 
 // ─── Result ──────────────────────────────────────────────────────────────
@@ -520,6 +524,11 @@ impl OffloadWorkflow {
             if !self.config.source_verify {
                 source_hashes = copy_hashes_primary;
             }
+
+            // Notify frontend: source card is no longer needed
+            self.emit(OffloadEvent::SourceReleased {
+                source_path: self.config.source_path.to_string_lossy().to_string(),
+            });
 
             // Phase 3b: Primary → Secondary destinations (source card now free)
             self.emit(OffloadEvent::PhaseChanged {
@@ -2430,6 +2439,11 @@ impl OffloadWorkflow {
                                 });
                             }
                             if !h.is_empty() {
+                                log::info!(
+                                    "Using cached DB hash for {} (source ejected, {} hash(es) from DB)",
+                                    file.rel_path,
+                                    h.len()
+                                );
                                 fallback_hashes = h;
                                 &fallback_hashes
                             } else {

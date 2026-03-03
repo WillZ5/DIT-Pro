@@ -146,6 +146,16 @@ const zh: TranslationKeys = {
     conflictChecking: "正在检查冲突（含哈希比对）...",
     conflictProceed: "继续",
     conflictCount: "发现 {count} 个冲突",
+    // Space check
+    spaceCheckTitle: "目标路径存储空间不足",
+    spaceCheckDesc: "以下目标位置没有足够的空间完成此拷卡任务：",
+    spaceCheckDest: "目标路径",
+    spaceCheckAvailable: "可用空间",
+    spaceCheckRequired: "所需空间",
+    spaceCheckDeficit: "缺少空间",
+    spaceCheckScanning: "正在扫描源文件...",
+    // Source released (cascade mode)
+    sourceReleased: "源数据盘拷贝完毕 -- 可以安全弹出",
     // Phase messages (i18n)
     phaseOffloadComplete: "拷卡完成",
     phasePaused: "已暂停",

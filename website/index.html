@@ -754,6 +754,39 @@
     font-weight: 400;
   }
 
+  .bilibili-floating-btn {
+    position: fixed;
+    left: 20px;
+    bottom: 20px;
+    z-index: 1001;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 999px;
+    background: #FB7299;
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1;
+    box-shadow: 0 12px 24px rgba(251, 114, 153, 0.35);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .bilibili-floating-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 28px rgba(251, 114, 153, 0.45);
+    color: #ffffff;
+    opacity: 1;
+  }
+
+  .bilibili-floating-btn svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+    color: #ffffff;
+  }
+
   .footer-links {
     display: flex;
     gap: 24px;
@@ -804,6 +837,7 @@
     .hero-terminal { margin-top: 60px; }
     footer { flex-direction: column; gap: 24px; text-align: center; }
     .cta-actions { flex-direction: column; align-items: center; }
+    .bilibili-floating-btn { left: 12px; bottom: 12px; padding: 9px 12px; font-size: 12px; }
   }
 
   @media (max-width: 480px) {
@@ -1067,6 +1101,17 @@
     © 2026 DIT Pro · Mingxuan Zhao
   </div>
 </footer>
+
+<a class="bilibili-floating-btn" href="https://space.bilibili.com/109630638" target="_blank" rel="noopener noreferrer" aria-label="Visit DIT Pro on Bilibili">
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect x="3" y="7" width="18" height="12" rx="3" stroke="currentColor" stroke-width="2"/>
+    <path d="M9 4L7.4 5.8M15 4l1.6 1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="10" cy="13" r="1.2" fill="currentColor"/>
+    <circle cx="14" cy="13" r="1.2" fill="currentColor"/>
+    <path d="M9 16h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+  <span>Bilibili</span>
+</a>
 
 <script>
   const i18n = {

@@ -952,7 +952,6 @@ impl OffloadWorkflow {
 
         // Finalize
         let duration = start.elapsed().as_secs_f64();
-        let success = failed_count == 0 && errors.is_empty();
 
         // Check overall job status (including previously completed tasks)
         let (overall_failed, overall_pending) = {
@@ -961,10 +960,15 @@ impl OffloadWorkflow {
             (progress.failed, progress.pending)
         };
 
+        // success must incorporate both this round and overall DB state
+        let success = failed_count == 0
+            && errors.is_empty()
+            && overall_failed == 0
+            && overall_pending == 0;
+
         {
             let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-            // pending > 0 means some tasks were never processed (e.g. path mismatch)
-            let status = if success && overall_failed == 0 && overall_pending == 0 {
+            let status = if success {
                 "completed"
             } else {
                 "completed_with_errors"

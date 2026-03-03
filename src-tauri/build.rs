@@ -24,7 +24,7 @@ fn main() {
     // ── Pre-release tag ────────────────────────────────────────────
     // Override via env: DIT_PRE_RELEASE=rc.1 cargo tauri build
     // Set to empty string for stable release: DIT_PRE_RELEASE= cargo tauri build
-    let pre = std::env::var("DIT_PRE_RELEASE").unwrap_or_else(|_| "rc.2".to_string()); // default: current dev stage
+    let pre = std::env::var("DIT_PRE_RELEASE").unwrap_or_else(|_| "rc.4".to_string()); // default: current dev stage
     if !pre.is_empty() {
         println!("cargo:rustc-env=DIT_PRE_RELEASE={}", pre);
     }

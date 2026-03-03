@@ -36,7 +36,9 @@ fn setup_db() -> Connection {
             file_size INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'pending',
             hash_xxh64 TEXT, hash_sha256 TEXT,
+            hash_md5 TEXT, hash_xxh128 TEXT, hash_xxh3 TEXT,
             error_msg TEXT, retry_count INTEGER NOT NULL DEFAULT 0,
+            retry_note TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );

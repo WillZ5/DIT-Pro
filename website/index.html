@@ -681,100 +681,6 @@
     font-weight: 400;
   }
 
-  /* ── ROADMAP ── */
-  .roadmap-section {
-    border-top: 1px solid var(--border);
-  }
-
-  .roadmap-timeline {
-    margin-top: 64px;
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-  }
-
-  .roadmap-item {
-    display: grid;
-    grid-template-columns: 120px 40px 1fr;
-    gap: 0;
-    min-height: 100px;
-  }
-
-  .roadmap-phase {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-tertiary);
-    padding-top: 2px;
-    text-align: right;
-    padding-right: 24px;
-  }
-
-  .roadmap-line {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  .roadmap-dot {
-    width: 12px; height: 12px;
-    border-radius: 50%;
-    background: var(--bg-card);
-    border: 2px solid var(--border);
-    flex-shrink: 0;
-    margin-top: 4px;
-    transition: all 0.3s;
-  }
-  .roadmap-item:hover .roadmap-dot {
-    border-color: var(--accent);
-    background: var(--accent-glow);
-    box-shadow: 0 0 12px var(--accent-glow-strong);
-  }
-  .roadmap-dot.active {
-    border-color: var(--accent);
-    background: var(--accent);
-    box-shadow: 0 0 12px var(--accent-glow-strong);
-  }
-  .roadmap-stem {
-    width: 1px;
-    flex: 1;
-    background: var(--border);
-  }
-
-  .roadmap-content {
-    padding: 0 0 48px 24px;
-  }
-  .roadmap-content h4 {
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    margin-bottom: 8px;
-  }
-  .roadmap-content p {
-    font-size: 13px;
-    font-weight: 300;
-    color: var(--text-secondary);
-    line-height: 1.7;
-  }
-  .roadmap-tag {
-    display: inline-block;
-    padding: 3px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 500;
-    margin-top: 10px;
-  }
-  .roadmap-tag.done {
-    background: var(--accent-glow);
-    color: var(--accent);
-  }
-  .roadmap-tag.current {
-    background: rgba(240, 180, 41, 0.12);
-    color: var(--warning);
-  }
-  .roadmap-tag.planned {
-    background: rgba(138, 138, 142, 0.1);
-    color: var(--text-secondary);
-  }
-
   /* ── CTA ── */
   .cta-section {
     border-top: 1px solid var(--border);
@@ -864,9 +770,6 @@
     .hero-terminal { margin-top: 60px; }
     footer { flex-direction: column; gap: 24px; text-align: center; }
     .cta-actions { flex-direction: column; align-items: center; }
-    .roadmap-item { grid-template-columns: 80px 30px 1fr; }
-    .roadmap-phase { font-size: 11px; padding-right: 12px; }
-    .roadmap-content { padding-left: 16px; }
   }
 
   @media (max-width: 480px) {
@@ -887,7 +790,6 @@
       <li><a href="#safety">Safety</a></li>
       <li><a href="#features">Features</a></li>
       <li><a href="#stack">Stack</a></li>
-      <li><a href="#roadmap">Roadmap</a></li>
     </ul>
     <button type="button" class="nav-top-btn btn-disabled">Download · Coming Soon</button>
     <div class="lang-switch" aria-label="Language switcher">
@@ -1082,81 +984,6 @@
   </div>
 </section>
 
-<!-- ROADMAP -->
-<section id="roadmap" class="roadmap-section">
-  <div class="reveal">
-    <div class="section-label">// roadmap</div>
-    <h2 class="section-title">What's next.</h2>
-    <p class="section-desc">
-      Shipping the core first, then expanding based on
-      real feedback from real sets.
-    </p>
-  </div>
-
-  <div class="roadmap-timeline reveal">
-    <div class="roadmap-item">
-      <div class="roadmap-phase">Phase 1</div>
-      <div class="roadmap-line">
-        <div class="roadmap-dot active"></div>
-        <div class="roadmap-stem"></div>
-      </div>
-      <div class="roadmap-content">
-        <h4>Bulletproof Backup Core</h4>
-        <p>Offload engine, atomic writes, checkpoint recovery, ASC MHL chain, multi-hash verification, cascade copy, preset system.</p>
-        <span class="roadmap-tag current">rc.4 — stabilizing</span>
-      </div>
-    </div>
-    <div class="roadmap-item">
-      <div class="roadmap-phase">Phase 2</div>
-      <div class="roadmap-line">
-        <div class="roadmap-dot"></div>
-        <div class="roadmap-stem"></div>
-      </div>
-      <div class="roadmap-content">
-        <h4>Data Safety Chain</h4>
-        <p>Safe-to-format indicator, source verification, bottleneck attribution dashboard, cascading copy strategies.</p>
-        <span class="roadmap-tag planned">planned</span>
-      </div>
-    </div>
-    <div class="roadmap-item">
-      <div class="roadmap-phase">Phase 3</div>
-      <div class="roadmap-line">
-        <div class="roadmap-dot"></div>
-        <div class="roadmap-stem"></div>
-      </div>
-      <div class="roadmap-content">
-        <h4>Metadata Bridge</h4>
-        <p>Project field dictionaries, ALE/XML delivery bundles, filename conflict resolution across multi-camera setups.</p>
-        <span class="roadmap-tag planned">planned</span>
-      </div>
-    </div>
-    <div class="roadmap-item">
-      <div class="roadmap-phase">Phase 4</div>
-      <div class="roadmap-line">
-        <div class="roadmap-dot"></div>
-        <div class="roadmap-stem"></div>
-      </div>
-      <div class="roadmap-content">
-        <h4>Intelligent Orchestration</h4>
-        <p>Declarative pipelines, automated task flows, performance monitoring, and enhanced preset workflows.</p>
-        <span class="roadmap-tag planned">planned</span>
-      </div>
-    </div>
-    <div class="roadmap-item">
-      <div class="roadmap-phase">Phase 5</div>
-      <div class="roadmap-line">
-        <div class="roadmap-dot"></div>
-        <div class="roadmap-stem" style="background: transparent;"></div>
-      </div>
-      <div class="roadmap-content">
-        <h4>Hybrid Collaboration</h4>
-        <p>Offline-first metadata sync, content security controls, immutable audit trails, and role-based access.</p>
-        <span class="roadmap-tag planned">planned</span>
-      </div>
-    </div>
-  </div>
-</section>
-
 <!-- CTA -->
 <section class="cta-section">
   <div class="reveal">
@@ -1186,7 +1013,6 @@
         safety: "Safety",
         features: "Features",
         stack: "Stack",
-        roadmap: "Roadmap",
         topButton: "Download · Coming Soon"
       },
       hero: {
@@ -1264,27 +1090,6 @@
           "DB Tables"
         ]
       },
-      roadmap: {
-        label: "// roadmap",
-        title: "What's next.",
-        desc: "Shipping the core first, then expanding based on real feedback from real sets.",
-        phases: ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5"],
-        titles: [
-          "Bulletproof Backup Core",
-          "Data Safety Chain",
-          "Metadata Bridge",
-          "Intelligent Orchestration",
-          "Hybrid Collaboration"
-        ],
-        bodies: [
-          "Offload engine, atomic writes, checkpoint recovery, ASC MHL chain, multi-hash verification, cascade copy, preset system.",
-          "Safe-to-format indicator, source verification, bottleneck attribution dashboard, cascading copy strategies.",
-          "Project field dictionaries, ALE/XML delivery bundles, filename conflict resolution across multi-camera setups.",
-          "Declarative pipelines, automated task flows, performance monitoring, and enhanced preset workflows.",
-          "Offline-first metadata sync, content security controls, immutable audit trails, and role-based access."
-        ],
-        tags: ["rc.4 — stabilizing", "planned", "planned", "planned", "planned"]
-      },
       cta: {
         titleHtml: "Your footage<br>deserves <span style=\"color:var(--accent)\">better.</span>",
         desc: "Built for production teams that need dependable data safety. Public download is being prepared.",
@@ -1301,7 +1106,6 @@
         safety: "安全",
         features: "功能",
         stack: "技术栈",
-        roadmap: "路线图",
         topButton: "下载 · 即将上线"
       },
       hero: {
@@ -1379,27 +1183,6 @@
           "数据库表"
         ]
       },
-      roadmap: {
-        label: "// 产品路线图",
-        title: "下一步计划。",
-        desc: "先把核心能力做到稳定，再根据真实片场反馈持续扩展。",
-        phases: ["阶段 1", "阶段 2", "阶段 3", "阶段 4", "阶段 5"],
-        titles: [
-          "高可靠备份内核",
-          "数据安全链路",
-          "元数据桥接",
-          "智能化编排",
-          "混合协作"
-        ],
-        bodies: [
-          "数据转储引擎、原子写入、断点恢复、ASC MHL 链路、多哈希校验、级联拷贝与预设系统。",
-          "安全格式化提示、源盘校验、瓶颈归因看板与级联拷贝策略。",
-          "项目字段字典、ALE/XML 交付包、多机位命名冲突处理。",
-          "声明式流水线、自动任务流、性能监控与增强版预设工作流。",
-          "离线优先元数据同步、内容安全控制、不可篡改审计轨迹与角色权限。"
-        ],
-        tags: ["rc.4 — 稳定中", "计划中", "计划中", "计划中", "计划中"]
-      },
       cta: {
         titleHtml: "你的素材，<br>值得<span style=\"color:var(--accent)\">更可靠的保障。</span>",
         desc: "面向专业制作团队打造的可靠数据安全工具。公开下载版本正在准备中。",
@@ -1439,7 +1222,6 @@
     setText('a[href="#safety"]', t.nav.safety);
     setText('a[href="#features"]', t.nav.features);
     setText('a[href="#stack"]', t.nav.stack);
-    setText('a[href="#roadmap"]', t.nav.roadmap);
     setText(".nav-top-btn", t.nav.topButton);
 
     setText(".hero-badge-text", t.hero.badge);
@@ -1472,14 +1254,6 @@
     setText(".status-section .section-label", t.status.label);
     setText(".status-section .section-title", t.status.title);
     setListText(".status-card .status-label", t.status.cards);
-
-    setText("#roadmap .section-label", t.roadmap.label);
-    setText("#roadmap .section-title", t.roadmap.title);
-    setText("#roadmap .section-desc", t.roadmap.desc);
-    setListText(".roadmap-phase", t.roadmap.phases);
-    setListText(".roadmap-content h4", t.roadmap.titles);
-    setListText(".roadmap-content p", t.roadmap.bodies);
-    setListText(".roadmap-tag", t.roadmap.tags);
 
     setHtml(".cta-section h2", t.cta.titleHtml);
     setText(".cta-section .section-desc", t.cta.desc);

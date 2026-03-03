@@ -66,6 +66,17 @@ function IconFeedback() {
   );
 }
 
+function IconWebsite() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M2 9h14" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M9 2c2 2.5 2.5 4.5 2.5 7S11 14.5 9 16" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M9 2c-2 2.5-2.5 4.5-2.5 7s.5 4.5 2.5 7" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
 function IconSettings({ active }: { active: boolean }) {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -115,6 +126,20 @@ function App() {
     } catch (err) {
       console.error("Failed to open feedback URL:", err);
       window.open("https://ditpro.negdims.com/#feedback", "_blank");
+    }
+  };
+
+  const handleWebsite = async () => {
+    try {
+      if (isTauri()) {
+        const { open } = await import("@tauri-apps/plugin-shell");
+        await open("https://ditpro.negdims.com");
+      } else {
+        window.open("https://ditpro.negdims.com", "_blank");
+      }
+    } catch (err) {
+      console.error("Failed to open website URL:", err);
+      window.open("https://ditpro.negdims.com", "_blank");
     }
   };
 
@@ -218,6 +243,10 @@ function App() {
         </ul>
 
         <div className="sidebar-feedback">
+          <button className="nav-item website-btn" onClick={handleWebsite}>
+            <span className="nav-icon"><IconWebsite /></span>
+            <span className="nav-label">{t.nav.website}</span>
+          </button>
           <button className="nav-item feedback-btn" onClick={handleFeedback}>
             <span className="nav-icon"><IconFeedback /></span>
             <span className="nav-label">{t.nav.feedback}</span>

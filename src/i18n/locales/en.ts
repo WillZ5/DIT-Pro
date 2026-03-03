@@ -25,6 +25,7 @@ const en = {
     reports: "Reports",
     settings: "Settings",
     feedback: "Feedback",
+    website: "Website",
   },
 
   // ─── Common ─────────────────────────────────────────────────────────
@@ -73,6 +74,8 @@ const en = {
     cascadeCopy: "Cascade Copy",
     hashAlgorithms: "Hash Algorithms",
     startOffload: "Start Offload",
+    speedPriority: "Speed Priority",
+    speedPriorityHint: "Auto-sort destinations fastest-first (SSD > RAID > HDD > Network)",
     cascadeInfo:
       'Cascade mode: Files copy to <strong>{dest}</strong> first (fastest), then cascade to {count} secondary destination(s). Source card is freed sooner.',
     // Empty state

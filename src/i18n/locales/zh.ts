@@ -26,6 +26,7 @@ const zh: TranslationKeys = {
     reports: "报告",
     settings: "设置",
     feedback: "问题反馈",
+    website: "官网",
   },
 
   // ─── Common ─────────────────────────────────────────────────────────
@@ -74,6 +75,8 @@ const zh: TranslationKeys = {
     cascadeCopy: "级联拷贝",
     hashAlgorithms: "哈希算法",
     startOffload: "开始拷卡",
+    speedPriority: "速度优先",
+    speedPriorityHint: "自动按速度排序目标（SSD > RAID > HDD > Network）",
     cascadeInfo:
       '级联模式：文件先拷贝至 <strong>{dest}</strong>（最快目标），再级联至 {count} 个次级目标。源卡可更早释放。',
     // Empty state

@@ -11,6 +11,7 @@ import type {
   JobInfo,
   OffloadEventEnvelope,
   OffloadPhase,
+  VolumeInfoResponse,
   WorkflowPreset,
   StartOffloadRequest,
 } from "../../types";
@@ -342,6 +343,8 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
   // Drag-and-drop state for destination reorder
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  // Speed priority auto-sort
+  const [speedPriority, setSpeedPriority] = useState(false);
 
   // Offload options (can be overridden by preset or loaded from settings)
   const [hashAlgorithms, setHashAlgorithms] = useState<string[]>(["XXH64", "SHA256"]);
@@ -396,25 +399,78 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
   };
 
   // Drag-and-drop handlers for destination reorder
-  const handleDragStart = (index: number) => {
+  const dragIdxRef = useRef<number | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    dragIdxRef.current = index;
     setDragIdx(index);
+    e.dataTransfer.effectAllowed = "move";
+    // Required for Firefox
+    e.dataTransfer.setData("text/plain", String(index));
   };
 
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
     setDragOverIdx(index);
   };
 
-  const handleDragEnd = () => {
-    if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
-      const updated = [...destPaths];
-      const [moved] = updated.splice(dragIdx, 1);
-      updated.splice(dragOverIdx, 0, moved);
-      setDestPaths(updated);
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    const fromIdx = dragIdxRef.current;
+    if (fromIdx !== null && fromIdx !== dropIndex) {
+      setDestPaths((prev) => {
+        const updated = [...prev];
+        const [moved] = updated.splice(fromIdx, 1);
+        updated.splice(dropIndex, 0, moved);
+        return updated;
+      });
     }
+    dragIdxRef.current = null;
     setDragIdx(null);
     setDragOverIdx(null);
   };
+
+  const handleDragEnd = () => {
+    dragIdxRef.current = null;
+    setDragIdx(null);
+    setDragOverIdx(null);
+  };
+
+  // Speed priority: sort destinations by device speed (SSD > RAID > HDD > Network)
+  const sortBySpeed = useCallback(async (paths: string[]) => {
+    if (paths.length < 2) return paths;
+    const SPEED_RANK: Record<string, number> = { SSD: 0, SD: 1, RAID: 2, HDD: 3, Network: 4, Unknown: 5 };
+    try {
+      const result = await safeInvoke<CommandResult<VolumeInfoResponse[]>>("list_volumes");
+      if (!result.success || !result.data) return paths;
+      const volumes = result.data;
+      const getType = (p: string): string => {
+        // Match by mount point prefix
+        const vol = volumes.find((v) => p.startsWith(v.mountPoint));
+        return vol?.deviceType || "Unknown";
+      };
+      const sorted = [...paths].sort((a, b) => {
+        const ra = SPEED_RANK[getType(a)] ?? 5;
+        const rb = SPEED_RANK[getType(b)] ?? 5;
+        return ra - rb;
+      });
+      return sorted;
+    } catch {
+      return paths;
+    }
+  }, []);
+
+  // Auto-sort when speedPriority toggled on, or when paths change with speedPriority active
+  useEffect(() => {
+    if (speedPriority && destPaths.length >= 2) {
+      sortBySpeed(destPaths).then((sorted) => {
+        if (JSON.stringify(sorted) !== JSON.stringify(destPaths)) {
+          setDestPaths(sorted);
+        }
+      });
+    }
+  }, [speedPriority]); // only trigger on toggle, not on every destPaths change
 
   const handleApplyPreset = (presetId: string) => {
     const preset = presets.find((p) => p.id === presetId);
@@ -508,11 +564,12 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
             <div className="dest-list">
               {destPaths.map((path, i) => (
                 <div
-                  key={path}
+                  key={`dest-${i}`}
                   className={`dest-item${dragOverIdx === i ? " dest-drag-over" : ""}${dragIdx === i ? " dest-dragging" : ""}`}
                   draggable
-                  onDragStart={() => handleDragStart(i)}
+                  onDragStart={(e) => handleDragStart(e, i)}
                   onDragOver={(e) => handleDragOver(e, i)}
+                  onDrop={(e) => handleDrop(e, i)}
                   onDragEnd={handleDragEnd}
                 >
                   <span className="dest-drag-handle" title="Drag to reorder">&#9776;</span>
@@ -601,6 +658,16 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
                 />
                 {t.jobs.cascadeCopy}
               </label>
+              {cascade && destPaths.length >= 2 && (
+                <label className="checkbox-label speed-priority-label">
+                  <input
+                    type="checkbox"
+                    checked={speedPriority}
+                    onChange={(e) => setSpeedPriority(e.target.checked)}
+                  />
+                  {t.jobs.speedPriority}
+                </label>
+              )}
             </div>
           </div>
 
@@ -1114,6 +1181,13 @@ export function JobsView() {
     }
   };
 
+  // Toast state for brief feedback messages
+  const [toast, setToast] = useState<string | null>(null);
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
   // Save a job's config as a new workflow preset
   const handleSaveAsPreset = async (jobId: string, jobName: string) => {
     const presetName = window.prompt(t.jobs.saveAsPresetName, jobName);
@@ -1125,7 +1199,7 @@ export function JobsView() {
       });
       if (result.success) {
         setError(null);
-        // Brief success feedback (could use toast in the future)
+        showToast(`${t.jobs.saveAsPresetSuccess}: ${presetName}`);
       } else {
         setError(result.error || t.jobs.saveAsPresetFailed);
       }
@@ -2017,6 +2091,11 @@ export function JobsView() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="toast-notification">{toast}</div>
       )}
     </div>
   );

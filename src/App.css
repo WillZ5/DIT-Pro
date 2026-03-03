@@ -2632,3 +2632,49 @@
   color: #52525b;
   font-size: 13px;
 }
+
+/* ─── Toast Notification ─────────────────────────────────────────────── */
+
+.toast-notification {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #22c55e;
+  color: #fff;
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 9999;
+  pointer-events: none;
+  animation: toastSlideUp 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+@keyframes toastSlideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ─── Speed Priority ─────────────────────────────────────────────────── */
+
+.speed-priority-label {
+  font-size: 12px;
+  color: #a1a1aa;
+  margin-left: 4px;
+}
+
+.speed-priority-label input[type="checkbox"] {
+  accent-color: #60a5fa;
+}
+
+/* ─── Website Link Button ────────────────────────────────────────────── */
+
+.website-btn {
+  color: #52525b !important;
+}
+
+.website-btn:hover {
+  color: #a1a1aa !important;
+}

@@ -251,6 +251,14 @@
     border-radius: 50%;
     animation: pulse 2s ease-in-out infinite;
   }
+  .hero-kicker {
+    margin-bottom: 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.28em;
+    color: var(--text-tertiary);
+    animation: fadeUp 0.8s 0.05s ease both;
+  }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
@@ -281,6 +289,9 @@
   .hero-typing-prefix,
   .hero-typing-suffix {
     white-space: pre;
+  }
+  .hero-typing-suffix {
+    color: var(--text-primary);
   }
 
   .hero-sub {
@@ -926,6 +937,7 @@
     <span class="dot"></span>
     <span class="hero-badge-text">Open Source · v1.0.0 · Coming soon</span>
   </div>
+  <div class="hero-kicker">DIT PRO</div>
   <h1>Open-source<br><span class="accent">film offload tool.</span></h1>
   <p class="hero-sub">
     Professional-grade, open-source data integrity with a clear GUI for production teams.
@@ -1288,7 +1300,7 @@
       },
       hero: {
         badge: "开源项目 · v1.0.0 · 即将上线",
-        titleHtml: "<span class=\"accent hero-typing-line\"><span class=\"hero-typing-prefix\"></span><span class=\"hero-typing-suffix\"></span></span>",
+        titleHtml: "<span class=\"hero-typing-line\"><span class=\"hero-typing-prefix accent\"></span></span><br><span class=\"hero-typing-suffix\"></span>",
         sub: "面向专业拍摄现场的开源数据完整性保障，配备清晰直观的图形操作界面。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
         primary: "下载 · 即将上线",
         secondary: "了解更多 ↓",

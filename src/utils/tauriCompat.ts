@@ -134,6 +134,16 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
       return ok(0) as T;
     case "export_debug_bundle":
       return ok("/tmp/dit-debug-demo.json") as T;
+    case "check_for_update":
+      return {
+        hasUpdate: true,
+        latestVersion: "v1.0.2",
+        currentVersion: "v1.0.1",
+        releaseNotes: "Bug fixes and performance improvements.",
+        releaseUrl: "https://github.com/WillZ5/DIT-Pro/releases/latest",
+        downloadUrl: null,
+        publishedAt: "2026-03-10T00:00:00Z",
+      } as T;
     case "scan_source_size":
       return ok({ totalFiles: 342, totalBytes: 453_800_000_000 }) as T;
     case "preflight_check":

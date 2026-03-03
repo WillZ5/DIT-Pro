@@ -84,6 +84,17 @@ export interface VersionInfo {
   buildTime: string | null;
 }
 
+/** Update check result from Rust backend */
+export interface UpdateCheckResult {
+  hasUpdate: boolean;
+  latestVersion: string;
+  currentVersion: string;
+  releaseNotes: string;
+  releaseUrl: string;
+  downloadUrl: string | null;
+  publishedAt: string;
+}
+
 /** Error log entry from database */
 export interface ErrorLogEntry {
   id: number;

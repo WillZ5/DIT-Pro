@@ -349,6 +349,11 @@ const en = {
     system: "System",
     close: "Close",
   },
+  update: {
+    newVersion: "Update",
+    download: "Download latest version",
+    dismiss: "Dismiss",
+  },
   betaWarning: {
     title: "Testing Notice",
     message: "This software is currently in testing. Data integrity cannot be fully guaranteed. Please always keep the original source media until you have independently verified all copied files. Use at your own risk.",

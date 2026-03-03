@@ -346,6 +346,11 @@ const zh: TranslationKeys = {
     system: "系统",
     close: "关闭",
   },
+  update: {
+    newVersion: "\u65b0\u7248\u672c",
+    download: "\u4e0b\u8f7d\u6700\u65b0\u7248\u672c",
+    dismiss: "\u5ffd\u7565",
+  },
   betaWarning: {
     title: "测试提醒",
     message: "本软件目前仍处于测试阶段，数据完整性无法完全保证。请务必保留原始源素材，直到您已独立验证所有拷贝文件。使用本软件所产生的风险由用户自行承担。",

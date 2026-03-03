@@ -88,6 +88,7 @@ function App() {
   const [showBetaWarning, setShowBetaWarning] = useState(() => {
     return sessionStorage.getItem("dit-beta-dismissed") !== "1";
   });
+  const [updateInfo, setUpdateInfo] = useState<import("./types").UpdateCheckResult | null>(null);
   const [activeJobCount, setActiveJobCountState] = useState(0);
   const { t } = useI18n();
 
@@ -121,6 +122,40 @@ function App() {
   useEffect(() => {
     safeInvoke<VersionInfo>("get_app_version").then(setVersionInfo).catch(console.error);
   }, []);
+
+  // Check for updates on startup (non-blocking)
+  useEffect(() => {
+    const dismissed = sessionStorage.getItem("dit-update-dismissed");
+    safeInvoke<import("./types").UpdateCheckResult>("check_for_update")
+      .then((result) => {
+        if (result && result.hasUpdate && result.latestVersion !== dismissed) {
+          setUpdateInfo(result);
+        }
+      })
+      .catch((err) => console.warn("Update check skipped:", err));
+  }, []);
+
+  const handleUpdateClick = async () => {
+    if (!updateInfo) return;
+    const url = updateInfo.downloadUrl || updateInfo.releaseUrl;
+    try {
+      if (isTauri()) {
+        const { open } = await import("@tauri-apps/plugin-shell");
+        await open(url);
+      } else {
+        window.open(url, "_blank");
+      }
+    } catch {
+      window.open(url, "_blank");
+    }
+  };
+
+  const handleUpdateDismiss = () => {
+    if (updateInfo) {
+      sessionStorage.setItem("dit-update-dismissed", updateInfo.latestVersion);
+    }
+    setUpdateInfo(null);
+  };
 
   // Hold ⌘Q to quit — Rust detects hold via menu event timing,
   // frontend just shows/hides the toast via events.
@@ -181,6 +216,21 @@ function App() {
             <span className="nav-label">{t.nav.feedback}</span>
           </button>
         </div>
+
+        {updateInfo && (
+          <div className="sidebar-update">
+            <button className="update-available-btn" onClick={handleUpdateClick} title={t.update.download}>
+              <span className="update-icon">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 2v8M8 10l-3-3M8 10l3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M3 12h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              </span>
+              <span className="update-label">{t.update.newVersion} {updateInfo.latestVersion}</span>
+              <span className="update-dismiss" onClick={(e) => { e.stopPropagation(); handleUpdateDismiss(); }} title={t.update.dismiss}>x</span>
+            </button>
+          </div>
+        )}
 
         <div className="sidebar-footer">
           {IS_DEMO && <span className="demo-badge">{t.app.demo}</span>}

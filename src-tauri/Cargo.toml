@@ -53,6 +53,9 @@ notify = "6"
 thiserror = "1"
 anyhow = "1"
 
+# HTTP client (update checker)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
 # Date/time
 chrono = { version = "0.4", features = ["serde"] }
 

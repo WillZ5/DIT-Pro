@@ -49,6 +49,12 @@ fn get_app_version() -> version::VersionInfo {
     version::VersionInfo::current()
 }
 
+/// Tauri command: check for updates (GitHub → Gitee fallback)
+#[tauri::command]
+async fn check_for_update() -> Result<version::UpdateCheckResult, String> {
+    version::check_for_update().await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -213,6 +219,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // App
             get_app_version,
+            check_for_update,
             // Jobs
             commands::create_job,
             commands::get_job_progress,

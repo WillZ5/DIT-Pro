@@ -139,6 +139,160 @@ impl Default for VersionInfo {
     }
 }
 
+// ─── Update Checker ─────────────────────────────────────────────────────────
+
+/// Result of checking for a newer release on GitHub / Gitee.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    /// Whether a newer version is available
+    pub has_update: bool,
+    /// Latest version tag (e.g. "v1.0.2")
+    pub latest_version: String,
+    /// Current running version
+    pub current_version: String,
+    /// Release notes / body (Markdown)
+    pub release_notes: String,
+    /// Direct URL to the release page
+    pub release_url: String,
+    /// Download URL for the DMG asset (if found)
+    pub download_url: Option<String>,
+    /// Published date
+    pub published_at: String,
+}
+
+/// Minimal JSON shape returned by GitHub / Gitee Releases API.
+#[derive(Debug, Deserialize)]
+struct GhRelease {
+    tag_name: String,
+    body: Option<String>,
+    html_url: String,
+    published_at: Option<String>,
+    assets: Option<Vec<GhAsset>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+/// Compare two semver strings (e.g. "1.0.1" vs "1.0.2").
+/// Returns true if `remote` is newer than `local`.
+fn is_newer(local: &str, remote: &str) -> bool {
+    let parse = |s: &str| -> Vec<u64> {
+        s.trim_start_matches('v')
+            .split('.')
+            .filter_map(|p| p.parse::<u64>().ok())
+            .collect()
+    };
+    let l = parse(local);
+    let r = parse(remote);
+    for i in 0..3 {
+        let lv = l.get(i).copied().unwrap_or(0);
+        let rv = r.get(i).copied().unwrap_or(0);
+        if rv > lv {
+            return true;
+        }
+        if rv < lv {
+            return false;
+        }
+    }
+    false
+}
+
+const GITHUB_API: &str = "https://api.github.com/repos/WillZ5/DIT-Pro/releases/latest";
+const GITEE_API: &str = "https://gitee.com/api/v5/repos/willz5/DIT-Pro/releases/latest";
+
+/// Fetch the latest release from a single endpoint with timeout + retries.
+async fn fetch_release(url: &str, retries: u32, timeout_secs: u64) -> Result<GhRelease, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let mut last_err = String::new();
+    for attempt in 1..=retries {
+        match client
+            .get(url)
+            .header("User-Agent", "DIT-Pro-Updater")
+            .header("Accept", "application/json")
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<GhRelease>().await {
+                    Ok(release) => return Ok(release),
+                    Err(e) => last_err = format!("JSON parse error: {}", e),
+                }
+            }
+            Ok(resp) => {
+                last_err = format!("HTTP {}", resp.status());
+            }
+            Err(e) => {
+                last_err = format!("Request failed: {}", e);
+            }
+        }
+        if attempt < retries {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    }
+    Err(last_err)
+}
+
+/// Check for updates: GitHub first (10s timeout, 3 retries), fallback to Gitee.
+pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
+    let current = env!("CARGO_PKG_VERSION");
+
+    // Try GitHub first
+    let release = match fetch_release(GITHUB_API, 3, 10).await {
+        Ok(r) => {
+            log::info!("Update check: fetched from GitHub (tag={})", r.tag_name);
+            r
+        }
+        Err(gh_err) => {
+            log::warn!("GitHub update check failed: {}, trying Gitee...", gh_err);
+            // Fallback to Gitee
+            match fetch_release(GITEE_API, 3, 10).await {
+                Ok(r) => {
+                    log::info!("Update check: fetched from Gitee (tag={})", r.tag_name);
+                    r
+                }
+                Err(gitee_err) => {
+                    return Err(format!(
+                        "Update check failed — GitHub: {}; Gitee: {}",
+                        gh_err, gitee_err
+                    ));
+                }
+            }
+        }
+    };
+
+    let remote_ver = release.tag_name.trim_start_matches('v');
+    let has_update = is_newer(current, remote_ver);
+
+    // Find DMG asset
+    let download_url = release
+        .assets
+        .as_ref()
+        .and_then(|assets| {
+            assets
+                .iter()
+                .find(|a| a.name.ends_with(".dmg"))
+                .map(|a| a.browser_download_url.clone())
+        });
+
+    Ok(UpdateCheckResult {
+        has_update,
+        latest_version: release.tag_name,
+        current_version: format!("v{}", current),
+        release_notes: release.body.unwrap_or_default(),
+        release_url: release.html_url,
+        download_url,
+        published_at: release.published_at.unwrap_or_default(),
+    })
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

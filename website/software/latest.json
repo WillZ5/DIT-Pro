@@ -2,6 +2,6 @@
   "tag_name": "v1.0.1",
   "body": "## v1.0.1\n\n- Pre-flight destination space check\n- Cascade copy source release notification\n- Unified speed waveform chart\n- Update checker (GitHub + website fallback)\n- Bug fixes: SourceReleased timing, space check failure handling, speed chart phase collision",
   "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.0.1",
-  "published_at": "2026-03-03T00:00:00Z",
-  "download_url": "https://ditpro.negdims.com/software/DIT-Pro_latest_universal.dmg"
+  "published_at": "2026-03-03T21:33:23Z",
+  "download_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.0.1/DIT.Pro_1.0.1_universal.dmg"
 }

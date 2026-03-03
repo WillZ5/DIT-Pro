@@ -217,8 +217,8 @@ function App() {
         {currentView === "settings" && <SettingsView />}
       </main>
 
-      {/* Beta warning dialog */}
-      {showBetaWarning && (
+      {/* Beta warning dialog — only for non-stable channels */}
+      {showBetaWarning && versionInfo && versionInfo.channel !== "stable" && (
         <div className="dialog-overlay">
           <div className="dialog dialog--sm" onClick={(e) => e.stopPropagation()}>
             <div className="dialog-header">

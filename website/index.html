@@ -337,20 +337,16 @@
     color: var(--text-primary);
   }
 
-  .hero-preview {
+  .hero-terminal {
     margin-top: 80px;
     width: 100%;
-    max-width: 1200px;
+    max-width: 700px;
     animation: fadeUp 0.8s 0.5s ease both;
   }
 
-  .hero-preview img {
+  .hero-terminal img {
     width: 100%;
     height: auto;
-    display: block;
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
   }
 
   .terminal-window {
@@ -606,6 +602,20 @@
     font-size: 12px;
   }
 
+  .stack-showcase {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  }
+
+  .stack-showcase img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
   .stack-details {
     display: flex;
     flex-direction: column;
@@ -851,7 +861,7 @@
     .features-grid { grid-template-columns: 1fr; }
     .status-grid { grid-template-columns: repeat(2, 1fr); }
     .hero-actions { flex-direction: column; align-items: center; }
-    .hero-preview { margin-top: 60px; }
+    .hero-terminal { margin-top: 60px; }
     footer { flex-direction: column; gap: 24px; text-align: center; }
     .cta-actions { flex-direction: column; align-items: center; }
     .roadmap-item { grid-template-columns: 80px 30px 1fr; }
@@ -895,7 +905,7 @@
   </div>
   <h1>Secure backup<br>for <span class="accent">film.</span></h1>
   <p class="hero-sub">
-    Professional-grade data integrity for production.
+    Professional-grade data integrity with a clear GUI for production teams.
     No gimmicks. No guesswork. Just bulletproof backup.
   </p>
   <div class="hero-actions">
@@ -903,8 +913,27 @@
     <a href="#safety" class="btn-secondary">Learn more ↓</a>
   </div>
 
-  <div class="hero-preview">
-    <img src="./app-screenshot.png" alt="DIT Pro app interface screenshot">
+  <div class="hero-terminal">
+    <div class="terminal-window">
+      <div class="terminal-header">
+        <div class="terminal-dot red"></div>
+        <div class="terminal-dot yellow"></div>
+        <div class="terminal-dot green"></div>
+        <div class="terminal-title">dit-pro — offload</div>
+      </div>
+      <div class="terminal-body">
+        <span class="prompt">$</span> dit-pro offload <span class="flag">--source</span> <span class="value">/Volumes/ARRI_A001</span><br>
+        <span class="prompt">$</span> <span class="flag">--dest</span> <span class="value">/Volumes/SSD_01 /Volumes/HDD_SHUTTLE</span><br>
+        <span class="prompt">$</span> <span class="flag">--verify</span> <span class="value">xxh3,md5</span> <span class="flag">--mhl</span> <span class="value">asc-mhl</span><br>
+        <br>
+        <span class="comment">// offloading 847 files · 2.3 TB</span><br>
+        <span class="success">✓</span> SSD_01 &nbsp;&nbsp;&nbsp;━━━━━━━━━━━━━━ <span class="value">100%</span> · <span class="success">verified</span><br>
+        <span class="success">✓</span> HDD_SHUTTLE ━━━━━━━━━━━━━━ <span class="value">100%</span> · <span class="success">verified</span><br>
+        <span class="success">✓</span> ASC-MHL chain sealed · 2 generations<br>
+        <br>
+        <span class="prompt">$</span> <span class="success terminal-safe-text">SAFE TO FORMAT</span><span class="cursor"></span>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -955,7 +984,7 @@
     <h2 class="section-title">Built for the<br>chaos of set.</h2>
     <p class="section-desc">
       From 6AM call times to overnight data wrangling —
-      DIT Pro handles the pressure so you don't have to.
+      DIT Pro combines a clear GUI with reliable automation so you don't have to guess.
     </p>
   </div>
 
@@ -1001,33 +1030,8 @@
   </div>
 
   <div class="stack-layout reveal">
-    <div class="stack-code">
-      <div class="stack-code-header">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-        <span>stack.toml</span>
-      </div>
-      <div class="stack-code-body">
-        <span class="line-num">1</span><span class="bracket">[</span><span class="key">app</span><span class="bracket">]</span><br>
-        <span class="line-num">2</span><span class="key">name</span> = <span class="str">"DIT Pro"</span><br>
-        <span class="line-num">3</span><span class="key">version</span> = <span class="str">"1.0.0-rc.3"</span><br>
-        <span class="line-num">4</span><span class="key">platform</span> = <span class="str">"macOS"</span><br>
-        <span class="line-num">5</span><span class="key">silicon</span> = <span class="bool">true</span><br>
-        <span class="line-num">6</span><br>
-        <span class="line-num">7</span><span class="bracket">[</span><span class="key">frontend</span><span class="bracket">]</span><br>
-        <span class="line-num">8</span><span class="key">framework</span> = <span class="str">"React"</span><br>
-        <span class="line-num">9</span><span class="key">language</span> = <span class="str">"TypeScript"</span><br>
-        <span class="line-num">10</span><span class="key">views</span> = <span class="num">5</span><br>
-        <span class="line-num">11</span><br>
-        <span class="line-num">12</span><span class="bracket">[</span><span class="key">backend</span><span class="bracket">]</span><br>
-        <span class="line-num">13</span><span class="key">runtime</span> = <span class="str">"Tauri 2.0"</span><br>
-        <span class="line-num">14</span><span class="key">language</span> = <span class="str">"Rust"</span><br>
-        <span class="line-num">15</span><span class="key">modules</span> = <span class="num">15</span><br>
-        <span class="line-num">16</span><span class="key">commands</span> = <span class="num">44</span><br>
-        <span class="line-num">17</span><br>
-        <span class="line-num">18</span><span class="bracket">[</span><span class="key">database</span><span class="bracket">]</span><br>
-        <span class="line-num">19</span><span class="key">engine</span> = <span class="str">"SQLite"</span><br>
-        <span class="line-num">20</span><span class="key">tables</span> = <span class="num">16</span><br>
-      </div>
+    <div class="stack-showcase">
+      <img src="./app-screenshot.png" alt="DIT Pro clear GUI offload workflow preview">
     </div>
 
     <div class="stack-details">
@@ -1170,7 +1174,7 @@
 <!-- FOOTER -->
 <footer>
   <div class="footer-left">
-    © 2026 DIT Pro · Built with Tauri, Rust, and React
+    © 2026 DIT Pro · Mingxuan Zhao
   </div>
 </footer>
 
@@ -1188,7 +1192,7 @@
       hero: {
         badge: "v1.0.0 · Coming soon",
         titleHtml: "Secure backup<br>for <span class=\"accent\">film.</span>",
-        sub: "Professional-grade data integrity for production. No gimmicks. No guesswork. Just bulletproof backup.",
+        sub: "Professional-grade data integrity with a clear GUI for production teams. No gimmicks. No guesswork. Just bulletproof backup.",
         primary: "Download · Coming Soon",
         secondary: "Learn more ↓",
         terminalTitle: "dit-pro — offload",
@@ -1215,7 +1219,7 @@
       features: {
         label: "// capabilities",
         titleHtml: "Built for the<br>chaos of set.",
-        desc: "From 6AM call times to overnight data wrangling — DIT Pro handles the pressure so you don't have to.",
+        desc: "From 6AM call times to overnight data wrangling — DIT Pro combines a clear GUI with reliable automation so you don't have to guess.",
         tags: ["CORE", "CORE", "CORE", "ENGINE", "ENGINE", "WORKFLOW"],
         titles: [
           "Cascade Copy",
@@ -1288,7 +1292,7 @@
         secondary: "Coming Soon"
       },
       footer: {
-        left: "© 2026 DIT Pro · Built with Tauri, Rust, and React"
+        left: "© 2026 DIT Pro · Mingxuan Zhao"
       }
     },
     zh: {
@@ -1303,7 +1307,7 @@
       hero: {
         badge: "v1.0.0 · 即将上线",
         titleHtml: "为<span class=\"accent\">影视制作</span><br>提供安全备份",
-        sub: "面向专业拍摄现场的数据完整性保障。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
+        sub: "面向专业拍摄现场的数据完整性保障，配备清晰直观的 GUI。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
         primary: "下载 · 即将上线",
         secondary: "了解更多 ↓",
         terminalTitle: "dit-pro — 数据转储",
@@ -1330,7 +1334,7 @@
       features: {
         label: "// 核心能力",
         titleHtml: "专为片场的<br>高压混乱打造。",
-        desc: "从清晨开机到通宵整理数据，DIT Pro 扛住流程压力，让你专注拍摄本身。",
+        desc: "从清晨开机到通宵整理数据，DIT Pro 以清晰 GUI 和可靠自动化扛住流程压力，让你专注拍摄本身。",
         tags: ["核心", "核心", "核心", "引擎", "引擎", "工作流"],
         titles: [
           "级联拷贝",
@@ -1403,7 +1407,7 @@
         secondary: "即将上线"
       },
       footer: {
-        left: "© 2026 DIT Pro · 基于 Tauri、Rust 与 React 构建"
+        left: "© 2026 DIT Pro · Mingxuan Zhao"
       }
     }
   };

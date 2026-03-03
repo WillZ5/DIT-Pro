@@ -1418,11 +1418,27 @@
   const heroTypingConfig = {
     en: {
       prefixWords: ["Open-source", "Secure", "Free", "Community-powered", "Your first"],
-      suffix: "film offload tool."
+      suffix: "film offload tool.",
+      timings: {
+        typePrefix: 85,
+        typeSuffix: 85,
+        deletePrefix: 60,
+        hold: 900,
+        phaseSwitch: 80,
+        afterDelete: 150
+      }
     },
     zh: {
       prefixWords: ["开源的", "安全的", "免费的", "用爱发电的", "你的第一个"],
-      suffix: "影视拷卡工具"
+      suffix: "影视拷卡工具",
+      timings: {
+        typePrefix: 130,
+        typeSuffix: 120,
+        deletePrefix: 90,
+        hold: 1200,
+        phaseSwitch: 120,
+        afterDelete: 220
+      }
     }
   };
   let heroTypingTimer = null;
@@ -1441,6 +1457,7 @@
     const suffixEl = document.querySelector(".hero-typing-suffix");
     const config = heroTypingConfig[language];
     if (!prefixEl || !suffixEl || !config) return;
+    const timings = config.timings;
 
     let wordIndex = 0;
     let prefixLen = 0;
@@ -1465,11 +1482,11 @@
         if (prefixLen < currentWord.length) {
           prefixLen += 1;
           render();
-          next(130);
+          next(timings.typePrefix);
           return;
         }
         phase = "typeSuffixInitial";
-        next(120);
+        next(timings.phaseSwitch);
         return;
       }
 
@@ -1477,11 +1494,11 @@
         if (suffixLen < config.suffix.length) {
           suffixLen += 1;
           render();
-          next(120);
+          next(timings.typeSuffix);
           return;
         }
         phase = "hold";
-        next(1200);
+        next(timings.hold);
         return;
       }
 
@@ -1489,12 +1506,12 @@
         if (prefixLen > 0) {
           prefixLen -= 1;
           render();
-          next(90);
+          next(timings.deletePrefix);
           return;
         }
         wordIndex = (wordIndex + 1) % config.prefixWords.length;
         phase = "typePrefixLoop";
-        next(220);
+        next(timings.afterDelete);
         return;
       }
 
@@ -1503,16 +1520,16 @@
         if (prefixLen < nextWord.length) {
           prefixLen += 1;
           render();
-          next(130);
+          next(timings.typePrefix);
           return;
         }
         phase = "hold";
-        next(1200);
+        next(timings.hold);
         return;
       }
 
       phase = "deletePrefix";
-      next(120);
+      next(timings.phaseSwitch);
     };
 
     render();

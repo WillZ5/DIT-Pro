@@ -311,6 +311,15 @@
     animation: fadeUp 0.8s 0.3s ease both;
   }
 
+  .hero-install-note {
+    margin-top: 16px;
+    max-width: 760px;
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--text-tertiary);
+    animation: fadeUp 0.8s 0.35s ease both;
+  }
+
   .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -962,6 +971,9 @@
     <a href="https://github.com/WillZ5/DIT-Pro/releases/download/v1.0.0/DIT.Pro_1.0.0_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-primary hero-download-btn"><span class="hero-primary-text">Download latest</span></a>
     <a href="#safety" class="btn-secondary">Learn more ↓</a>
   </div>
+  <p class="hero-install-note">
+    DIT Pro is not signed by an Apple-verified developer. After installation, open "System Settings" >> "Privacy & Security", scroll down, then click "Open Anyway".
+  </p>
 
   <div class="hero-terminal">
     <div class="terminal-window">
@@ -1212,6 +1224,7 @@
         sub: "Professional-grade, open-source data integrity with a clear GUI for production teams. No gimmicks. No guesswork. Just bulletproof backup.",
         primary: "Download latest",
         primaryUrl: "https://github.com/WillZ5/DIT-Pro/releases/download/v1.0.0/DIT.Pro_1.0.0_universal.dmg",
+        installNote: "DIT Pro is not signed by an Apple-verified developer. After installation, open \"System Settings\" >> \"Privacy & Security\", scroll down, then click \"Open Anyway\".",
         secondary: "Learn more ↓",
         terminalTitle: "dit-pro — offload",
         terminalComment: "// offloading 847 files · 2.3 TB",
@@ -1320,6 +1333,7 @@
         sub: "面向专业拍摄现场的开源数据完整性保障，配备清晰直观的图形操作界面。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
         primary: "下载最新版",
         primaryUrl: "https://gitee.com/madmants/DIT-Pro/releases/download/v1.0.0/DIT.Pro_1.0.0_universal.dmg",
+        installNote: "由于DIT Pro不是苹果验证的开发者请在安装软件后按照以下步骤操作：<br>打开“系统设置”>>“隐私与安全性”，向下滚动点击“仍要打开”",
         secondary: "了解更多 ↓",
         terminalTitle: "dit-pro — 数据转储",
         terminalComment: "// 正在数据转储 847 个文件 · 2.3 TB",
@@ -1581,6 +1595,7 @@
     if (heroDownloadBtn && t.hero.primaryUrl) {
       heroDownloadBtn.setAttribute("href", t.hero.primaryUrl);
     }
+    setHtml(".hero-install-note", t.hero.installNote);
     setText(".hero-actions .btn-secondary", t.hero.secondary);
     setText(".terminal-title", t.hero.terminalTitle);
     setText(".terminal-body .comment", t.hero.terminalComment);

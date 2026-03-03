@@ -252,12 +252,10 @@ async fn fetch_json<T: serde::de::DeserializeOwned>(
             .send()
             .await
         {
-            Ok(resp) if resp.status().is_success() => {
-                match resp.json::<T>().await {
-                    Ok(data) => return Ok(data),
-                    Err(e) => last_err = format!("JSON parse error: {}", e),
-                }
-            }
+            Ok(resp) if resp.status().is_success() => match resp.json::<T>().await {
+                Ok(data) => return Ok(data),
+                Err(e) => last_err = format!("JSON parse error: {}", e),
+            },
             Ok(resp) => {
                 last_err = format!("HTTP {}", resp.status());
             }
@@ -304,15 +302,12 @@ pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
     let has_update = is_newer(current, remote_ver);
 
     // Find DMG asset
-    let download_url = release
-        .assets
-        .as_ref()
-        .and_then(|assets| {
-            assets
-                .iter()
-                .find(|a| a.name.ends_with(".dmg"))
-                .map(|a| a.browser_download_url.clone())
-        });
+    let download_url = release.assets.as_ref().and_then(|assets| {
+        assets
+            .iter()
+            .find(|a| a.name.ends_with(".dmg"))
+            .map(|a| a.browser_download_url.clone())
+    });
 
     Ok(UpdateCheckResult {
         has_update,

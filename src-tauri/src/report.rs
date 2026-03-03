@@ -674,6 +674,7 @@ mod tests {
                 id TEXT PRIMARY KEY, name TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
                 source_path TEXT NOT NULL,
+                config_json TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );

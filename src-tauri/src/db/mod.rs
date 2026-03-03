@@ -31,6 +31,7 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
             name        TEXT NOT NULL,
             status      TEXT NOT NULL DEFAULT 'pending',
             source_path TEXT NOT NULL,
+            config_json TEXT,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -108,6 +109,9 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
 
     // Migration: add retry_note column for tracking retry history per file
     let _ = conn.execute_batch("ALTER TABLE copy_tasks ADD COLUMN retry_note TEXT");
+
+    // Migration: add config_json column for job re-run support
+    let _ = conn.execute_batch("ALTER TABLE jobs ADD COLUMN config_json TEXT");
 
     Ok(conn)
 }

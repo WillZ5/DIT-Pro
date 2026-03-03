@@ -164,6 +164,18 @@ const zh: TranslationKeys = {
     phaseStarting: "正在启动...",
     phaseResuming: "正在恢复...",
     phaseResumedOffload: "已恢复拷卡",
+    // Re-run
+    rerun: "重新运行",
+    rerunStarting: "正在启动重新运行...",
+    rerunSuccess: "重新运行已启动",
+    rerunFailed: "启动重新运行失败",
+    rerunNoConfig: "该任务没有保存的配置",
+    // Save as preset
+    saveAsPreset: "保存为预设",
+    saveAsPresetTitle: "保存任务配置为预设",
+    saveAsPresetName: "预设名称",
+    saveAsPresetSuccess: "预设已保存",
+    saveAsPresetFailed: "保存预设失败",
     // Job detail dropdown
     details: "详情",
     currentFile: "当前文件",
@@ -186,6 +198,7 @@ const zh: TranslationKeys = {
     unknownCapacity: "容量未知",
     networkNoLimit: "无容量限制",
     openInFinder: "点击在访达中打开",
+    quickCopy: "从此拷贝",
   },
 
   // ─── Presets View ───────────────────────────────────────────────────

@@ -26,6 +26,7 @@ fn setup_db() -> Connection {
             id TEXT PRIMARY KEY, name TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             source_path TEXT NOT NULL,
+            config_json TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -96,6 +97,7 @@ async fn test_power_failure_mid_copy_recovery() {
         "job-power",
         "Power Failure Test",
         src_dir.path().to_str().unwrap(),
+        None,
     )
     .unwrap();
 
@@ -204,6 +206,7 @@ async fn test_cable_pull_multi_destination_recovery() {
         "job-cable",
         "Cable Pull Test",
         src_dir.path().to_str().unwrap(),
+        None,
     )
     .unwrap();
 
@@ -317,7 +320,7 @@ async fn test_atomic_finalize_complete_file() {
 #[tokio::test]
 async fn test_recovery_all_completed_noop() {
     let conn = setup_db();
-    checkpoint::create_job(&conn, "job-clean", "Clean Job", "/src").unwrap();
+    checkpoint::create_job(&conn, "job-clean", "Clean Job", "/src", None).unwrap();
     checkpoint::insert_task(&conn, "t-1", "job-clean", "/src/a.mov", "/dst/a.mov", 100).unwrap();
     let task_hashes = TaskHashes {
         xxh64: Some("hash".to_string()),
@@ -340,7 +343,7 @@ async fn test_recovery_all_completed_noop() {
 #[tokio::test]
 async fn test_repeated_failure_retry_tracking() {
     let conn = setup_db();
-    checkpoint::create_job(&conn, "job-retry", "Retry Test", "/src").unwrap();
+    checkpoint::create_job(&conn, "job-retry", "Retry Test", "/src", None).unwrap();
     checkpoint::insert_task(
         &conn,
         "t-1",
@@ -512,7 +515,7 @@ async fn test_large_job_recovery_100_files() {
     let dst_dir = tempdir().unwrap();
     let conn = setup_db();
 
-    checkpoint::create_job(&conn, "job-large", "Large Job", "/Volumes/CARD_A").unwrap();
+    checkpoint::create_job(&conn, "job-large", "Large Job", "/Volumes/CARD_A", None).unwrap();
 
     // Insert 100 tasks
     for i in 1..=100 {

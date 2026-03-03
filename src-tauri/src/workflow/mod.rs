@@ -980,10 +980,8 @@ impl OffloadWorkflow {
         };
 
         // success must incorporate both this round and overall DB state
-        let success = failed_count == 0
-            && errors.is_empty()
-            && overall_failed == 0
-            && overall_pending == 0;
+        let success =
+            failed_count == 0 && errors.is_empty() && overall_failed == 0 && overall_pending == 0;
 
         {
             let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -1127,11 +1125,15 @@ impl OffloadWorkflow {
     fn create_db_records(&self, files: &[SourceFile]) -> Result<()> {
         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
 
+        // Serialize offload config for re-run support
+        let config_json = serde_json::to_string(&self.config).ok();
+
         checkpoint::create_job(
             &conn,
             &self.config.job_id,
             &self.config.job_name,
             self.config.source_path.to_string_lossy().as_ref(),
+            config_json.as_deref(),
         )?;
 
         for file in files {
@@ -2794,6 +2796,7 @@ mod tests {
                 id TEXT PRIMARY KEY, name TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
                 source_path TEXT NOT NULL,
+                config_json TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );

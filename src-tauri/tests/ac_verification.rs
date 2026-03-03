@@ -562,6 +562,7 @@ fn ac5_job_report_html_per_file_hashes() {
         "test-job-001",
         "AC5 Test Offload",
         "/Volumes/LUMIX/DCIM",
+        None,
     )
     .unwrap();
 
@@ -662,7 +663,7 @@ fn ac5_report_save_to_disk() {
     let conn = setup_db(&db_path);
 
     // Create a minimal job
-    checkpoint::create_job(&conn, "save-test", "Save Test Job", "/tmp/source").unwrap();
+    checkpoint::create_job(&conn, "save-test", "Save Test Job", "/tmp/source", None).unwrap();
     conn.execute(
         "UPDATE jobs SET status = 'completed' WHERE id = 'save-test'",
         [],

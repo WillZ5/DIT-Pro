@@ -144,6 +144,29 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
         downloadUrl: null,
         publishedAt: "2026-03-10T00:00:00Z",
       } as T;
+    case "get_job_config":
+      return ok('{"job_id":"demo","job_name":"Demo Job","source_path":"/Volumes/CARD_A","dest_paths":["/Volumes/Backup1"],"hash_algorithms":["XXH64","SHA256"],"buffer_size":1048576,"source_verify":true,"post_verify":true,"generate_mhl":true,"max_retries":3,"cascade":false,"conflict_resolutions":{}}') as T;
+    case "rerun_offload":
+      return ok(`demo-rerun-${Date.now()}`) as T;
+    case "save_job_as_preset": {
+      const preset = {
+        id: `preset-${Date.now()}`,
+        name: (args as { presetName?: string })?.presetName || "Saved Preset",
+        description: "",
+        hashAlgorithms: ["XXH64", "SHA256"],
+        sourceVerify: true,
+        postVerify: true,
+        generateMhl: true,
+        bufferSize: 4194304,
+        maxRetries: 3,
+        cascade: false,
+        defaultDestPaths: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      demoStore.presets.push(preset);
+      return ok(preset) as T;
+    }
     case "scan_source_size":
       return ok({ totalFiles: 342, totalBytes: 453_800_000_000 }) as T;
     case "preflight_check":

@@ -190,8 +190,8 @@ pub async fn create_job(
 
     let conn = state.db.lock().map_err(|e| e.to_string())?;
 
-    // Create the job
-    checkpoint::create_job(&conn, &job_id, &request.name, &request.source_path)
+    // Create the job (no config_json for create_job command — it's a simple API)
+    checkpoint::create_job(&conn, &job_id, &request.name, &request.source_path, None)
         .map_err(|e| e.to_string())?;
 
     // Create copy tasks for each file × each destination
@@ -1528,6 +1528,62 @@ pub fn delete_preset(
     }
 }
 
+/// Save a job's configuration as a new workflow preset.
+/// Reads the stored config_json from the job, extracts relevant fields,
+/// and creates a new preset.
+#[tauri::command]
+pub fn save_job_as_preset(
+    state: State<'_, AppState>,
+    job_id: String,
+    preset_name: String,
+) -> Result<CommandResult<WorkflowPreset>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let config_json = checkpoint::get_job_config(&conn, &job_id).map_err(|e| e.to_string())?;
+
+    let config_str = match config_json {
+        Some(s) => s,
+        None => {
+            return Ok(CommandResult::err(
+                "No saved configuration for this job".to_string(),
+            ))
+        }
+    };
+
+    let config: workflow::OffloadConfig =
+        serde_json::from_str(&config_str).map_err(|e| format!("Invalid config JSON: {}", e))?;
+
+    let preset_data = WorkflowPreset {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: preset_name,
+        description: String::new(),
+        hash_algorithms: config
+            .hash_algorithms
+            .iter()
+            .map(|a| format!("{:?}", a))
+            .collect(),
+        source_verify: config.source_verify,
+        post_verify: config.post_verify,
+        generate_mhl: config.generate_mhl,
+        buffer_size: config.buffer_size,
+        max_retries: config.max_retries,
+        cascade: config.cascade,
+        default_dest_paths: config
+            .dest_paths
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    drop(conn); // release DB lock before file I/O
+
+    match preset::create_preset(&state.app_data_dir, preset_data) {
+        Ok(p) => Ok(CommandResult::ok(p)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
 // ─── Report Commands ──────────────────────────────────────────────────────
 
 /// Get list of dates that have offload jobs (for report date picker)
@@ -1663,6 +1719,204 @@ pub fn save_smtp_password(
     config::save_settings(&state.app_data_dir, &settings).map_err(|e| e.to_string())?;
 
     Ok(CommandResult::ok(true))
+}
+
+// ─── Re-run / Config Commands ─────────────────────────────────────────────
+
+/// Get the stored config JSON for a completed/failed job (for re-run support).
+#[tauri::command]
+pub fn get_job_config(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<CommandResult<Option<String>>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    match checkpoint::get_job_config(&conn, &job_id) {
+        Ok(config) => Ok(CommandResult::ok(config)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+/// Re-run a completed/failed job with its original (or modified) configuration.
+/// Deserializes the stored config_json, generates a new job_id, and launches a new workflow.
+#[tauri::command]
+pub async fn rerun_offload(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    original_job_id: String,
+    override_name: Option<String>,
+) -> Result<CommandResult<String>, String> {
+    // 1. Retrieve stored config
+    let config_json = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        checkpoint::get_job_config(&conn, &original_job_id).map_err(|e| e.to_string())?
+    };
+
+    let config_str = match config_json {
+        Some(s) => s,
+        None => {
+            return Ok(CommandResult::err(
+                "No saved configuration for this job".to_string(),
+            ))
+        }
+    };
+
+    // 2. Deserialize into OffloadConfig
+    let mut config: workflow::OffloadConfig =
+        serde_json::from_str(&config_str).map_err(|e| format!("Invalid config JSON: {}", e))?;
+
+    // 3. Assign new job_id + optional name override
+    let new_job_id = uuid::Uuid::new_v4().to_string();
+    config.job_id = new_job_id.clone();
+    if let Some(name) = override_name {
+        config.job_name = name;
+    } else {
+        // Append "(Re-run)" to original name
+        config.job_name = format!("{} (Re-run)", config.job_name);
+    }
+
+    // Clear conflict resolutions from previous run
+    config.conflict_resolutions.clear();
+
+    // 4. Launch workflow (same as start_offload)
+    let db = state.db.clone();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let cancel_token = CancelToken::new();
+    let pause_token = PauseToken::new();
+    {
+        let mut workflows = state.active_workflows.lock().map_err(|e| e.to_string())?;
+        workflows.insert(
+            new_job_id.clone(),
+            WorkflowHandle {
+                cancel: cancel_token.clone(),
+                pause: pause_token.clone_token(),
+            },
+        );
+    }
+
+    let email_settings = state
+        .settings
+        .lock()
+        .map_err(|e| e.to_string())?
+        .email
+        .clone();
+    let offload_name = config.job_name.clone();
+    let notify_app_data_dir = state.app_data_dir.clone();
+    let active_workflows = state.active_workflows.clone();
+    let db_for_status = state.db.clone();
+
+    let job_id_for_task = new_job_id.clone();
+    tokio::spawn(async move {
+        let wf = workflow::OffloadWorkflow::with_cancel_and_pause(
+            config,
+            db,
+            tx,
+            cancel_token,
+            pause_token,
+        );
+        match wf.execute().await {
+            Ok(result) => {
+                log::info!(
+                    "Re-run offload {} completed: {} files, {:.1}s",
+                    job_id_for_task,
+                    result.total_files,
+                    result.duration_secs
+                );
+                if email_settings.enabled {
+                    let event = NotifyEvent::OffloadCompleted {
+                        job_id: job_id_for_task.clone(),
+                        job_name: offload_name.clone(),
+                        file_count: result.total_files,
+                        total_bytes: result.total_bytes,
+                        duration_secs: result.duration_secs,
+                        mhl_generated: !result.mhl_paths.is_empty(),
+                        warnings: result.errors.clone(),
+                    };
+                    if let Err(e) =
+                        notify::send_notification(&email_settings, &event, &notify_app_data_dir)
+                            .await
+                    {
+                        log::warn!("Failed to send completion notification: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                let err_msg = e.to_string();
+                if err_msg.contains("cancelled by user") {
+                    log::info!("Re-run offload {} terminated by user", job_id_for_task);
+                    wf.emit(workflow::OffloadEvent::Terminated);
+                    if let Ok(conn) = db_for_status.lock() {
+                        let dit_err = crate::error::DitError::CopyCancelled;
+                        let _ = crate::error_log::log_error(
+                            &conn,
+                            &dit_err,
+                            "workflow::rerun",
+                            Some(&job_id_for_task),
+                            None,
+                        );
+                        checkpoint::update_job_status(
+                            &conn,
+                            &job_id_for_task,
+                            checkpoint::STATUS_TERMINATED,
+                        )
+                        .ok();
+                    }
+                } else {
+                    log::error!("Re-run offload {} failed: {}", job_id_for_task, e);
+                    if let Ok(conn) = db_for_status.lock() {
+                        let dit_err = crate::error::DitError::from(e);
+                        let _ = crate::error_log::log_error(
+                            &conn,
+                            &dit_err,
+                            "workflow::rerun",
+                            Some(&job_id_for_task),
+                            None,
+                        );
+                    }
+                    if email_settings.enabled {
+                        let event = NotifyEvent::OffloadFailed {
+                            job_id: job_id_for_task.clone(),
+                            job_name: offload_name.clone(),
+                            error: err_msg,
+                        };
+                        if let Err(e) =
+                            notify::send_notification(&email_settings, &event, &notify_app_data_dir)
+                                .await
+                        {
+                            log::warn!("Failed to send failure notification: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(mut workflows) = active_workflows.lock() {
+            workflows.remove(&job_id_for_task);
+        }
+    });
+
+    // Event forwarder
+    let job_id_for_events = new_job_id.clone();
+    tokio::spawn(async move {
+        crate::tray::update_tray_icon(&app, crate::tray::TrayState::Active);
+        while let Some(event) = rx.recv().await {
+            match &event {
+                workflow::OffloadEvent::Complete { .. } => {
+                    crate::tray::update_tray_icon(&app, crate::tray::TrayState::Idle);
+                }
+                workflow::OffloadEvent::Error { .. } => {
+                    crate::tray::update_tray_icon(&app, crate::tray::TrayState::Error);
+                }
+                _ => {}
+            }
+            let envelope = OffloadEventEnvelope {
+                job_id: job_id_for_events.clone(),
+                event,
+            };
+            app.emit("offload-event", &envelope).ok();
+        }
+    });
+
+    Ok(CommandResult::ok(new_job_id))
 }
 
 // ─── Workflow Control Commands ─────────────────────────────────────────────

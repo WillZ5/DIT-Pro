@@ -955,6 +955,24 @@
   gap: 8px;
 }
 
+.btn-quick-copy {
+  margin-top: 8px;
+  padding: 5px 12px;
+  border: 1px solid #3b82f6;
+  border-radius: 6px;
+  background: transparent;
+  color: #60a5fa;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.15s;
+}
+
+.btn-quick-copy:hover {
+  background: #3b82f618;
+}
+
 .warning-badge {
   font-size: 9px;
   font-weight: 700;
@@ -1843,6 +1861,32 @@
   background: #18181b;
   border: 1px solid #1c1c22;
   border-radius: 8px;
+  cursor: grab;
+  transition: border-color 0.15s, opacity 0.15s;
+}
+
+.dest-item:active {
+  cursor: grabbing;
+}
+
+.dest-item.dest-dragging {
+  opacity: 0.4;
+}
+
+.dest-item.dest-drag-over {
+  border-color: #3b82f6;
+}
+
+.dest-drag-handle {
+  color: #52525b;
+  font-size: 12px;
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.dest-drag-handle:active {
+  cursor: grabbing;
 }
 
 .dest-index {
@@ -2224,6 +2268,44 @@
 .btn-recover.btn-sm {
   border-color: #f59e0b;
   color: #fbbf24;
+}
+
+.btn-rerun {
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid #3b82f6;
+  background: transparent;
+  color: #60a5fa;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-rerun:hover {
+  background: #3b82f615;
+}
+
+.btn-rerun.btn-sm {
+  border-color: #3b82f6;
+  color: #60a5fa;
+}
+
+.btn-save-preset {
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid #8b5cf6;
+  background: transparent;
+  color: #a78bfa;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-save-preset:hover {
+  background: #8b5cf615;
+}
+
+.btn-save-preset.btn-sm {
+  border-color: #8b5cf6;
+  color: #a78bfa;
 }
 
 .btn-terminate {

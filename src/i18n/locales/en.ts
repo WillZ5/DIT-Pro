@@ -163,6 +163,18 @@ const en = {
     phaseStarting: "Starting...",
     phaseResuming: "Resuming...",
     phaseResumedOffload: "Resumed Offload",
+    // Re-run
+    rerun: "Re-run",
+    rerunStarting: "Starting re-run...",
+    rerunSuccess: "Re-run started",
+    rerunFailed: "Failed to start re-run",
+    rerunNoConfig: "No saved configuration for this job",
+    // Save as preset
+    saveAsPreset: "Save as Preset",
+    saveAsPresetTitle: "Save Job Config as Preset",
+    saveAsPresetName: "Preset Name",
+    saveAsPresetSuccess: "Preset saved",
+    saveAsPresetFailed: "Failed to save preset",
     // Job detail dropdown
     details: "Details",
     currentFile: "Current File",
@@ -185,6 +197,7 @@ const en = {
     unknownCapacity: "Unknown capacity",
     networkNoLimit: "No capacity limit",
     openInFinder: "Click to open in Finder",
+    quickCopy: "Copy From",
   },
 
   // ─── Presets View ───────────────────────────────────────────────────

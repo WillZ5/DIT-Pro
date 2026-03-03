@@ -244,6 +244,8 @@ pub fn run() {
             // Workflow
             commands::start_offload,
             commands::resume_offload,
+            commands::rerun_offload,
+            commands::get_job_config,
             commands::pause_offload,
             commands::resume_paused_offload,
             commands::terminate_offload,
@@ -260,6 +262,7 @@ pub fn run() {
             commands::create_preset,
             commands::update_preset,
             commands::delete_preset,
+            commands::save_job_as_preset,
             // Reports
             commands::get_report_dates,
             commands::get_day_report,

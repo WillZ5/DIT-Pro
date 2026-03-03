@@ -322,9 +322,10 @@ function ConflictResolutionDialog({ conflicts, onResolve, onCancel }: ConflictRe
 interface NewOffloadDialogProps {
   onStart: (request: StartOffloadRequest) => void;
   onCancel: () => void;
+  initialSourcePath?: string;
 }
 
-function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
+function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDialogProps) {
   const { t, locale } = useI18n();
   const [name, setName] = useState(() => {
     const now = new Date();
@@ -333,10 +334,14 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
     });
     return `${locale === "zh" ? "拷贝" : "Offload"} ${dateStr}`;
   });
-  const [sourcePath, setSourcePath] = useState("");
+  const [sourcePath, setSourcePath] = useState(initialSourcePath || "");
   const [destPaths, setDestPaths] = useState<string[]>([]);
   const [presets, setPresets] = useState<WorkflowPreset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
+
+  // Drag-and-drop state for destination reorder
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
   // Offload options (can be overridden by preset or loaded from settings)
   const [hashAlgorithms, setHashAlgorithms] = useState<string[]>(["XXH64", "SHA256"]);
@@ -390,6 +395,27 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
     setDestPaths(destPaths.filter((_, i) => i !== index));
   };
 
+  // Drag-and-drop handlers for destination reorder
+  const handleDragStart = (index: number) => {
+    setDragIdx(index);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    setDragOverIdx(index);
+  };
+
+  const handleDragEnd = () => {
+    if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
+      const updated = [...destPaths];
+      const [moved] = updated.splice(dragIdx, 1);
+      updated.splice(dragOverIdx, 0, moved);
+      setDestPaths(updated);
+    }
+    setDragIdx(null);
+    setDragOverIdx(null);
+  };
+
   const handleApplyPreset = (presetId: string) => {
     const preset = presets.find((p) => p.id === presetId);
     if (!preset) {
@@ -402,7 +428,7 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
     setPostVerify(preset.postVerify);
     setGenerateMhl(preset.generateMhl);
     setCascade(preset.cascade);
-    if (preset.defaultDestPaths.length > 0 && destPaths.length === 0) {
+    if (preset.defaultDestPaths.length > 0) {
       setDestPaths(preset.defaultDestPaths);
     }
   };
@@ -481,7 +507,15 @@ function NewOffloadDialog({ onStart, onCancel }: NewOffloadDialogProps) {
             </label>
             <div className="dest-list">
               {destPaths.map((path, i) => (
-                <div key={path} className="dest-item">
+                <div
+                  key={path}
+                  className={`dest-item${dragOverIdx === i ? " dest-drag-over" : ""}${dragIdx === i ? " dest-dragging" : ""}`}
+                  draggable
+                  onDragStart={() => handleDragStart(i)}
+                  onDragOver={(e) => handleDragOver(e, i)}
+                  onDragEnd={handleDragEnd}
+                >
+                  <span className="dest-drag-handle" title="Drag to reorder">&#9776;</span>
                   <span className="dest-index">{i === 0 && cascade ? t.jobs.primary : `${t.jobs.dest} ${i + 1}`}</span>
                   <span className="dest-path" title={path}>{path}</span>
                   <button
@@ -635,6 +669,7 @@ export function JobsView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showNewDialog, setShowNewDialog] = useState(false);
+  const [quickCopySource, setQuickCopySource] = useState<string | undefined>();
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [selectedJobs, setSelectedJobs] = useState<Set<string>>(new Set());
   const [showTerminateConfirm, setShowTerminateConfirm] = useState(false);
@@ -675,6 +710,19 @@ export function JobsView() {
     const interval = setInterval(loadJobs, 3000);
     return () => clearInterval(interval);
   }, [loadJobs]);
+
+  // Listen for quick-copy events from VolumeView
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ mountPoint: string }>).detail;
+      if (detail?.mountPoint) {
+        setQuickCopySource(detail.mountPoint);
+        setShowNewDialog(true);
+      }
+    };
+    window.addEventListener("dit-quick-copy", handler);
+    return () => window.removeEventListener("dit-quick-copy", handler);
+  }, []);
 
   // Listen for real-time offload events (only in Tauri)
   useEffect(() => {
@@ -1040,6 +1088,52 @@ export function JobsView() {
     }
   };
 
+  // Re-run a completed/failed/terminated job with its saved config
+  const handleRerun = async (jobId: string) => {
+    try {
+      setError(null);
+      const result = await safeInvoke<CommandResult<string>>("rerun_offload", {
+        originalJobId: jobId,
+      });
+      if (result.success && result.data) {
+        const newJobId = result.data;
+        // Pre-register the new ActiveOffload
+        const origJob = jobs.find((j) => j.id === jobId);
+        const rerunName = origJob ? `${origJob.name} (Re-run)` : "Re-run";
+        setActiveOffloads((prev) => {
+          const next = new Map(prev);
+          next.set(newJobId, createActiveOffload(newJobId, rerunName));
+          return next;
+        });
+        await loadJobs();
+      } else {
+        setError(result.error || t.jobs.rerunFailed);
+      }
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  // Save a job's config as a new workflow preset
+  const handleSaveAsPreset = async (jobId: string, jobName: string) => {
+    const presetName = window.prompt(t.jobs.saveAsPresetName, jobName);
+    if (!presetName) return;
+    try {
+      const result = await safeInvoke<CommandResult<unknown>>("save_job_as_preset", {
+        jobId,
+        presetName,
+      });
+      if (result.success) {
+        setError(null);
+        // Brief success feedback (could use toast in the future)
+      } else {
+        setError(result.error || t.jobs.saveAsPresetFailed);
+      }
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const getStatusColor = (status: string): string => {
     switch (status) {
       case "completed":
@@ -1314,7 +1408,8 @@ export function JobsView() {
       {showNewDialog && (
         <NewOffloadDialog
           onStart={handleStartOffload}
-          onCancel={() => setShowNewDialog(false)}
+          onCancel={() => { setShowNewDialog(false); setQuickCopySource(undefined); }}
+          initialSourcePath={quickCopySource}
         />
       )}
 
@@ -1848,6 +1943,24 @@ export function JobsView() {
                         {t.common.recover}
                       </button>
                     )}
+                  {(job.status === "completed" || job.status === "failed" || job.status === "terminated" || job.status === "completed_with_errors") && (
+                    <>
+                      <button
+                        className="btn-rerun btn-sm"
+                        onClick={() => handleRerun(job.id)}
+                        title={t.jobs.rerun}
+                      >
+                        {t.jobs.rerun}
+                      </button>
+                      <button
+                        className="btn-save-preset btn-sm"
+                        onClick={() => handleSaveAsPreset(job.id, job.name)}
+                        title={t.jobs.saveAsPreset}
+                      >
+                        {t.jobs.saveAsPreset}
+                      </button>
+                    </>
+                  )}
                   <button
                     className="btn-delete"
                     onClick={() => handleDeleteConfirm(job.id)}

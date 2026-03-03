@@ -180,6 +180,18 @@ export function VolumeView() {
                   <span style={{ color: "#888" }}>{vol.deviceType === "Network" ? t.volumes.networkNoLimit : "—"}</span>
                 </div>
               )}
+              {vol.isMounted && (
+                <button
+                  className="btn-quick-copy"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.dispatchEvent(new CustomEvent("dit-quick-copy", { detail: { mountPoint: vol.mountPoint } }));
+                  }}
+                  title={t.volumes.quickCopy}
+                >
+                  {t.volumes.quickCopy}
+                </button>
+              )}
             </div>
           ))}
         </div>

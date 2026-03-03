@@ -97,6 +97,13 @@ function App() {
     return subscribeActiveJobCount(setActiveJobCountState);
   }, []);
 
+  // Listen for quick-copy event from VolumeView → switch to jobs view
+  useEffect(() => {
+    const handler = () => setCurrentView("jobs");
+    window.addEventListener("dit-quick-copy", handler);
+    return () => window.removeEventListener("dit-quick-copy", handler);
+  }, []);
+
   const handleFeedback = async () => {
     try {
       if (isTauri()) {

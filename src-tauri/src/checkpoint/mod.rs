@@ -53,12 +53,28 @@ pub struct CheckpointRecord {
 }
 
 /// Create a new job in the database
-pub fn create_job(conn: &Connection, job_id: &str, name: &str, source_path: &str) -> Result<()> {
+pub fn create_job(
+    conn: &Connection,
+    job_id: &str,
+    name: &str,
+    source_path: &str,
+    config_json: Option<&str>,
+) -> Result<()> {
     conn.execute(
-        "INSERT INTO jobs (id, name, status, source_path) VALUES (?1, ?2, 'pending', ?3)",
-        params![job_id, name, source_path],
+        "INSERT INTO jobs (id, name, status, source_path, config_json) VALUES (?1, ?2, 'pending', ?3, ?4)",
+        params![job_id, name, source_path, config_json],
     )?;
     Ok(())
+}
+
+/// Get stored config JSON for a job (used for re-run)
+pub fn get_job_config(conn: &Connection, job_id: &str) -> Result<Option<String>> {
+    let config: Option<String> = conn.query_row(
+        "SELECT config_json FROM jobs WHERE id = ?1",
+        params![job_id],
+        |row| row.get(0),
+    )?;
+    Ok(config)
 }
 
 /// Insert a new copy task
@@ -395,6 +411,7 @@ mod tests {
                 id TEXT PRIMARY KEY, name TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
                 source_path TEXT NOT NULL,
+                config_json TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
@@ -419,7 +436,7 @@ mod tests {
     #[test]
     fn test_create_job_and_tasks() {
         let conn = setup_test_db();
-        create_job(&conn, "job-1", "Day 1 Offload", "/Volumes/CARD_A").unwrap();
+        create_job(&conn, "job-1", "Day 1 Offload", "/Volumes/CARD_A", None).unwrap();
         insert_task(
             &conn,
             "t-1",
@@ -446,7 +463,7 @@ mod tests {
     #[test]
     fn test_task_status_transitions() {
         let conn = setup_test_db();
-        create_job(&conn, "job-1", "Test", "/src").unwrap();
+        create_job(&conn, "job-1", "Test", "/src", None).unwrap();
         insert_task(&conn, "t-1", "job-1", "/src/a.mov", "/dst/a.mov", 500).unwrap();
 
         update_task_status(&conn, "t-1", STATUS_COPYING).unwrap();
@@ -472,7 +489,7 @@ mod tests {
     #[test]
     fn test_failure_and_retry_count() {
         let conn = setup_test_db();
-        create_job(&conn, "job-1", "Test", "/src").unwrap();
+        create_job(&conn, "job-1", "Test", "/src", None).unwrap();
         insert_task(&conn, "t-1", "job-1", "/src/a.mov", "/dst/a.mov", 500).unwrap();
 
         update_task_failed(&conn, "t-1", "IO error: disk full").unwrap();
@@ -485,7 +502,7 @@ mod tests {
     #[test]
     fn test_delete_job_by_id() {
         let conn = setup_test_db();
-        create_job(&conn, "job-1", "To Delete", "/src").unwrap();
+        create_job(&conn, "job-1", "To Delete", "/src", None).unwrap();
         insert_task(&conn, "t-1", "job-1", "/src/a.mov", "/dst/a.mov", 100).unwrap();
         insert_task(&conn, "t-2", "job-1", "/src/b.mov", "/dst/b.mov", 200).unwrap();
 
@@ -503,7 +520,7 @@ mod tests {
     #[tokio::test]
     async fn test_recover_interrupted_tasks() {
         let conn = setup_test_db();
-        create_job(&conn, "job-1", "Test", "/src").unwrap();
+        create_job(&conn, "job-1", "Test", "/src", None).unwrap();
         insert_task(&conn, "t-1", "job-1", "/src/a.mov", "/dst/a.mov", 100).unwrap();
         insert_task(&conn, "t-2", "job-1", "/src/b.mov", "/dst/b.mov", 200).unwrap();
         insert_task(&conn, "t-3", "job-1", "/src/c.mov", "/dst/c.mov", 300).unwrap();

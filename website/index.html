@@ -7,6 +7,7 @@
 <meta name="theme-color" content="#0085ff">
 <link rel="icon" type="image/svg+xml" href="./dit-pro-negative.svg">
 <link rel="shortcut icon" href="./dit-pro-negative.svg">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -735,6 +736,41 @@
     display: flex;
     justify-content: center;
     gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .cta-social-btn {
+    min-width: 220px;
+    justify-content: center;
+  }
+
+  .cta-social-btn svg,
+  .cta-social-btn i {
+    width: 16px;
+    height: 16px;
+    display: block;
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  .btn-coffee {
+    background: #FFDD00;
+    color: #000000;
+    border: 1px solid #000000;
+  }
+  .btn-coffee:hover {
+    color: #000000;
+    box-shadow: 0 8px 30px rgba(255, 221, 0, 0.35);
+  }
+
+  .btn-bilibili {
+    background: #FB7299;
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+  }
+  .btn-bilibili:hover {
+    color: #ffffff;
+    box-shadow: 0 8px 30px rgba(251, 114, 153, 0.35);
   }
 
   /* ── FOOTER ── */
@@ -752,39 +788,6 @@
     font-size: 12px;
     color: var(--text-tertiary);
     font-weight: 400;
-  }
-
-  .bilibili-floating-btn {
-    position: fixed;
-    left: 20px;
-    bottom: 20px;
-    z-index: 1001;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    border-radius: 999px;
-    background: #FB7299;
-    color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1;
-    box-shadow: 0 12px 24px rgba(251, 114, 153, 0.35);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-  }
-  .bilibili-floating-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 16px 28px rgba(251, 114, 153, 0.45);
-    color: #ffffff;
-    opacity: 1;
-  }
-
-  .bilibili-floating-btn svg {
-    width: 18px;
-    height: 18px;
-    display: block;
-    color: #ffffff;
   }
 
   .footer-links {
@@ -837,7 +840,6 @@
     .hero-terminal { margin-top: 60px; }
     footer { flex-direction: column; gap: 24px; text-align: center; }
     .cta-actions { flex-direction: column; align-items: center; }
-    .bilibili-floating-btn { left: 12px; bottom: 12px; padding: 9px 12px; font-size: 12px; }
   }
 
   @media (max-width: 480px) {
@@ -1090,7 +1092,18 @@
       Public download is being prepared.
     </p>
     <div class="cta-actions">
-      <a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="btn-primary"><span class="cta-primary-text">GitHub →</span></a>
+      <a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="btn-primary cta-social-btn">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span class="cta-github-text">GitHub →</span>
+      </a>
+      <a href="https://www.buymeacoffee.com/willzmx" target="_blank" rel="noopener noreferrer" class="btn-primary cta-social-btn btn-coffee">
+        <span>☕</span>
+        <span class="cta-coffee-text">Buy me a coffee</span>
+      </a>
+      <a href="https://space.bilibili.com/109630638" target="_blank" rel="noopener noreferrer" class="btn-primary cta-social-btn btn-bilibili">
+        <i class="fa-brands fa-bilibili" aria-hidden="true"></i>
+        <span class="cta-bilibili-text">Bilibili</span>
+      </a>
     </div>
   </div>
 </section>
@@ -1101,17 +1114,6 @@
     © 2026 DIT Pro · Mingxuan Zhao
   </div>
 </footer>
-
-<a class="bilibili-floating-btn" href="https://space.bilibili.com/109630638" target="_blank" rel="noopener noreferrer" aria-label="Visit DIT Pro on Bilibili">
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <rect x="3" y="7" width="18" height="12" rx="3" stroke="currentColor" stroke-width="2"/>
-    <path d="M9 4L7.4 5.8M15 4l1.6 1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    <circle cx="10" cy="13" r="1.2" fill="currentColor"/>
-    <circle cx="14" cy="13" r="1.2" fill="currentColor"/>
-    <path d="M9 16h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-  </svg>
-  <span>Bilibili</span>
-</a>
 
 <script>
   const i18n = {
@@ -1213,8 +1215,9 @@
       cta: {
         titleHtml: "Your footage<br>deserves <span style=\"color:var(--accent)\">better.</span>",
         desc: "Built as an open-source tool for production teams that need dependable data safety. Public download is being prepared.",
-        primary: "GitHub →",
-        secondary: "Coming Soon"
+        github: "GitHub →",
+        coffee: "Buy me a coffee",
+        bilibili: "Bilibili"
       },
       footer: {
         left: "© 2026 DIT Pro · Mingxuan Zhao"
@@ -1318,8 +1321,9 @@
       cta: {
         titleHtml: "你的素材，<br>值得<span style=\"color:var(--accent)\">更可靠的保障。</span>",
         desc: "这是一个面向专业制作团队的开源数据安全工具。公开下载版本正在准备中。",
-        primary: "GitHub 主页 →",
-        secondary: "即将上线"
+        github: "GitHub 主页 →",
+        coffee: "请我喝杯咖啡",
+        bilibili: "哔哩哔哩"
       },
       footer: {
         left: "© 2026 DIT Pro · Mingxuan Zhao"
@@ -1400,7 +1404,9 @@
 
     setHtml(".cta-section h2", t.cta.titleHtml);
     setText(".cta-section .section-desc", t.cta.desc);
-    setText(".cta-primary-text", t.cta.primary);
+    setText(".cta-github-text", t.cta.github);
+    setText(".cta-coffee-text", t.cta.coffee);
+    setText(".cta-bilibili-text", t.cta.bilibili);
 
     setText(".footer-left", t.footer.left);
 
@@ -1469,8 +1475,6 @@
     });
   });
 </script>
-
-<script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="willzmx" data-color="#FFDD00" data-emoji="☕" data-font="Cookie" data-text="Buy me a coffee" data-outline-color="#000000" data-font-color="#000000" data-coffee-color="#ffffff"></script>
 
 </body>
 </html>

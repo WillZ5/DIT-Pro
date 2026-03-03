@@ -94,6 +94,8 @@ interface ActiveOffload {
   currentSpeed: number;
   isPaused: boolean;
   speedHistoryByPhase: Record<string, number[]>;
+  /** Chronological speed timeline preserving phase ordering (handles Copying→Verify→Copying retry) */
+  speedTimeline: Array<{ phase: string; speed: number }>;
   failedFiles: number;
   sourceReleased: boolean;
   sourceReleasedPath: string;
@@ -134,6 +136,7 @@ function createActiveOffload(jobId: string, name: string): ActiveOffload {
     currentSpeed: 0,
     isPaused: false,
     speedHistoryByPhase: {},
+    speedTimeline: [],
     failedFiles: 0,
     sourceReleased: false,
     sourceReleasedPath: "",
@@ -777,6 +780,9 @@ export function JobsView() {
                       ...updated.speedHistoryByPhase,
                       [phase]: phaseHist.length > 120 ? phaseHist.slice(-120) : phaseHist,
                     };
+                    // Append to chronological timeline (preserves phase ordering)
+                    const tl = [...updated.speedTimeline, { phase, speed }];
+                    updated.speedTimeline = tl.length > 240 ? tl.slice(-240) : tl;
                   }
                 }
               }
@@ -937,7 +943,13 @@ export function JobsView() {
         "preflight_check",
         { destinations }
       );
-      if (spaceResult.success && spaceResult.data && spaceResult.data.length > 0) {
+      if (!spaceResult.success) {
+        // Command itself failed — treat as blocking error
+        setError(spaceResult.error || "Failed to check destination space");
+        setLoading(false);
+        return;
+      }
+      if (spaceResult.data && spaceResult.data.length > 0) {
         // Space insufficient — show blocking dialog
         setSpaceIssues(spaceResult.data);
         setShowSpaceDialog(true);
@@ -1552,82 +1564,88 @@ export function JobsView() {
                       </div>
                     </div>
 
-                    {/* Unified speed chart (all phases on one graph) */}
-                    {Object.keys(offload.speedHistoryByPhase).length > 0 && (() => {
-                      const phases = Object.entries(offload.speedHistoryByPhase)
-                        .filter(([, hist]) => hist.length >= 1);
-                      if (phases.length === 0) return null;
+                    {/* Unified speed chart (timeline-based, handles phase repeats like Copying→Verify→Copying) */}
+                    {offload.speedTimeline.length > 0 && (() => {
+                      const timeline = offload.speedTimeline;
 
-                      // Compute total data length (all phases concatenated on timeline)
-                      const totalLen = phases.reduce((sum, [, h]) => sum + h.length, 0);
-                      if (totalLen === 0) return null;
-
-                      // Smooth each phase independently
-                      const WIN = 5;
-                      const smooth = (raw: number[]) => raw.map((_, i) => {
-                        const s = Math.max(0, i - Math.floor(WIN / 2));
-                        const e = Math.min(raw.length, i + Math.floor(WIN / 2) + 1);
-                        let sum = 0;
-                        for (let j = s; j < e; j++) sum += raw[j];
-                        return sum / (e - s);
-                      });
-
-                      // Build segments: each phase starts where the previous ended
+                      // Split timeline into contiguous segments by phase transitions
                       type Segment = { phase: string; color: string; label: string; data: number[]; offset: number };
                       const segments: Segment[] = [];
-                      let offset = 0;
-                      for (const [phase, history] of phases) {
-                        const info = PHASE_INFO[phase as OffloadPhase];
-                        const smoothed = smooth(history);
-                        const data = smoothed.length === 1 ? [smoothed[0], smoothed[0]] : smoothed;
-                        segments.push({
-                          phase,
-                          color: info?.color || "#3b82f6",
-                          label: info?.label || phase,
-                          data,
-                          offset,
-                        });
-                        offset += data.length;
+                      let segStart = 0;
+                      for (let i = 0; i <= timeline.length; i++) {
+                        if (i === timeline.length || (i > 0 && timeline[i].phase !== timeline[i - 1].phase)) {
+                          const phase = timeline[segStart].phase;
+                          const info = PHASE_INFO[phase as OffloadPhase];
+                          const raw = timeline.slice(segStart, i).map((p) => p.speed);
+                          // Smooth
+                          const WIN = 5;
+                          const smoothed = raw.map((_, idx) => {
+                            const s = Math.max(0, idx - Math.floor(WIN / 2));
+                            const e = Math.min(raw.length, idx + Math.floor(WIN / 2) + 1);
+                            let sum = 0;
+                            for (let j = s; j < e; j++) sum += raw[j];
+                            return sum / (e - s);
+                          });
+                          const data = smoothed.length === 1 ? [smoothed[0], smoothed[0]] : smoothed;
+                          segments.push({
+                            phase,
+                            color: info?.color || "#3b82f6",
+                            label: info?.label || phase,
+                            data,
+                            offset: segStart,
+                          });
+                          segStart = i;
+                        }
                       }
 
+                      // Deduplicated legend entries (same phase may appear multiple times as segments)
+                      const legendPhases = new Map<string, { color: string; label: string }>();
+                      for (const seg of segments) {
+                        if (!legendPhases.has(seg.phase)) {
+                          legendPhases.set(seg.phase, { color: seg.color, label: seg.label });
+                        }
+                      }
+
+                      const totalLen = timeline.length;
                       const globalMax = Math.max(...segments.flatMap((s) => s.data), 1);
                       const W = 400, H = 70, PAD = 4;
                       const plotH = H - PAD * 2;
                       const plotW = W - PAD * 2;
-                      const step = plotW / Math.max(offset - 1, 1);
+                      const step = plotW / Math.max(totalLen - 1, 1);
 
                       return (
                         <div className="speed-chart">
                           <div className="speed-chart-legend">
-                            {segments.map((seg) => (
-                              <span key={seg.phase} className="speed-chart-legend-item">
-                                <span className="speed-chart-legend-dot" style={{ backgroundColor: seg.color }} />
-                                <span style={{ color: seg.phase === offload.phase ? seg.color : "#71717a" }}>
-                                  {seg.label}
+                            {Array.from(legendPhases.entries()).map(([phase, { color, label }]) => (
+                              <span key={phase} className="speed-chart-legend-item">
+                                <span className="speed-chart-legend-dot" style={{ backgroundColor: color }} />
+                                <span style={{ color: phase === offload.phase ? color : "#71717a" }}>
+                                  {label}
                                 </span>
                               </span>
                             ))}
                           </div>
                           <svg viewBox={`0 0 ${W} ${H}`} className="speed-chart-svg" preserveAspectRatio="none">
                             <defs>
-                              {segments.map((seg) => (
-                                <linearGradient key={seg.phase} id={`sg-${offload.jobId}-${seg.phase}`} x1="0" y1="0" x2="0" y2="1">
+                              {segments.map((seg, si) => (
+                                <linearGradient key={si} id={`sg-${offload.jobId}-${si}`} x1="0" y1="0" x2="0" y2="1">
                                   <stop offset="0%" stopColor={seg.color} stopOpacity={seg.phase === offload.phase ? 0.3 : 0.1} />
                                   <stop offset="100%" stopColor={seg.color} stopOpacity="0.02" />
                                 </linearGradient>
                               ))}
                             </defs>
-                            {segments.map((seg) => {
+                            {segments.map((seg, si) => {
                               const pts = seg.data.map((v, idx) =>
                                 `${PAD + (seg.offset + idx) * step},${PAD + plotH - (v / globalMax) * plotH}`
                               ).join(" ");
                               const areaPts = `${PAD + seg.offset * step},${PAD + plotH} ${pts} ${PAD + (seg.offset + seg.data.length - 1) * step},${PAD + plotH}`;
+                              const isLast = si === segments.length - 1;
                               const isActive = seg.phase === offload.phase;
                               return (
-                                <g key={seg.phase}>
-                                  <polyline points={areaPts} fill={`url(#sg-${offload.jobId}-${seg.phase})`} stroke="none" vectorEffect="non-scaling-stroke" />
+                                <g key={si}>
+                                  <polyline points={areaPts} fill={`url(#sg-${offload.jobId}-${si})`} stroke="none" vectorEffect="non-scaling-stroke" />
                                   <polyline points={pts} fill="none" stroke={seg.color} strokeWidth={isActive ? "1.5" : "1"} strokeLinejoin="round" vectorEffect="non-scaling-stroke" opacity={isActive ? 1 : 0.5} />
-                                  {isActive && seg.data.length > 0 && (
+                                  {isLast && seg.data.length > 0 && (
                                     <circle
                                       cx={PAD + (seg.offset + seg.data.length - 1) * step}
                                       cy={PAD + plotH - (seg.data[seg.data.length - 1] / globalMax) * plotH}

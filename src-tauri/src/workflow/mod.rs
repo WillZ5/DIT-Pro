@@ -525,10 +525,13 @@ impl OffloadWorkflow {
                 source_hashes = copy_hashes_primary;
             }
 
-            // Notify frontend: source card is no longer needed
-            self.emit(OffloadEvent::SourceReleased {
-                source_path: self.config.source_path.to_string_lossy().to_string(),
-            });
+            // If post_verify is OFF, source is truly free now (no retry will read it).
+            // If post_verify is ON, defer until verification+retry completes.
+            if !self.config.post_verify {
+                self.emit(OffloadEvent::SourceReleased {
+                    source_path: self.config.source_path.to_string_lossy().to_string(),
+                });
+            }
 
             // Phase 3b: Primary → Secondary destinations (source card now free)
             self.emit(OffloadEvent::PhaseChanged {
@@ -644,6 +647,13 @@ impl OffloadWorkflow {
                     }
                 }
             }
+        }
+
+        // Cascade + post_verify: source is now safe to eject (verification + retries done)
+        if use_cascade && self.config.post_verify {
+            self.emit(OffloadEvent::SourceReleased {
+                source_path: self.config.source_path.to_string_lossy().to_string(),
+            });
         }
 
         // Count actual remaining failures from DB (authoritative source)

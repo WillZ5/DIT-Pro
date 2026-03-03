@@ -482,6 +482,7 @@ pub fn find_volume_by_mount(conn: &Connection, mount_point: &str) -> Result<Opti
 
 /// Pre-flight check: validate that all destination paths have sufficient space.
 /// Returns a list of (path, space_info, required_bytes) for paths with issues.
+/// When `get_volume_space` fails, reports 0 available bytes so the issue surfaces.
 pub fn preflight_space_check(
     destinations: &[(PathBuf, u64)],
 ) -> Vec<(PathBuf, VolumeSpaceInfo, u64)> {
@@ -493,12 +494,42 @@ pub fn preflight_space_check(
         } else if let Some(parent) = dest_path.parent() {
             parent.to_path_buf()
         } else {
+            // Cannot resolve path at all — report as 0 available
+            issues.push((
+                dest_path.clone(),
+                VolumeSpaceInfo {
+                    total_bytes: 0,
+                    available_bytes: 0,
+                    used_bytes: 0,
+                    usage_percent: 0.0,
+                },
+                *required_bytes,
+            ));
             continue;
         };
 
-        if let Ok(space) = get_volume_space(&check_path) {
-            if !space.has_space_for(*required_bytes) {
-                issues.push((dest_path.clone(), space, *required_bytes));
+        match get_volume_space(&check_path) {
+            Ok(space) => {
+                if !space.has_space_for(*required_bytes) {
+                    issues.push((dest_path.clone(), space, *required_bytes));
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "Cannot query space for {:?}: {}, reporting as insufficient",
+                    dest_path,
+                    e
+                );
+                issues.push((
+                    dest_path.clone(),
+                    VolumeSpaceInfo {
+                        total_bytes: 0,
+                        available_bytes: 0,
+                        used_bytes: 0,
+                        usage_percent: 0.0,
+                    },
+                    *required_bytes,
+                ));
             }
         }
     }

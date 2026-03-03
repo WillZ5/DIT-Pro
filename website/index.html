@@ -715,6 +715,23 @@
     line-height: 1.75;
   }
 
+  .feedback-card .feedback-github-btn,
+  .feedback-card .feedback-survey-btn {
+    width: fit-content;
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    box-shadow: none;
+  }
+
+  .feedback-card .feedback-github-btn:hover,
+  .feedback-card .feedback-survey-btn:hover {
+    background: rgba(0, 133, 255, 0.08);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: none;
+  }
+
   /* ── CTA ── */
   .cta-section {
     border-top: 1px solid var(--border);
@@ -1330,11 +1347,11 @@
       feedback: {
         label: "// 问题反馈",
         title: "遇到问题或想提建议？",
-        desc: "你可以通过下面两个渠道反馈：GitHub 问题区或问卷调查。",
+        desc: "你可以通过下面两个渠道反馈：GitHub 问题区或问卷反馈。",
         githubTitle: "GitHub 问题反馈",
         githubDesc: "Bug 报告、功能建议与技术讨论请直接提交到 GitHub Issues。",
         githubBtn: "前往 GitHub",
-        surveyTitle: "问卷调查",
+        surveyTitle: "问卷反馈",
         surveyDesc: "通过问卷告诉我们你的使用体验与改进建议。",
         surveyBtn: "填写问卷",
         surveyUrl: "https://wj.qq.com/s2/25849501/307b/"

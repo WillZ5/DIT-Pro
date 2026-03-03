@@ -917,6 +917,20 @@
     .nav-right { gap: 10px; }
     .nav-top-btn { padding: 8px 12px; font-size: 11px; }
     .hero { padding: 120px 24px 80px; }
+    .hero h1 {
+      font-size: clamp(34px, 10vw, 56px);
+      line-height: 1.08;
+    }
+    .hero-typing-line {
+      display: inline-block;
+      max-width: 100%;
+    }
+    .hero-typing-prefix,
+    .hero-typing-suffix {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
     section { padding: 80px 24px; }
     .pillars-grid { grid-template-columns: 1fr; }
     .features-grid { grid-template-columns: 1fr; }
@@ -928,6 +942,18 @@
   }
 
   @media (max-width: 480px) {
+    .hero h1 {
+      font-size: clamp(30px, 11vw, 42px);
+      line-height: 1.12;
+    }
+    .hero-kicker {
+      font-size: 14px;
+      letter-spacing: 0.18em;
+    }
+    .hero-install-note {
+      font-size: 12px;
+      line-height: 1.7;
+    }
     .status-grid { grid-template-columns: 1fr; }
   }
 </style>

@@ -265,6 +265,23 @@
     animation: fadeUp 0.8s 0.1s ease both;
   }
   .hero h1 .accent { color: var(--accent); }
+  .hero-typing-line {
+    display: inline-flex;
+    align-items: baseline;
+    min-height: 1.1em;
+  }
+  .hero-typing-line::after {
+    content: "";
+    width: 2px;
+    height: 0.9em;
+    margin-left: 8px;
+    background: var(--accent);
+    animation: blink 1s step-end infinite;
+  }
+  .hero-typing-prefix,
+  .hero-typing-suffix {
+    white-space: pre;
+  }
 
   .hero-sub {
     margin-top: 24px;
@@ -1271,7 +1288,7 @@
       },
       hero: {
         badge: "开源项目 · v1.0.0 · 即将上线",
-        titleHtml: "开源的<br><span class=\"accent\">影视拷卡工具</span>",
+        titleHtml: "<span class=\"accent hero-typing-line\"><span class=\"hero-typing-prefix\"></span><span class=\"hero-typing-suffix\"></span></span>",
         sub: "面向专业拍摄现场的开源数据完整性保障，配备清晰直观的图形操作界面。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
         primary: "下载 · 即将上线",
         secondary: "了解更多 ↓",
@@ -1386,6 +1403,107 @@
     });
   };
 
+  const heroPrefixWords = ["开源的", "安全的", "免费的", "用爱发电的", "你的第一个"];
+  const heroZhSuffix = "影视拷卡工具";
+  let heroTypingTimer = null;
+  let heroTypingToken = 0;
+
+  const stopHeroTyping = () => {
+    heroTypingToken += 1;
+    if (heroTypingTimer) {
+      clearTimeout(heroTypingTimer);
+      heroTypingTimer = null;
+    }
+  };
+
+  const startHeroTyping = (token) => {
+    const prefixEl = document.querySelector(".hero-typing-prefix");
+    const suffixEl = document.querySelector(".hero-typing-suffix");
+    if (!prefixEl || !suffixEl) return;
+
+    let wordIndex = 0;
+    let prefixLen = 0;
+    let suffixLen = 0;
+    let phase = "typePrefixInitial";
+
+    const render = () => {
+      const prefixWord = heroPrefixWords[wordIndex];
+      prefixEl.textContent = prefixWord.slice(0, prefixLen);
+      suffixEl.textContent = heroZhSuffix.slice(0, suffixLen);
+    };
+
+    const next = (delay) => {
+      heroTypingTimer = setTimeout(step, delay);
+    };
+
+    const step = () => {
+      if (token !== heroTypingToken) return;
+      const currentWord = heroPrefixWords[wordIndex];
+
+      if (phase === "typePrefixInitial") {
+        if (prefixLen < currentWord.length) {
+          prefixLen += 1;
+          render();
+          next(130);
+          return;
+        }
+        phase = "typeSuffixInitial";
+        next(120);
+        return;
+      }
+
+      if (phase === "typeSuffixInitial") {
+        if (suffixLen < heroZhSuffix.length) {
+          suffixLen += 1;
+          render();
+          next(120);
+          return;
+        }
+        phase = "hold";
+        next(1200);
+        return;
+      }
+
+      if (phase === "deletePrefix") {
+        if (prefixLen > 0) {
+          prefixLen -= 1;
+          render();
+          next(90);
+          return;
+        }
+        wordIndex = (wordIndex + 1) % heroPrefixWords.length;
+        phase = "typePrefixLoop";
+        next(220);
+        return;
+      }
+
+      if (phase === "typePrefixLoop") {
+        const nextWord = heroPrefixWords[wordIndex];
+        if (prefixLen < nextWord.length) {
+          prefixLen += 1;
+          render();
+          next(130);
+          return;
+        }
+        phase = "hold";
+        next(1200);
+        return;
+      }
+
+      phase = "deletePrefix";
+      next(120);
+    };
+
+    render();
+    step();
+  };
+
+  const refreshHeroTyping = (language) => {
+    stopHeroTyping();
+    if (language !== "zh") return;
+    startHeroTyping(heroTypingToken);
+  };
+
   const applyLanguage = (lang) => {
     const language = i18n[lang] ? lang : "en";
     const t = i18n[language];
@@ -1401,6 +1519,7 @@
 
     setText(".hero-badge-text", t.hero.badge);
     setHtml(".hero h1", t.hero.titleHtml);
+    refreshHeroTyping(language);
     setText(".hero-sub", t.hero.sub);
     setText(".hero-primary-text", t.hero.primary);
     setText(".hero-actions .btn-secondary", t.hero.secondary);

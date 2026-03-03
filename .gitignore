@@ -36,3 +36,6 @@ pnpm-debug.log*
 # OS files
 .DS_Store
 Thumbs.db
+
+# Website binary releases (uploaded separately to hosting)
+website/software/*.dmg

@@ -202,10 +202,42 @@ fn is_newer(local: &str, remote: &str) -> bool {
 }
 
 const GITHUB_API: &str = "https://api.github.com/repos/WillZ5/DIT-Pro/releases/latest";
-const GITEE_API: &str = "https://gitee.com/api/v5/repos/willz5/DIT-Pro/releases/latest";
+const WEBSITE_LATEST: &str = "https://ditpro.negdims.com/software/latest.json";
 
-/// Fetch the latest release from a single endpoint with timeout + retries.
-async fn fetch_release(url: &str, retries: u32, timeout_secs: u64) -> Result<GhRelease, String> {
+/// Shape of the website's `/software/latest.json`.
+#[derive(Debug, Deserialize)]
+struct WebsiteLatest {
+    tag_name: String,
+    body: Option<String>,
+    html_url: String,
+    published_at: Option<String>,
+    download_url: Option<String>,
+}
+
+impl From<WebsiteLatest> for GhRelease {
+    fn from(w: WebsiteLatest) -> Self {
+        let assets = w.download_url.map(|url| {
+            vec![GhAsset {
+                name: url.rsplit('/').next().unwrap_or("DIT-Pro.dmg").to_string(),
+                browser_download_url: url,
+            }]
+        });
+        GhRelease {
+            tag_name: w.tag_name,
+            body: w.body,
+            html_url: w.html_url,
+            published_at: w.published_at,
+            assets,
+        }
+    }
+}
+
+/// Fetch JSON from a URL with timeout + retries. Deserializes into `T`.
+async fn fetch_json<T: serde::de::DeserializeOwned>(
+    url: &str,
+    retries: u32,
+    timeout_secs: u64,
+) -> Result<T, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
@@ -221,8 +253,8 @@ async fn fetch_release(url: &str, retries: u32, timeout_secs: u64) -> Result<GhR
             .await
         {
             Ok(resp) if resp.status().is_success() => {
-                match resp.json::<GhRelease>().await {
-                    Ok(release) => return Ok(release),
+                match resp.json::<T>().await {
+                    Ok(data) => return Ok(data),
                     Err(e) => last_err = format!("JSON parse error: {}", e),
                 }
             }
@@ -240,28 +272,28 @@ async fn fetch_release(url: &str, retries: u32, timeout_secs: u64) -> Result<GhR
     Err(last_err)
 }
 
-/// Check for updates: GitHub first (10s timeout, 3 retries), fallback to Gitee.
+/// Check for updates: GitHub first (10s timeout, 3 retries), fallback to website.
 pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
     let current = env!("CARGO_PKG_VERSION");
 
-    // Try GitHub first
-    let release = match fetch_release(GITHUB_API, 3, 10).await {
+    // Try GitHub API first
+    let release = match fetch_json::<GhRelease>(GITHUB_API, 3, 10).await {
         Ok(r) => {
             log::info!("Update check: fetched from GitHub (tag={})", r.tag_name);
             r
         }
         Err(gh_err) => {
-            log::warn!("GitHub update check failed: {}, trying Gitee...", gh_err);
-            // Fallback to Gitee
-            match fetch_release(GITEE_API, 3, 10).await {
-                Ok(r) => {
-                    log::info!("Update check: fetched from Gitee (tag={})", r.tag_name);
-                    r
+            log::warn!("GitHub update check failed: {}, trying website...", gh_err);
+            // Fallback to website latest.json
+            match fetch_json::<WebsiteLatest>(WEBSITE_LATEST, 3, 10).await {
+                Ok(w) => {
+                    log::info!("Update check: fetched from website (tag={})", w.tag_name);
+                    GhRelease::from(w)
                 }
-                Err(gitee_err) => {
+                Err(web_err) => {
                     return Err(format!(
-                        "Update check failed — GitHub: {}; Gitee: {}",
-                        gh_err, gitee_err
+                        "Update check failed — GitHub: {}; Website: {}",
+                        gh_err, web_err
                     ));
                 }
             }

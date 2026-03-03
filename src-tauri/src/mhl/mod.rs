@@ -44,6 +44,7 @@ pub const DEFAULT_IGNORE_PATTERNS: &[&str] = &[
     "Thumbs.db",
     "desktop.ini",
     "*.tmp",
+    "._*",
     "ascmhl",
     "ascmhl/",
 ];
@@ -413,9 +414,14 @@ pub fn should_ignore(rel_path: &str, patterns: &[String]) -> bool {
                 return true;
             }
         }
-        // Wildcard match (*.ext)
+        // Wildcard match: *.ext (suffix) or prefix.* (prefix)
         if let Some(suffix) = pattern.strip_prefix('*') {
             if filename.ends_with(suffix) {
+                return true;
+            }
+        }
+        if let Some(prefix) = pattern.strip_suffix('*') {
+            if filename.starts_with(prefix) {
                 return true;
             }
         }

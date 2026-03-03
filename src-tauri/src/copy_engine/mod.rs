@@ -250,19 +250,31 @@ async fn should_skip_conflict(
                     return (false, source_hash);
                 }
                 // Size matches — MUST verify with hash (size alone is never trusted)
+                log::info!(
+                    "SkipIfVerified: size match ({} bytes), hashing source: {:?}",
+                    source_size,
+                    source
+                );
                 let src_hash = match source_hash {
                     Some(h) => h,
                     None => match quick_content_hash(source, buffer_size).await {
                         Ok(h) => h,
-                        Err(_) => return (false, None), // can't hash source → don't skip → copy
+                        Err(_) => return (false, None),
                     },
                 };
+                log::info!("SkipIfVerified: hashing dest: {:?}", dest);
                 match quick_content_hash(dest, buffer_size).await {
                     Ok(dest_hash) => {
                         let identical = src_hash == dest_hash;
+                        if identical {
+                            log::info!(
+                                "SkipIfVerified: identical content, skipping {:?}",
+                                source.file_name().unwrap_or_default()
+                            );
+                        }
                         (identical, Some(src_hash))
                     }
-                    Err(_) => (false, Some(src_hash)), // can't hash dest → don't skip → overwrite
+                    Err(_) => (false, Some(src_hash)),
                 }
             }
             FileConflictPolicy::Overwrite => (false, source_hash),

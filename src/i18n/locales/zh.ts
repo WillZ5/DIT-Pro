@@ -75,8 +75,8 @@ const zh: TranslationKeys = {
     cascadeCopy: "级联拷贝",
     hashAlgorithms: "哈希算法",
     startOffload: "开始拷卡",
-    speedPriority: "速度优先",
-    speedPriorityHint: "自动按速度排序目标（SSD > RAID > HDD > Network）",
+    speedPriority: "级联速度优先",
+    speedPriorityHint: "已启用速度优先：级联拷贝将按磁盘速度自动排序，而非手动排列顺序。",
     cascadeInfo:
       '级联模式：文件先拷贝至 <strong>{dest}</strong>（最快目标），再级联至 {count} 个次级目标。源卡可更早释放。',
     // Empty state

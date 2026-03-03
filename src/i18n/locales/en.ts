@@ -74,8 +74,8 @@ const en = {
     cascadeCopy: "Cascade Copy",
     hashAlgorithms: "Hash Algorithms",
     startOffload: "Start Offload",
-    speedPriority: "Speed Priority",
-    speedPriorityHint: "Auto-sort destinations fastest-first (SSD > RAID > HDD > Network)",
+    speedPriority: "Cascade Speed Priority",
+    speedPriorityHint: "Speed priority enabled: cascade order is determined by disk speed, not custom order.",
     cascadeInfo:
       'Cascade mode: Files copy to <strong>{dest}</strong> first (fastest), then cascade to {count} secondary destination(s). Source card is freed sooner.',
     // Empty state

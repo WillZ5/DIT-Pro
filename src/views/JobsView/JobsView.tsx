@@ -340,9 +340,6 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
   const [presets, setPresets] = useState<WorkflowPreset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
 
-  // Drag-and-drop state for destination reorder
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   // Speed priority auto-sort
   const [speedPriority, setSpeedPriority] = useState(false);
 
@@ -398,43 +395,15 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
     setDestPaths(destPaths.filter((_, i) => i !== index));
   };
 
-  // Drag-and-drop handlers for destination reorder
-  const dragIdxRef = useRef<number | null>(null);
-
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    dragIdxRef.current = index;
-    setDragIdx(index);
-    e.dataTransfer.effectAllowed = "move";
-    // Required for Firefox
-    e.dataTransfer.setData("text/plain", String(index));
-  };
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOverIdx(index);
-  };
-
-  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
-    e.preventDefault();
-    const fromIdx = dragIdxRef.current;
-    if (fromIdx !== null && fromIdx !== dropIndex) {
-      setDestPaths((prev) => {
-        const updated = [...prev];
-        const [moved] = updated.splice(fromIdx, 1);
-        updated.splice(dropIndex, 0, moved);
-        return updated;
-      });
-    }
-    dragIdxRef.current = null;
-    setDragIdx(null);
-    setDragOverIdx(null);
-  };
-
-  const handleDragEnd = () => {
-    dragIdxRef.current = null;
-    setDragIdx(null);
-    setDragOverIdx(null);
+  // Move destination up/down for reorder
+  const handleMoveDest = (index: number, direction: "up" | "down") => {
+    const newIdx = direction === "up" ? index - 1 : index + 1;
+    if (newIdx < 0 || newIdx >= destPaths.length) return;
+    setDestPaths((prev) => {
+      const updated = [...prev];
+      [updated[index], updated[newIdx]] = [updated[newIdx], updated[index]];
+      return updated;
+    });
   };
 
   // Speed priority: sort destinations by device speed (SSD > RAID > HDD > Network)
@@ -470,6 +439,7 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
         }
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speedPriority]); // only trigger on toggle, not on every destPaths change
 
   const handleApplyPreset = (presetId: string) => {
@@ -563,16 +533,21 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
             </label>
             <div className="dest-list">
               {destPaths.map((path, i) => (
-                <div
-                  key={`dest-${i}`}
-                  className={`dest-item${dragOverIdx === i ? " dest-drag-over" : ""}${dragIdx === i ? " dest-dragging" : ""}`}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, i)}
-                  onDragOver={(e) => handleDragOver(e, i)}
-                  onDrop={(e) => handleDrop(e, i)}
-                  onDragEnd={handleDragEnd}
-                >
-                  <span className="dest-drag-handle" title="Drag to reorder">&#9776;</span>
+                <div key={`dest-${i}`} className="dest-item">
+                  <div className="dest-reorder-btns">
+                    <button
+                      className="btn-reorder"
+                      disabled={i === 0}
+                      onClick={() => handleMoveDest(i, "up")}
+                      title="Move up"
+                    >&#9650;</button>
+                    <button
+                      className="btn-reorder"
+                      disabled={i === destPaths.length - 1}
+                      onClick={() => handleMoveDest(i, "down")}
+                      title="Move down"
+                    >&#9660;</button>
+                  </div>
                   <span className="dest-index">{i === 0 && cascade ? t.jobs.primary : `${t.jobs.dest} ${i + 1}`}</span>
                   <span className="dest-path" title={path}>{path}</span>
                   <button
@@ -588,6 +563,9 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
                 {t.jobs.addDest}
               </button>
             </div>
+            {speedPriority && cascade && (
+              <p className="speed-priority-hint">{t.jobs.speedPriorityHint}</p>
+            )}
           </div>
 
           {/* Preset selector */}
@@ -658,7 +636,7 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
                 />
                 {t.jobs.cascadeCopy}
               </label>
-              {cascade && destPaths.length >= 2 && (
+              {cascade && (
                 <label className="checkbox-label speed-priority-label">
                   <input
                     type="checkbox"
@@ -819,6 +797,17 @@ export function JobsView() {
 
           switch (ev.type) {
             case "phaseChanged":
+              // Reset progress counters on phase transition to prevent
+              // stale 100% from previous phase flashing in the progress bar
+              if (ev.phase !== updated.phase) {
+                updated.completedBytes = 0;
+                updated.totalBytes = 0;
+                updated.completedFiles = 0;
+                updated.totalFiles = 0;
+                updated.currentSpeed = 0;
+                updated.lastBytesSnapshot = 0;
+                updated.lastSnapshotTime = Date.now();
+              }
               updated.phase = ev.phase;
               updated.phaseMessage = ev.message;
               // Populate name from the first PhaseChanged event (fixes race

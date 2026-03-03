@@ -1861,32 +1861,36 @@
   background: #18181b;
   border: 1px solid #1c1c22;
   border-radius: 8px;
-  cursor: grab;
-  transition: border-color 0.15s, opacity 0.15s;
+  transition: border-color 0.15s;
 }
 
-.dest-item:active {
-  cursor: grabbing;
-}
-
-.dest-item.dest-dragging {
-  opacity: 0.4;
-}
-
-.dest-item.dest-drag-over {
-  border-color: #3b82f6;
-}
-
-.dest-drag-handle {
-  color: #52525b;
-  font-size: 12px;
-  cursor: grab;
-  user-select: none;
+.dest-reorder-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   flex-shrink: 0;
 }
 
-.dest-drag-handle:active {
-  cursor: grabbing;
+.btn-reorder {
+  background: none;
+  border: none;
+  color: #52525b;
+  font-size: 8px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.btn-reorder:hover:not(:disabled) {
+  color: #e4e4e7;
+  background: #27272a;
+}
+
+.btn-reorder:disabled {
+  opacity: 0.2;
+  cursor: default;
 }
 
 .dest-index {
@@ -2667,6 +2671,17 @@
 
 .speed-priority-label input[type="checkbox"] {
   accent-color: #60a5fa;
+}
+
+.speed-priority-hint {
+  margin: 6px 0 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #f59e0b;
+  background: #f59e0b10;
+  border: 1px solid #f59e0b25;
+  border-radius: 6px;
+  line-height: 1.5;
 }
 
 /* ─── Website Link Button ────────────────────────────────────────────── */

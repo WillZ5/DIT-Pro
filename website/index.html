@@ -753,6 +753,12 @@
     line-height: 1;
   }
 
+  .cta-arrow {
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0.95;
+  }
+
   .btn-coffee {
     background: #FFDD00;
     color: #000000;
@@ -780,14 +786,24 @@
     max-width: 1200px;
     margin: 0 auto;
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
+    text-align: center;
   }
 
   .footer-left {
     font-size: 12px;
     color: var(--text-tertiary);
     font-weight: 400;
+    width: 100%;
+  }
+
+  .footer-left a {
+    color: var(--text-secondary);
+  }
+  .footer-left a:hover {
+    color: var(--text-primary);
+    opacity: 1;
   }
 
   .footer-links {
@@ -1094,15 +1110,18 @@
     <div class="cta-actions">
       <a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="btn-primary cta-social-btn">
         <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        <span class="cta-github-text">GitHub →</span>
+        <span class="cta-github-text">GitHub</span>
+        <span class="cta-arrow" aria-hidden="true">→</span>
       </a>
       <a href="https://www.buymeacoffee.com/willzmx" target="_blank" rel="noopener noreferrer" class="btn-primary cta-social-btn btn-coffee">
         <span>☕</span>
         <span class="cta-coffee-text">Buy me a coffee</span>
+        <span class="cta-arrow" aria-hidden="true">→</span>
       </a>
       <a href="https://space.bilibili.com/109630638" target="_blank" rel="noopener noreferrer" class="btn-primary cta-social-btn btn-bilibili">
         <i class="fa-brands fa-bilibili" aria-hidden="true"></i>
         <span class="cta-bilibili-text">Bilibili</span>
+        <span class="cta-arrow" aria-hidden="true">→</span>
       </a>
     </div>
   </div>
@@ -1111,7 +1130,7 @@
 <!-- FOOTER -->
 <footer>
   <div class="footer-left">
-    © 2026 DIT Pro · Mingxuan Zhao
+    © 2026 DIT Pro · <a href="https://willzmx.com" target="_blank" rel="noopener noreferrer">Mingxuan Zhao</a>
   </div>
 </footer>
 
@@ -1215,12 +1234,12 @@
       cta: {
         titleHtml: "Your footage<br>deserves <span style=\"color:var(--accent)\">better.</span>",
         desc: "Built as an open-source tool for production teams that need dependable data safety. Public download is being prepared.",
-        github: "GitHub →",
+        github: "GitHub",
         coffee: "Buy me a coffee",
         bilibili: "Bilibili"
       },
       footer: {
-        left: "© 2026 DIT Pro · Mingxuan Zhao"
+        left: "© 2026 DIT Pro · <a href=\"https://willzmx.com\" target=\"_blank\" rel=\"noopener noreferrer\">Mingxuan Zhao</a>"
       }
     },
     zh: {
@@ -1321,12 +1340,12 @@
       cta: {
         titleHtml: "你的素材，<br>值得<span style=\"color:var(--accent)\">更可靠的保障。</span>",
         desc: "这是一个面向专业制作团队的开源数据安全工具。公开下载版本正在准备中。",
-        github: "GitHub 主页 →",
-        coffee: "请我喝杯咖啡",
+        github: "GitHub 主页",
+        coffee: "Buy me a coffee",
         bilibili: "哔哩哔哩"
       },
       footer: {
-        left: "© 2026 DIT Pro · Mingxuan Zhao"
+        left: "© 2026 DIT Pro · <a href=\"https://willzmx.com\" target=\"_blank\" rel=\"noopener noreferrer\">Mingxuan Zhao</a>"
       }
     }
   };
@@ -1408,7 +1427,7 @@
     setText(".cta-coffee-text", t.cta.coffee);
     setText(".cta-bilibili-text", t.cta.bilibili);
 
-    setText(".footer-left", t.footer.left);
+    setHtml(".footer-left", t.footer.left);
 
     document.querySelectorAll("[data-lang-btn]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.langBtn === language);

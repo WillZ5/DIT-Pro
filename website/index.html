@@ -1092,9 +1092,9 @@
     <div class="feedback-card">
       <h3 class="feedback-survey-title">Survey</h3>
       <p class="feedback-survey-desc">
-        Survey link will be added soon. You can continue using GitHub Issues for now.
+        Share your product feedback through the questionnaire.
       </p>
-      <button type="button" class="btn-secondary btn-disabled feedback-survey-btn">Survey coming soon</button>
+      <a href="https://wj.qq.com/s2/25858950/ib2b/" target="_blank" rel="noopener noreferrer" class="btn-secondary feedback-survey-btn">Open survey</a>
     </div>
   </div>
 </section>
@@ -1228,8 +1228,9 @@
         githubDesc: "Bug reports, feature requests, and technical discussion happen in GitHub Issues.",
         githubBtn: "Go to GitHub",
         surveyTitle: "Survey",
-        surveyDesc: "Survey link will be added soon. You can continue using GitHub Issues for now.",
-        surveyBtn: "Survey coming soon"
+        surveyDesc: "Share your product feedback through the questionnaire.",
+        surveyBtn: "Open survey",
+        surveyUrl: "https://wj.qq.com/s2/25858950/ib2b/"
       },
       cta: {
         titleHtml: "Your footage<br>deserves <span style=\"color:var(--accent)\">better.</span>",
@@ -1334,8 +1335,9 @@
         githubDesc: "Bug 报告、功能建议与技术讨论请直接提交到 GitHub Issues。",
         githubBtn: "前往 GitHub",
         surveyTitle: "问卷调查",
-        surveyDesc: "问卷链接将稍后补充。在此之前可先通过 GitHub Issues 反馈。",
-        surveyBtn: "问卷链接即将开放"
+        surveyDesc: "通过问卷告诉我们你的使用体验与改进建议。",
+        surveyBtn: "填写问卷",
+        surveyUrl: "https://wj.qq.com/s2/25849501/307b/"
       },
       cta: {
         titleHtml: "你的素材，<br>值得<span style=\"color:var(--accent)\">更可靠的保障。</span>",
@@ -1420,6 +1422,10 @@
     setText(".feedback-survey-title", t.feedback.surveyTitle);
     setText(".feedback-survey-desc", t.feedback.surveyDesc);
     setText(".feedback-survey-btn", t.feedback.surveyBtn);
+    const surveyBtn = document.querySelector(".feedback-survey-btn");
+    if (surveyBtn && t.feedback.surveyUrl) {
+      surveyBtn.setAttribute("href", t.feedback.surveyUrl);
+    }
 
     setHtml(".cta-section h2", t.cta.titleHtml);
     setText(".cta-section .section-desc", t.cta.desc);

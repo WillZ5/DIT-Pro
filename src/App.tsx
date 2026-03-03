@@ -55,6 +55,17 @@ function IconReports({ active }: { active: boolean }) {
   );
 }
 
+function IconFeedback() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M3 3h12a1 1 0 011 1v8a1 1 0 01-1 1H6l-3 3V4a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <circle cx="6.5" cy="8" r="1" fill="currentColor" />
+      <circle cx="9" cy="8" r="1" fill="currentColor" />
+      <circle cx="11.5" cy="8" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 function IconSettings({ active }: { active: boolean }) {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -84,6 +95,20 @@ function App() {
   useEffect(() => {
     return subscribeActiveJobCount(setActiveJobCountState);
   }, []);
+
+  const handleFeedback = async () => {
+    try {
+      if (isTauri()) {
+        const { open } = await import("@tauri-apps/plugin-shell");
+        await open("https://ditpro.negdims.com/#feedback");
+      } else {
+        window.open("https://ditpro.negdims.com/#feedback", "_blank");
+      }
+    } catch (err) {
+      console.error("Failed to open feedback URL:", err);
+      window.open("https://ditpro.negdims.com/#feedback", "_blank");
+    }
+  };
 
   const navItems: { id: ViewType; label: string; Icon: React.FC<{ active: boolean }> }[] = [
     { id: "jobs", label: t.nav.jobs, Icon: IconJobs },
@@ -149,6 +174,13 @@ function App() {
             );
           })}
         </ul>
+
+        <div className="sidebar-feedback">
+          <button className="nav-item feedback-btn" onClick={handleFeedback}>
+            <span className="nav-icon"><IconFeedback /></span>
+            <span className="nav-label">{t.nav.feedback}</span>
+          </button>
+        </div>
 
         <div className="sidebar-footer">
           {IS_DEMO && <span className="demo-badge">{t.app.demo}</span>}

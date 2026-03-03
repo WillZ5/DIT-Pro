@@ -24,6 +24,7 @@ const en = {
     presets: "Presets",
     reports: "Reports",
     settings: "Settings",
+    feedback: "Feedback",
   },
 
   // ─── Common ─────────────────────────────────────────────────────────

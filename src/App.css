@@ -110,6 +110,19 @@
   height: 20px;
 }
 
+.sidebar-feedback {
+  padding: 4px 8px 8px;
+  -webkit-app-region: no-drag;
+}
+
+.feedback-btn {
+  color: #52525b !important;
+}
+
+.feedback-btn:hover {
+  color: #a1a1aa !important;
+}
+
 .sidebar-footer {
   padding: 12px 16px;
   border-top: 1px solid #1c1c22;

@@ -25,6 +25,7 @@ const zh: TranslationKeys = {
     presets: "预设",
     reports: "报告",
     settings: "设置",
+    feedback: "问题反馈",
   },
 
   // ─── Common ─────────────────────────────────────────────────────────

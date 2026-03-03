@@ -305,6 +305,15 @@
     color: var(--bg-primary);
   }
 
+  .btn-disabled,
+  .btn-disabled:hover {
+    opacity: 0.75;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    pointer-events: none;
+  }
+
   .btn-secondary {
     display: inline-flex;
     align-items: center;
@@ -328,11 +337,20 @@
     color: var(--text-primary);
   }
 
-  .hero-terminal {
+  .hero-preview {
     margin-top: 80px;
     width: 100%;
-    max-width: 700px;
+    max-width: 1200px;
     animation: fadeUp 0.8s 0.5s ease both;
+  }
+
+  .hero-preview img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
   }
 
   .terminal-window {
@@ -833,7 +851,7 @@
     .features-grid { grid-template-columns: 1fr; }
     .status-grid { grid-template-columns: repeat(2, 1fr); }
     .hero-actions { flex-direction: column; align-items: center; }
-    .hero-terminal { margin-top: 60px; }
+    .hero-preview { margin-top: 60px; }
     footer { flex-direction: column; gap: 24px; text-align: center; }
     .cta-actions { flex-direction: column; align-items: center; }
     .roadmap-item { grid-template-columns: 80px 30px 1fr; }
@@ -860,9 +878,8 @@
       <li><a href="#features">Features</a></li>
       <li><a href="#stack">Stack</a></li>
       <li><a href="#roadmap">Roadmap</a></li>
-      <li><a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="nav-cta">GitHub →</a></li>
     </ul>
-    <a href="https://github.com/WillZ5/DIT-Pro/releases" target="_blank" class="nav-top-btn">Download RC</a>
+    <button type="button" class="nav-top-btn btn-disabled">Download · Coming Soon</button>
     <div class="lang-switch" aria-label="Language switcher">
       <button type="button" class="lang-btn active" data-lang-btn="en">EN</button>
       <button type="button" class="lang-btn" data-lang-btn="zh">中</button>
@@ -874,7 +891,7 @@
 <section class="hero">
   <div class="hero-badge">
     <span class="dot"></span>
-    <span class="hero-badge-text">v1.0.0-rc.4 · Releasing soon</span>
+    <span class="hero-badge-text">v1.0.0 · Coming soon</span>
   </div>
   <h1>Secure backup<br>for <span class="accent">film.</span></h1>
   <p class="hero-sub">
@@ -882,34 +899,12 @@
     No gimmicks. No guesswork. Just bulletproof backup.
   </p>
   <div class="hero-actions">
-    <a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="btn-primary">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      <span class="hero-primary-text">View on GitHub</span>
-    </a>
+    <button type="button" class="btn-primary btn-disabled"><span class="hero-primary-text">Download · Coming Soon</span></button>
     <a href="#safety" class="btn-secondary">Learn more ↓</a>
   </div>
 
-  <div class="hero-terminal">
-    <div class="terminal-window">
-      <div class="terminal-header">
-        <div class="terminal-dot red"></div>
-        <div class="terminal-dot yellow"></div>
-        <div class="terminal-dot green"></div>
-        <div class="terminal-title">dit-pro — offload</div>
-      </div>
-      <div class="terminal-body">
-        <span class="prompt">$</span> dit-pro offload <span class="flag">--source</span> <span class="value">/Volumes/ARRI_A001</span><br>
-        <span class="prompt">$</span> <span class="flag">--dest</span> <span class="value">/Volumes/SSD_01 /Volumes/HDD_SHUTTLE</span><br>
-        <span class="prompt">$</span> <span class="flag">--verify</span> <span class="value">xxh3,md5</span> <span class="flag">--mhl</span> <span class="value">asc-mhl</span><br>
-        <br>
-        <span class="comment">// offloading 847 files · 2.3 TB</span><br>
-        <span class="success">✓</span> SSD_01 &nbsp;&nbsp;&nbsp;━━━━━━━━━━━━━━ <span class="value">100%</span> · <span class="success">verified</span><br>
-        <span class="success">✓</span> HDD_SHUTTLE ━━━━━━━━━━━━━━ <span class="value">100%</span> · <span class="success">verified</span><br>
-        <span class="success">✓</span> ASC-MHL chain sealed · 2 generations<br>
-        <br>
-        <span class="prompt">$</span> <span class="success terminal-safe-text">SAFE TO FORMAT</span><span class="cursor"></span>
-      </div>
-    </div>
+  <div class="hero-preview">
+    <img src="./app-screenshot.png" alt="DIT Pro app interface screenshot">
   </div>
 </section>
 
@@ -1163,17 +1158,11 @@
   <div class="reveal">
     <h2>Your footage<br>deserves <span style="color:var(--accent)">better.</span></h2>
     <p class="section-desc">
-      Open source. Built by a DIT, for DITs.
-      Star the repo, try the RC, file an issue.
+      Built for production teams that need dependable data safety.
+      Public download is being prepared.
     </p>
     <div class="cta-actions">
-      <a href="https://github.com/WillZ5/DIT-Pro" target="_blank" class="btn-primary">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        <span class="cta-primary-text">Star on GitHub</span>
-      </a>
-      <a href="https://github.com/WillZ5/DIT-Pro/releases" target="_blank" class="btn-secondary">
-        Download RC →
-      </a>
+      <button type="button" class="btn-primary btn-disabled"><span class="cta-primary-text">Download · Coming Soon</span></button>
     </div>
   </div>
 </section>
@@ -1182,11 +1171,6 @@
 <footer>
   <div class="footer-left">
     © 2026 DIT Pro · Built with Tauri, Rust, and React
-  </div>
-  <div class="footer-links">
-    <a href="https://github.com/WillZ5/DIT-Pro" target="_blank">GitHub</a>
-    <a href="https://github.com/WillZ5/DIT-Pro/releases" target="_blank">Releases</a>
-    <a href="https://github.com/WillZ5/DIT-Pro/issues" target="_blank">Issues</a>
   </div>
 </footer>
 
@@ -1199,14 +1183,13 @@
         features: "Features",
         stack: "Stack",
         roadmap: "Roadmap",
-        github: "GitHub →",
-        topButton: "Download RC"
+        topButton: "Download · Coming Soon"
       },
       hero: {
-        badge: "v1.0.0-rc.4 · Releasing soon",
+        badge: "v1.0.0 · Coming soon",
         titleHtml: "Secure backup<br>for <span class=\"accent\">film.</span>",
         sub: "Professional-grade data integrity for production. No gimmicks. No guesswork. Just bulletproof backup.",
-        primary: "View on GitHub",
+        primary: "Download · Coming Soon",
         secondary: "Learn more ↓",
         terminalTitle: "dit-pro — offload",
         terminalComment: "// offloading 847 files · 2.3 TB",
@@ -1300,13 +1283,12 @@
       },
       cta: {
         titleHtml: "Your footage<br>deserves <span style=\"color:var(--accent)\">better.</span>",
-        desc: "Open source. Built by a DIT, for DITs. Star the repo, try the RC, file an issue.",
-        primary: "Star on GitHub",
-        secondary: "Download RC →"
+        desc: "Built for production teams that need dependable data safety. Public download is being prepared.",
+        primary: "Download · Coming Soon",
+        secondary: "Coming Soon"
       },
       footer: {
-        left: "© 2026 DIT Pro · Built with Tauri, Rust, and React",
-        links: ["GitHub", "Releases", "Issues"]
+        left: "© 2026 DIT Pro · Built with Tauri, Rust, and React"
       }
     },
     zh: {
@@ -1316,14 +1298,13 @@
         features: "功能",
         stack: "技术栈",
         roadmap: "路线图",
-        github: "GitHub 主页 →",
-        topButton: "下载 RC"
+        topButton: "下载 · 即将上线"
       },
       hero: {
-        badge: "v1.0.0-rc.4 · 即将发布",
+        badge: "v1.0.0 · 即将上线",
         titleHtml: "为<span class=\"accent\">影视制作</span><br>提供安全备份",
         sub: "面向专业拍摄现场的数据完整性保障。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
-        primary: "在 GitHub 查看",
+        primary: "下载 · 即将上线",
         secondary: "了解更多 ↓",
         terminalTitle: "dit-pro — 数据转储",
         terminalComment: "// 正在数据转储 847 个文件 · 2.3 TB",
@@ -1417,13 +1398,12 @@
       },
       cta: {
         titleHtml: "你的素材，<br>值得<span style=\"color:var(--accent)\">更可靠的保障。</span>",
-        desc: "开源项目，由 DIT 为 DIT 打造。欢迎 Star、试用 RC 并提交反馈。",
-        primary: "在 GitHub 点赞",
-        secondary: "下载 RC →"
+        desc: "面向专业制作团队打造的可靠数据安全工具。公开下载版本正在准备中。",
+        primary: "下载 · 即将上线",
+        secondary: "即将上线"
       },
       footer: {
-        left: "© 2026 DIT Pro · 基于 Tauri、Rust 与 React 构建",
-        links: ["GitHub", "版本发布", "问题反馈"]
+        left: "© 2026 DIT Pro · 基于 Tauri、Rust 与 React 构建"
       }
     }
   };
@@ -1456,7 +1436,6 @@
     setText('a[href="#features"]', t.nav.features);
     setText('a[href="#stack"]', t.nav.stack);
     setText('a[href="#roadmap"]', t.nav.roadmap);
-    setText(".nav-cta", t.nav.github);
     setText(".nav-top-btn", t.nav.topButton);
 
     setText(".hero-badge-text", t.hero.badge);
@@ -1501,12 +1480,8 @@
     setHtml(".cta-section h2", t.cta.titleHtml);
     setText(".cta-section .section-desc", t.cta.desc);
     setText(".cta-primary-text", t.cta.primary);
-    setText(".cta-actions .btn-secondary", t.cta.secondary);
 
     setText(".footer-left", t.footer.left);
-    setText('footer a[href="https://github.com/WillZ5/DIT-Pro"]', t.footer.links[0]);
-    setText('footer a[href="https://github.com/WillZ5/DIT-Pro/releases"]', t.footer.links[1]);
-    setText('footer a[href="https://github.com/WillZ5/DIT-Pro/issues"]', t.footer.links[2]);
 
     document.querySelectorAll("[data-lang-btn]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.langBtn === language);

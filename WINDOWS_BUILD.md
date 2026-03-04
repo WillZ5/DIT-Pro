@@ -5,6 +5,16 @@ Target: another Claude Code instance on a Windows machine should be able to foll
 
 ---
 
+## ⚠️ Important Rule
+
+**Windows 机器只负责编译和上传产物，不要修改任何代码。**
+
+如果编译失败，请将完整的错误信息反馈给用户，由 macOS 端修复后重新 push。Windows 端再 git pull 重试。
+
+**禁止**：修改源码、创建 PR、修改 package.json/Cargo.toml 等任何文件。
+
+---
+
 ## Prerequisites
 
 ### 1. Visual Studio Build Tools (MSVC)

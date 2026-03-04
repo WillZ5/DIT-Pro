@@ -317,6 +317,7 @@ pub fn run() {
                         let _ = window.set_focus();
                     }
                 }
+                #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { .. } => {
                     // macOS dock icon clicked — show/focus window
                     if let Some(window) = app_handle.get_webview_window("main") {

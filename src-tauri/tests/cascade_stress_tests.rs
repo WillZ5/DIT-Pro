@@ -688,8 +688,9 @@ async fn cascade_500_files_3_dests_full_pipeline() {
 
 // ─── Test 5: Cascade Phase Event Ordering ───────────────────────────────────
 
-/// Verifies the exact phase ordering in cascade mode:
-/// SourceVerify → Copying (to primary) → Cascading → Verifying → MHL → Complete
+/// Verifies the exact phase ordering in cascade mode (with post_verify):
+/// PreFlight → SourceVerify → Copying (primary) → Verifying (primary)
+///   → Cascading → Verifying (secondaries) → Sealing → Complete
 #[tokio::test]
 async fn cascade_phase_event_ordering() {
     let tmp = tempdir().unwrap();
@@ -733,11 +734,15 @@ async fn cascade_phase_event_ordering() {
 
     eprintln!("Phase order: {:?}", phase_order);
 
-    // Expected order: PreFlight → SourceVerify → Copying → Cascading → Verifying → Sealing → Complete
+    // Expected order for cascade with post_verify:
+    // PreFlight → SourceVerify → Copying (to primary) → Verifying (primary)
+    //   → Cascading (primary → secondaries) → Verifying (secondaries) → Sealing → Complete
+    // The first Verifying ensures primary integrity before releasing source card.
     let expected = vec![
         OffloadPhase::PreFlight,
         OffloadPhase::SourceVerify,
         OffloadPhase::Copying,
+        OffloadPhase::Verifying,
         OffloadPhase::Cascading,
         OffloadPhase::Verifying,
         OffloadPhase::Sealing,

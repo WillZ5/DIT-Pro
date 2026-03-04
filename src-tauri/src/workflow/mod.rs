@@ -2254,7 +2254,11 @@ impl OffloadWorkflow {
                         rusqlite::params![
                             self.config.job_id,
                             file.abs_path.to_string_lossy().as_ref(),
-                            format!("{}/%", primary_dest.to_string_lossy()),
+                            format!(
+                                "{}{}%",
+                                primary_dest.to_string_lossy(),
+                                std::path::MAIN_SEPARATOR
+                            ),
                         ],
                         |row| Ok((row.get(0)?, row.get(1)?)),
                     )
@@ -2577,7 +2581,11 @@ impl OffloadWorkflow {
                         rusqlite::params![
                             self.config.job_id,
                             file.abs_path.to_string_lossy().as_ref(),
-                            format!("{}/%", dest_root.to_string_lossy()),
+                            format!(
+                                "{}{}%",
+                                dest_root.to_string_lossy(),
+                                std::path::MAIN_SEPARATOR
+                            ),
                         ],
                         |row| Ok((row.get(0)?, row.get(1)?)),
                     )
@@ -2832,7 +2840,11 @@ impl OffloadWorkflow {
                     rusqlite::params![
                         self.config.job_id,
                         file.abs_path.to_string_lossy().as_ref(),
-                        format!("{}/%", dest_root.to_string_lossy()),
+                        format!(
+                            "{}{}%",
+                            dest_root.to_string_lossy(),
+                            std::path::MAIN_SEPARATOR
+                        ),
                     ],
                     |row| row.get::<_, i64>(0),
                 )
@@ -2848,7 +2860,11 @@ impl OffloadWorkflow {
                     rusqlite::params![
                         self.config.job_id,
                         file.abs_path.to_string_lossy().as_ref(),
-                        format!("{}/%", dest_root.to_string_lossy()),
+                        format!(
+                            "{}{}%",
+                            dest_root.to_string_lossy(),
+                            std::path::MAIN_SEPARATOR
+                        ),
                     ],
                 )?;
                 retry_files.push(file.clone());
@@ -3018,7 +3034,11 @@ impl OffloadWorkflow {
                             rusqlite::params![
                                 self.config.job_id,
                                 file.abs_path.to_string_lossy().as_ref(),
-                                format!("{}/%", dest_root.to_string_lossy()),
+                                format!(
+                                    "{}{}%",
+                                    dest_root.to_string_lossy(),
+                                    std::path::MAIN_SEPARATOR
+                                ),
                             ],
                             |row| Ok((row.get(0)?, row.get(1)?)),
                         )
@@ -3224,7 +3244,11 @@ impl OffloadWorkflow {
                             rusqlite::params![
                                 self.config.job_id,
                                 file.abs_path.to_string_lossy().as_ref(),
-                                format!("{}/%", dest_root.to_string_lossy()),
+                                format!(
+                                    "{}{}%",
+                                    dest_root.to_string_lossy(),
+                                    std::path::MAIN_SEPARATOR
+                                ),
                             ],
                             |row| Ok((row.get(0)?, row.get(1)?)),
                         )

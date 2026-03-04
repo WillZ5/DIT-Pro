@@ -1012,8 +1012,9 @@
     No gimmicks. No guesswork. Just bulletproof backup.
   </p>
   <div class="hero-actions">
-    <a href="https://github.com/WillZ5/DIT-Pro/releases/latest/download/DIT-Pro_latest_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-primary hero-download-btn"><span class="hero-primary-text">Download latest</span></a>
-    <a href="#safety" class="btn-secondary">Learn more ↓</a>
+    <a href="https://github.com/WillZ5/DIT-Pro/releases/latest/download/DIT-Pro_latest_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-primary hero-download-btn hero-download-stable-btn"><span class="hero-stable-text">Download stable</span></a>
+    <a href="https://github.com/WillZ5/DIT-Pro/releases" target="_blank" rel="noopener noreferrer" class="btn-secondary hero-download-beta-btn"><span class="hero-beta-text">Download beta</span></a>
+    <a href="#safety" class="btn-secondary hero-learn-more-btn">Learn more ↓</a>
   </div>
   <p class="hero-install-note">
     DIT Pro is not signed by an Apple-verified developer. After installation, open "System Settings" >> "Privacy & Security", scroll down, then click "Open Anyway".
@@ -1266,9 +1267,12 @@
         badge: "Open-sourced · v1.0.0 · Available Now",
         titleHtml: "<span class=\"hero-typing-line\"><span class=\"hero-typing-prefix accent\"></span></span><br><span class=\"hero-typing-suffix\"></span>",
         sub: "Professional-grade, open-source data integrity with a clear GUI for production teams. No gimmicks. No guesswork. Just bulletproof backup.",
-        primary: "Download latest",
-        primaryUrl: "https://github.com/WillZ5/DIT-Pro/releases/latest/download/DIT-Pro_latest_universal.dmg",
-        primaryFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
+        stable: "Download stable",
+        stableUrl: "https://github.com/WillZ5/DIT-Pro/releases/latest/download/DIT-Pro_latest_universal.dmg",
+        stableFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
+        beta: "Download beta",
+        betaUrl: "https://github.com/WillZ5/DIT-Pro/releases",
+        betaFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
         installNote: "DIT Pro is not signed by an Apple-verified developer. After installation, open \"System Settings\" >> \"Privacy & Security\", scroll down, then click \"Open Anyway\".",
         secondary: "Learn more ↓",
         terminalTitle: "dit-pro — offload",
@@ -1376,9 +1380,12 @@
         badge: "开源项目 · v1.0.0 · 现已发布",
         titleHtml: "<span class=\"hero-typing-line\"><span class=\"hero-typing-prefix accent\"></span></span><br><span class=\"hero-typing-suffix\"></span>",
         sub: "面向专业拍摄现场的开源数据完整性保障，配备清晰直观的图形操作界面。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
-        primary: "下载最新版",
-        primaryUrl: "https://github.com/WillZ5/DIT-Pro/releases/latest/download/DIT-Pro_latest_universal.dmg",
-        primaryFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
+        stable: "下载稳定版",
+        stableUrl: "https://github.com/WillZ5/DIT-Pro/releases/latest/download/DIT-Pro_latest_universal.dmg",
+        stableFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
+        beta: "下载测试版",
+        betaUrl: "https://github.com/WillZ5/DIT-Pro/releases",
+        betaFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
         installNote: "由于 DIT Pro 当前未通过 Apple 开发者签名验证，安装完成后请按以下步骤操作：<br>打开“系统设置”>>“隐私与安全性”，向下滚动后点击“仍要打开”。",
         secondary: "了解更多 ↓",
         terminalTitle: "dit-pro — 数据转储",
@@ -1619,22 +1626,29 @@
     startHeroTyping(heroTypingToken, language);
   };
 
-  const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/WillZ5/DIT-Pro/releases/latest";
+  const GITHUB_RELEASES_API = "https://api.github.com/repos/WillZ5/DIT-Pro/releases?per_page=30";
   let currentLanguage = "en";
   let githubDownloadReachable = null;
-  let latestGithubDmgUrl = null;
+  let latestStableDmgUrl = null;
+  let latestBetaDmgUrl = null;
 
-  const applyHeroDownloadHref = (heroConfig) => {
-    const heroDownloadBtn = document.querySelector(".hero-download-btn");
-    if (!heroDownloadBtn || !heroConfig) return;
-    const fallbackUrl = heroConfig.primaryFallbackUrl || "./software/DIT-Pro_latest_universal.dmg";
-    const targetUrl = githubDownloadReachable === false
-      ? fallbackUrl
-      : (latestGithubDmgUrl || heroConfig.primaryUrl);
-    heroDownloadBtn.setAttribute("href", targetUrl);
+  const applyHeroDownloadHrefs = (heroConfig) => {
+    if (!heroConfig) return;
+    const stableBtn = document.querySelector(".hero-download-stable-btn");
+    const betaBtn = document.querySelector(".hero-download-beta-btn");
+    const stableFallbackUrl = heroConfig.stableFallbackUrl || "./software/DIT-Pro_latest_universal.dmg";
+    const betaFallbackUrl = heroConfig.betaFallbackUrl || stableFallbackUrl;
+    const stableTargetUrl = githubDownloadReachable === false
+      ? stableFallbackUrl
+      : (latestStableDmgUrl || heroConfig.stableUrl || stableFallbackUrl);
+    const betaTargetUrl = githubDownloadReachable === false
+      ? betaFallbackUrl
+      : (latestBetaDmgUrl || heroConfig.betaUrl || betaFallbackUrl);
+    if (stableBtn) stableBtn.setAttribute("href", stableTargetUrl);
+    if (betaBtn) betaBtn.setAttribute("href", betaTargetUrl);
   };
 
-  const pickLatestDmgAssetUrl = (releaseData) => {
+  const pickDmgAssetUrl = (releaseData) => {
     const assets = Array.isArray(releaseData && releaseData.assets) ? releaseData.assets : [];
     const dmgAssets = assets.filter((asset) =>
       typeof asset.name === "string" &&
@@ -1646,12 +1660,12 @@
     return preferred.browser_download_url || null;
   };
 
-  const resolveLatestGithubDmg = async () => {
+  const resolveLatestGithubDmgs = async () => {
     if (typeof fetch !== "function") return;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3500);
     try {
-      const response = await fetch(GITHUB_LATEST_RELEASE_API, {
+      const response = await fetch(GITHUB_RELEASES_API, {
         headers: {
           Accept: "application/vnd.github+json"
         },
@@ -1659,10 +1673,16 @@
         signal: controller.signal
       });
       if (!response.ok) throw new Error(`GitHub API ${response.status}`);
-      const releaseData = await response.json();
-      const dmgUrl = pickLatestDmgAssetUrl(releaseData);
-      if (!dmgUrl) throw new Error("No dmg asset in latest release");
-      latestGithubDmgUrl = dmgUrl;
+      const releases = await response.json();
+      if (!Array.isArray(releases)) throw new Error("Invalid GitHub releases payload");
+      const stableRelease = releases.find((release) =>
+        release && !release.draft && !release.prerelease && pickDmgAssetUrl(release)
+      );
+      const betaRelease = releases.find((release) =>
+        release && !release.draft && release.prerelease && pickDmgAssetUrl(release)
+      );
+      latestStableDmgUrl = stableRelease ? pickDmgAssetUrl(stableRelease) : null;
+      latestBetaDmgUrl = betaRelease ? pickDmgAssetUrl(betaRelease) : null;
       githubDownloadReachable = true;
     } catch (_) {
       githubDownloadReachable = false;
@@ -1670,7 +1690,7 @@
       clearTimeout(timeoutId);
     }
     const heroConfig = i18n[currentLanguage] && i18n[currentLanguage].hero;
-    applyHeroDownloadHref(heroConfig);
+    applyHeroDownloadHrefs(heroConfig);
   };
 
   const applyLanguage = (lang) => {
@@ -1691,10 +1711,11 @@
     setHtml(".hero h1", t.hero.titleHtml);
     refreshHeroTyping(language);
     setText(".hero-sub", t.hero.sub);
-    setText(".hero-primary-text", t.hero.primary);
-    applyHeroDownloadHref(t.hero);
+    setText(".hero-stable-text", t.hero.stable);
+    setText(".hero-beta-text", t.hero.beta);
+    applyHeroDownloadHrefs(t.hero);
     setHtml(".hero-install-note", t.hero.installNote);
-    setText(".hero-actions .btn-secondary", t.hero.secondary);
+    setText(".hero-learn-more-btn", t.hero.secondary);
     setText(".terminal-title", t.hero.terminalTitle);
     setText(".terminal-body .comment", t.hero.terminalComment);
     setText(".terminal-safe-text", t.hero.terminalSafe);
@@ -1758,7 +1779,7 @@
     btn.addEventListener("click", () => applyLanguage(btn.dataset.langBtn));
   });
 
-  resolveLatestGithubDmg();
+  resolveLatestGithubDmgs();
 
   // Nav scroll effect
   const navbar = document.getElementById('navbar');

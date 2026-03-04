@@ -1012,8 +1012,8 @@
     No gimmicks. No guesswork. Just bulletproof backup.
   </p>
   <div class="hero-actions">
-    <a href="https://github.com/WillZ5/DIT-Pro/releases/latest/download/DIT-Pro_latest_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-primary hero-download-btn hero-download-stable-btn"><span class="hero-stable-text">Download stable</span></a>
-    <a href="https://github.com/WillZ5/DIT-Pro/releases" target="_blank" rel="noopener noreferrer" class="btn-secondary hero-download-beta-btn"><span class="hero-beta-text">Download beta</span></a>
+    <a href="./software/DIT-Pro_latest_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-primary hero-download-btn hero-download-stable-btn"><span class="hero-stable-text">Download stable</span></a>
+    <a href="./software/DIT-Pro_v1.1.0-rc.1_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-secondary hero-download-beta-btn"><span class="hero-beta-text">Download beta</span></a>
     <a href="#safety" class="btn-secondary hero-learn-more-btn">Learn more ↓</a>
   </div>
   <p class="hero-install-note">
@@ -1628,7 +1628,7 @@
 
   const GITHUB_RELEASES_API = "https://api.github.com/repos/WillZ5/DIT-Pro/releases?per_page=30";
   let currentLanguage = "en";
-  let githubDownloadReachable = null;
+  let githubHostReachable = null;
   let latestStableDmgUrl = null;
   let latestBetaDmgUrl = null;
 
@@ -1638,14 +1638,39 @@
     const betaBtn = document.querySelector(".hero-download-beta-btn");
     const stableFallbackUrl = heroConfig.stableFallbackUrl || "./software/DIT-Pro_latest_universal.dmg";
     const betaFallbackUrl = heroConfig.betaFallbackUrl || stableFallbackUrl;
-    const stableTargetUrl = githubDownloadReachable === false
-      ? stableFallbackUrl
-      : (latestStableDmgUrl || heroConfig.stableUrl || stableFallbackUrl);
-    const betaTargetUrl = githubDownloadReachable === false
-      ? betaFallbackUrl
-      : (latestBetaDmgUrl || heroConfig.betaUrl || betaFallbackUrl);
+    const canUseGithub = githubHostReachable === true;
+    const stableTargetUrl = canUseGithub
+      ? (latestStableDmgUrl || heroConfig.stableUrl || stableFallbackUrl)
+      : stableFallbackUrl;
+    const betaTargetUrl = canUseGithub
+      ? (latestBetaDmgUrl || heroConfig.betaUrl || betaFallbackUrl)
+      : betaFallbackUrl;
     if (stableBtn) stableBtn.setAttribute("href", stableTargetUrl);
     if (betaBtn) betaBtn.setAttribute("href", betaTargetUrl);
+  };
+
+  const probeGithubHostReachability = async () => {
+    if (typeof fetch !== "function") {
+      githubHostReachable = false;
+      return;
+    }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    try {
+      await fetch("https://github.com/favicon.ico", {
+        method: "HEAD",
+        mode: "no-cors",
+        cache: "no-store",
+        signal: controller.signal
+      });
+      githubHostReachable = true;
+    } catch (_) {
+      githubHostReachable = false;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    const heroConfig = i18n[currentLanguage] && i18n[currentLanguage].hero;
+    applyHeroDownloadHrefs(heroConfig);
   };
 
   const pickDmgAssetUrl = (releaseData) => {
@@ -1683,9 +1708,9 @@
       );
       latestStableDmgUrl = stableRelease ? pickDmgAssetUrl(stableRelease) : null;
       latestBetaDmgUrl = betaRelease ? pickDmgAssetUrl(betaRelease) : null;
-      githubDownloadReachable = true;
     } catch (_) {
-      githubDownloadReachable = false;
+      latestStableDmgUrl = null;
+      latestBetaDmgUrl = null;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -1779,6 +1804,7 @@
     btn.addEventListener("click", () => applyLanguage(btn.dataset.langBtn));
   });
 
+  probeGithubHostReachability();
   resolveLatestGithubDmgs();
 
   // Nav scroll effect

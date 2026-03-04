@@ -37,12 +37,19 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let icon_bytes = include_bytes!("../icons/tray-idle.png");
     let icon = Image::from_bytes(icon_bytes)?;
 
-    let _tray = TrayIconBuilder::with_id("main-tray")
+    let mut tray_builder = TrayIconBuilder::with_id("main-tray")
         .icon(icon)
-        .icon_as_template(true)
         .tooltip("DIT Pro")
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        .show_menu_on_left_click(false);
+
+    // macOS: use template icons for monochrome menu bar appearance
+    #[cfg(target_os = "macos")]
+    {
+        tray_builder = tray_builder.icon_as_template(true);
+    }
+
+    let _tray = tray_builder
         .on_tray_icon_event({
             let app_handle = app.clone();
             move |_tray, event| {
@@ -101,9 +108,13 @@ pub fn update_tray_icon(app: &AppHandle, state: TrayState) {
     if let Ok(icon) = Image::from_bytes(icon_bytes) {
         if let Some(tray) = app.tray_by_id("main-tray") {
             let _ = tray.set_icon(Some(icon));
-            // Only use template for idle (monochrome); colored icons should not be templates
-            let is_template = matches!(state, TrayState::Idle);
-            let _ = tray.set_icon_as_template(is_template);
+            // macOS: only use template for idle (monochrome menu bar);
+            // colored icons should not be templates. Windows ignores this.
+            #[cfg(target_os = "macos")]
+            {
+                let is_template = matches!(state, TrayState::Idle);
+                let _ = tray.set_icon_as_template(is_template);
+            }
         }
     }
 }

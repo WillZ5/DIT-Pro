@@ -173,6 +173,29 @@ pub async fn check_available_space(dest_path: &Path, required_bytes: u64) -> Res
         }
     }
 
+    #[cfg(windows)]
+    {
+        match crate::volume::get_volume_space(&check_path) {
+            Ok(space) => {
+                if space.available_bytes < required_bytes {
+                    bail!(
+                        "Insufficient space on {:?}: {} available, {} required",
+                        dest_path,
+                        format_bytes(space.available_bytes),
+                        format_bytes(required_bytes)
+                    );
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "GetDiskFreeSpaceEx failed for {:?}: {}, skipping space check",
+                    dest_path,
+                    e
+                );
+            }
+        }
+    }
+
     Ok(())
 }
 

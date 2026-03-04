@@ -11,15 +11,9 @@ fn main() {
     }
 
     // ── Build timestamp (YYYYMMDD UTC) ────────────────────────────
-    if let Ok(output) = std::process::Command::new("date")
-        .args(["-u", "+%Y%m%d"])
-        .output()
-    {
-        if output.status.success() {
-            let date = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            println!("cargo:rustc-env=DIT_BUILD_TIME={}", date);
-        }
-    }
+    // Uses chrono instead of `date` command for cross-platform support.
+    let date = chrono::Utc::now().format("%Y%m%d").to_string();
+    println!("cargo:rustc-env=DIT_BUILD_TIME={}", date);
 
     // ── Pre-release tag ────────────────────────────────────────────
     // Override via env: DIT_PRE_RELEASE=rc.1 cargo tauri build

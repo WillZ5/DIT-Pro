@@ -121,24 +121,9 @@ pub fn run() {
                 log::warn!("Failed to setup system tray: {}", e);
             }
 
-            // Custom application menu — ⌘Q accelerator with Rust-side hold detection
+            // Custom application menu — platform-specific layout
             let quit_item =
                 MenuItem::with_id(app, "app-quit", "Quit DIT Pro", true, Some("CmdOrCtrl+Q"))?;
-
-            let app_submenu = Submenu::with_items(
-                app,
-                "DIT Pro",
-                true,
-                &[
-                    &PredefinedMenuItem::about(app, Some("About DIT Pro"), None)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::hide(app, Some("Hide DIT Pro"))?,
-                    &PredefinedMenuItem::hide_others(app, None)?,
-                    &PredefinedMenuItem::show_all(app, None)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &quit_item,
-                ],
-            )?;
 
             let edit_submenu = Submenu::with_items(
                 app,
@@ -165,8 +150,48 @@ pub fn run() {
                 ],
             )?;
 
-            let menu = Menu::with_items(app, &[&app_submenu, &edit_submenu, &window_submenu])?;
-            app.set_menu(menu)?;
+            // macOS: "DIT Pro" app submenu with About, Hide, Show All, Quit
+            #[cfg(target_os = "macos")]
+            {
+                let app_submenu = Submenu::with_items(
+                    app,
+                    "DIT Pro",
+                    true,
+                    &[
+                        &PredefinedMenuItem::about(app, Some("About DIT Pro"), None)?,
+                        &PredefinedMenuItem::separator(app)?,
+                        &PredefinedMenuItem::hide(app, Some("Hide DIT Pro"))?,
+                        &PredefinedMenuItem::hide_others(app, None)?,
+                        &PredefinedMenuItem::show_all(app, None)?,
+                        &PredefinedMenuItem::separator(app)?,
+                        &quit_item,
+                    ],
+                )?;
+                let menu = Menu::with_items(app, &[&app_submenu, &edit_submenu, &window_submenu])?;
+                app.set_menu(menu)?;
+            }
+
+            // Windows: File menu with Quit, Help menu with About
+            #[cfg(windows)]
+            {
+                let file_submenu = Submenu::with_items(app, "File", true, &[&quit_item])?;
+                let about_item =
+                    MenuItem::with_id(app, "about", "About DIT Pro", true, None::<&str>)?;
+                let help_submenu = Submenu::with_items(app, "Help", true, &[&about_item])?;
+                let menu = Menu::with_items(
+                    app,
+                    &[&file_submenu, &edit_submenu, &window_submenu, &help_submenu],
+                )?;
+                app.set_menu(menu)?;
+            }
+
+            // Linux/other: same as Windows layout
+            #[cfg(not(any(target_os = "macos", windows)))]
+            {
+                let file_submenu = Submenu::with_items(app, "File", true, &[&quit_item])?;
+                let menu = Menu::with_items(app, &[&file_submenu, &edit_submenu, &window_submenu])?;
+                app.set_menu(menu)?;
+            }
 
             // ⌘Q hold-to-quit: Rust-side detection using atomic timestamps.
             // - Hold ⌘Q for 1s (key repeat events stream in) → quit

@@ -452,21 +452,15 @@ fn compute_root_structure_hash(entries: &[MhlHashEntry]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// Get the system hostname
+/// Get the system hostname (cross-platform: works on macOS, Linux, and Windows)
 fn get_hostname() -> Option<String> {
-    #[cfg(unix)]
-    {
-        use std::process::Command;
-        Command::new("hostname")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-    }
-    #[cfg(not(unix))]
-    {
-        None
-    }
+    use std::process::Command;
+    // The `hostname` command is available on all major platforms
+    Command::new("hostname")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
 }
 
 /// Verify a manifest file's integrity against its chain entry

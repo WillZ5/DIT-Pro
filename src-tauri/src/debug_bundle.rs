@@ -48,7 +48,7 @@ pub struct SystemInfo {
 }
 
 fn collect_system_info() -> SystemInfo {
-    let os_version = get_macos_version().unwrap_or_default();
+    let os_version = get_os_version().unwrap_or_default();
     let hardware_model = get_hardware_model().unwrap_or_default();
     let total_memory = get_total_memory();
     let hostname = gethostname_safe();
@@ -75,22 +75,20 @@ fn collect_system_info() -> SystemInfo {
     }
 }
 
-/// Get hostname without external crate
+/// Get hostname without external crate (cross-platform)
 fn gethostname_safe() -> String {
-    #[cfg(unix)]
-    {
-        let output = std::process::Command::new("hostname").output();
-        if let Ok(o) = output {
-            if o.status.success() {
-                return String::from_utf8_lossy(&o.stdout).trim().to_string();
-            }
+    // `hostname` command works on macOS, Linux, and Windows
+    let output = std::process::Command::new("hostname").output();
+    if let Ok(o) = output {
+        if o.status.success() {
+            return String::from_utf8_lossy(&o.stdout).trim().to_string();
         }
     }
     "unknown".into()
 }
 
-/// Get macOS system version via sw_vers
-fn get_macos_version() -> Option<String> {
+/// Get OS version (cross-platform)
+fn get_os_version() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
         let output = std::process::Command::new("sw_vers")
@@ -101,10 +99,24 @@ fn get_macos_version() -> Option<String> {
             return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
         }
     }
+    #[cfg(windows)]
+    {
+        // Use `cmd /c ver` to get Windows version string
+        let output = std::process::Command::new("cmd")
+            .args(["/c", "ver"])
+            .output()
+            .ok()?;
+        if output.status.success() {
+            let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !ver.is_empty() {
+                return Some(ver);
+            }
+        }
+    }
     None
 }
 
-/// Get hardware model identifier
+/// Get hardware model identifier (cross-platform)
 fn get_hardware_model() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
@@ -116,10 +128,28 @@ fn get_hardware_model() -> Option<String> {
             return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
         }
     }
+    #[cfg(windows)]
+    {
+        let output = std::process::Command::new("wmic")
+            .args(["computersystem", "get", "model", "/format:value"])
+            .output()
+            .ok()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            for line in text.lines() {
+                if let Some(val) = line.strip_prefix("Model=") {
+                    let model = val.trim();
+                    if !model.is_empty() {
+                        return Some(model.to_string());
+                    }
+                }
+            }
+        }
+    }
     None
 }
 
-/// Get total system memory in bytes
+/// Get total system memory in bytes (cross-platform)
 fn get_total_memory() -> u64 {
     #[cfg(target_os = "macos")]
     {
@@ -130,6 +160,19 @@ fn get_total_memory() -> u64 {
             if o.status.success() {
                 let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
                 return s.parse().unwrap_or(0);
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        let mut mem_info = MEMORYSTATUSEX {
+            dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+            ..Default::default()
+        };
+        unsafe {
+            if GlobalMemoryStatusEx(&mut mem_info).is_ok() {
+                return mem_info.ullTotalPhys;
             }
         }
     }
@@ -216,6 +259,36 @@ fn collect_disk_info() -> Vec<DiskInfo> {
                     })
                     .collect();
             }
+        }
+    }
+    #[cfg(windows)]
+    {
+        // Use the volume module to enumerate drives (reuse existing logic)
+        use tokio::runtime::Handle;
+        if let Ok(handle) = Handle::try_current() {
+            // We're inside an async runtime — use block_in_place
+            if let Ok(volumes) = tokio::task::block_in_place(|| {
+                handle.block_on(crate::volume::list_mounted_volumes())
+            }) {
+                return volumes
+                    .into_iter()
+                    .map(|v| DiskInfo {
+                        mount_point: v.mount_point,
+                        total_bytes: v.total_bytes,
+                        available_bytes: v.available_bytes,
+                        filesystem: v.file_system.unwrap_or_default(),
+                    })
+                    .collect();
+            }
+        }
+        // Fallback: no async runtime available, query C:\ at minimum
+        if let Ok(space) = crate::volume::get_volume_space(std::path::Path::new("C:\\")) {
+            return vec![DiskInfo {
+                mount_point: "C:\\".to_string(),
+                total_bytes: space.total_bytes,
+                available_bytes: space.available_bytes,
+                filesystem: "NTFS".to_string(),
+            }];
         }
     }
     Vec::new()

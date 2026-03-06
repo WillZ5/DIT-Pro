@@ -33,6 +33,11 @@ pnpm-debug.log*
 *.sln
 *.sw?
 
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+
 # OS files
 .DS_Store
 Thumbs.db

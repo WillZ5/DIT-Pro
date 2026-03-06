@@ -94,7 +94,6 @@ interface ActiveOffload {
   lastSnapshotTime: number;
   currentSpeed: number;
   isPaused: boolean;
-  speedHistoryByPhase: Record<string, number[]>;
   /** Chronological speed timeline preserving phase ordering (handles Copying→Verify→Copying retry) */
   speedTimeline: Array<{ phase: string; speed: number }>;
   failedFiles: number;
@@ -136,7 +135,6 @@ function createActiveOffload(jobId: string, name: string): ActiveOffload {
     lastSnapshotTime: now,
     currentSpeed: 0,
     isPaused: false,
-    speedHistoryByPhase: {},
     speedTimeline: [],
     failedFiles: 0,
     sourceReleased: false,
@@ -151,9 +149,10 @@ function createActiveOffload(jobId: string, name: string): ActiveOffload {
 interface SpaceCheckDialogProps {
   issues: SpaceIssueInfo[];
   onClose: () => void;
+  onProceedAnyway: () => void;
 }
 
-function SpaceCheckDialog({ issues, onClose }: SpaceCheckDialogProps) {
+function SpaceCheckDialog({ issues, onClose, onProceedAnyway }: SpaceCheckDialogProps) {
   const { t } = useI18n();
   return (
     <div className="dialog-overlay" onClick={onClose}>
@@ -184,10 +183,39 @@ function SpaceCheckDialog({ issues, onClose }: SpaceCheckDialogProps) {
               ))}
             </tbody>
           </table>
+          <p style={{ marginTop: 16, fontSize: 12, color: "#f59e0b" }}>{t.jobs.spaceCheckWarning}</p>
         </div>
-        <div className="dialog-footer" style={{ justifyContent: "flex-end" }}>
+        <div className="dialog-footer" style={{ justifyContent: "flex-end", gap: 8 }}>
+          <button className="btn-secondary" onClick={onProceedAnyway}>{t.jobs.spaceCheckProceedAnyway}</button>
           <button className="btn-primary" onClick={onClose}>OK</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Source Released Modal (prominent eject notification) ─────────────────
+
+interface SourceReleasedModalProps {
+  volumeName: string;
+  onDismiss: () => void;
+}
+
+function SourceReleasedModal({ volumeName, onDismiss }: SourceReleasedModalProps) {
+  const { t } = useI18n();
+
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, 15_000); // auto-dismiss after 15s
+    return () => clearTimeout(timer);
+  }, [onDismiss]);
+
+  return (
+    <div className="source-released-modal-overlay" onClick={onDismiss}>
+      <div className="source-released-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="source-released-modal-icon">&#x23CF;</div>
+        <h3>{t.jobs.sourceReleasedTitle}</h3>
+        <p>{t.jobs.sourceReleasedBody.replace("{volume}", volumeName)}</p>
+        <button className="btn-primary" onClick={onDismiss}>{t.jobs.sourceReleasedDismiss}</button>
       </div>
     </div>
   );
@@ -343,6 +371,9 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
   // Speed priority auto-sort
   const [speedPriority, setSpeedPriority] = useState(false);
 
+  // Preset mount check state
+  const [presetUnavailablePaths, setPresetUnavailablePaths] = useState<string[]>([]);
+
   // Offload options (can be overridden by preset or loaded from settings)
   const [hashAlgorithms, setHashAlgorithms] = useState<string[]>(["XXH64", "SHA256"]);
   const [sourceVerify, setSourceVerify] = useState(true);
@@ -442,7 +473,7 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speedPriority]); // only trigger on toggle, not on every destPaths change
 
-  const handleApplyPreset = (presetId: string) => {
+  const handleApplyPreset = async (presetId: string) => {
     const preset = presets.find((p) => p.id === presetId);
     if (!preset) {
       setSelectedPresetId(null);
@@ -454,8 +485,31 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
     setPostVerify(preset.postVerify);
     setGenerateMhl(preset.generateMhl);
     setCascade(preset.cascade);
+    setPresetUnavailablePaths([]);
+
     if (preset.defaultDestPaths.length > 0) {
-      setDestPaths(preset.defaultDestPaths);
+      // Check which preset destinations are currently mounted
+      const volResult = await safeInvoke<CommandResult<VolumeInfoResponse[]>>("list_volumes");
+      const mountedPaths = new Set(
+        volResult.success && volResult.data
+          ? volResult.data.map((v: VolumeInfoResponse) => v.mountPoint)
+          : []
+      );
+
+      const available: string[] = [];
+      const unavailable: string[] = [];
+      for (const p of preset.defaultDestPaths) {
+        const isMounted = Array.from(mountedPaths).some((mp) => p === mp || p.startsWith(mp + "/") || p.startsWith(mp + "\\"));
+        if (isMounted) {
+          available.push(p);
+        } else {
+          unavailable.push(p);
+        }
+      }
+      setDestPaths(available);
+      if (unavailable.length > 0) {
+        setPresetUnavailablePaths(unavailable);
+      }
     }
   };
 
@@ -565,6 +619,16 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
             </div>
             {speedPriority && cascade && (
               <p className="speed-priority-hint">{t.jobs.speedPriorityHint}</p>
+            )}
+            {presetUnavailablePaths.length > 0 && (
+              <div className="preset-unavailable-notice">
+                <p>{t.jobs.presetPathsUnavailable}</p>
+                <ul>
+                  {presetUnavailablePaths.map((p, i) => (
+                    <li key={i} className="unavailable-path">{p}</li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
 
@@ -728,6 +792,11 @@ export function JobsView() {
   // Space check state
   const [spaceIssues, setSpaceIssues] = useState<SpaceIssueInfo[]>([]);
   const [showSpaceDialog, setShowSpaceDialog] = useState(false);
+  const [pendingSpaceRequest, setPendingSpaceRequest] = useState<StartOffloadRequest | null>(null);
+
+  // Source released modal state
+  const [showSourceReleasedModal, setShowSourceReleasedModal] = useState(false);
+  const [sourceReleasedVolumeName, setSourceReleasedVolumeName] = useState("");
 
   // Report active job count for exit confirmation dialog
   useEffect(() => {
@@ -879,11 +948,6 @@ export function JobsView() {
                   updated.lastSnapshotTime = now;
                   if (speed > 0) {
                     const phase = updated.phase;
-                    const phaseHist = [...(updated.speedHistoryByPhase[phase] || []), speed];
-                    updated.speedHistoryByPhase = {
-                      ...updated.speedHistoryByPhase,
-                      [phase]: phaseHist.length > 120 ? phaseHist.slice(-120) : phaseHist,
-                    };
                     // Append to chronological timeline (preserves phase ordering)
                     const tl = [...updated.speedTimeline, { phase, speed }];
                     updated.speedTimeline = tl.length > 240 ? tl.slice(-240) : tl;
@@ -897,10 +961,33 @@ export function JobsView() {
               updated.warnings = [...updated.warnings, ev.message];
               break;
 
-            case "sourceReleased":
+            case "sourceReleased": {
               updated.sourceReleased = true;
               updated.sourceReleasedPath = ev.sourcePath;
+
+              // Extract volume name from path (e.g. "/Volumes/ALEXA_A001" → "ALEXA_A001")
+              const parts = (ev.sourcePath || "").split(/[/\\]/);
+              const volName = parts.filter(Boolean).pop() || ev.sourcePath;
+              setSourceReleasedVolumeName(volName);
+              setShowSourceReleasedModal(true);
+
+              // Play notification chime using Web Audio API (no shell permissions needed)
+              try {
+                const ctx = new AudioContext();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.frequency.setValueAtTime(880, ctx.currentTime);         // A5
+                osc.frequency.setValueAtTime(1175, ctx.currentTime + 0.12); // D6
+                osc.frequency.setValueAtTime(1760, ctx.currentTime + 0.24); // A6
+                gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.5);
+              } catch { /* Audio not available — skip silently */ }
               break;
+            }
 
             case "complete": {
               const evFailedFiles = ev.failedFiles ?? 0;
@@ -1054,8 +1141,9 @@ export function JobsView() {
         return;
       }
       if (spaceResult.data && spaceResult.data.length > 0) {
-        // Space insufficient — show blocking dialog
+        // Space insufficient — show dialog with option to proceed anyway
         setSpaceIssues(spaceResult.data);
+        setPendingSpaceRequest(request);
         setShowSpaceDialog(true);
         setLoading(false);
         return;
@@ -1096,6 +1184,35 @@ export function JobsView() {
     };
     setPendingRequest(null);
     await executeStartOffload(requestWithResolutions);
+  };
+
+  // Called when user clicks "Proceed Anyway" in the space check dialog
+  const handleSpaceProceedAnyway = async () => {
+    setShowSpaceDialog(false);
+    setSpaceIssues([]);
+    if (pendingSpaceRequest) {
+      const req = pendingSpaceRequest;
+      setPendingSpaceRequest(null);
+      // Continue with conflict detection, then start offload
+      try {
+        setLoading(true);
+        const conflictResult = await safeInvoke<CommandResult<FileConflict[]>>(
+          "detect_conflicts",
+          { sourcePath: req.sourcePath, destPaths: req.destPaths }
+        );
+        if (conflictResult.success && conflictResult.data && conflictResult.data.length > 0) {
+          setPendingRequest(req);
+          setDetectedConflicts(conflictResult.data);
+          setShowConflictDialog(true);
+          setLoading(false);
+          return;
+        }
+        await executeStartOffload(req);
+      } catch (err) {
+        setError(String(err));
+        setLoading(false);
+      }
+    }
   };
 
   const handleConflictCancel = () => {
@@ -1480,7 +1597,16 @@ export function JobsView() {
       {showSpaceDialog && spaceIssues.length > 0 && (
         <SpaceCheckDialog
           issues={spaceIssues}
-          onClose={() => { setShowSpaceDialog(false); setSpaceIssues([]); }}
+          onClose={() => { setShowSpaceDialog(false); setSpaceIssues([]); setPendingSpaceRequest(null); }}
+          onProceedAnyway={handleSpaceProceedAnyway}
+        />
+      )}
+
+      {/* Source Released Modal */}
+      {showSourceReleasedModal && (
+        <SourceReleasedModal
+          volumeName={sourceReleasedVolumeName}
+          onDismiss={() => setShowSourceReleasedModal(false)}
         />
       )}
 
@@ -1831,7 +1957,7 @@ export function JobsView() {
                     )}
 
                     {/* Source released notice (cascade mode) */}
-                    {offload.sourceReleased && offload.phase !== "Complete" && offload.phase !== "Failed" && (
+                    {offload.sourceReleased && (
                       <div className="source-released-notice">
                         <span className="source-released-icon">&#x23CF;</span>
                         {t.jobs.sourceReleased}

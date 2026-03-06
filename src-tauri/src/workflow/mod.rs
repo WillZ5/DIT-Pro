@@ -479,7 +479,14 @@ impl OffloadWorkflow {
         let total_bytes: u64 = source_files.iter().map(|f| f.size).sum();
         let total_files = source_files.len();
 
-        self.preflight_space_check(&source_files).await?;
+        // Space check is advisory — frontend already showed dialog with "Proceed Anyway" option.
+        // Downgrade from hard error to warning so user's override is respected.
+        if let Err(e) = self.preflight_space_check(&source_files).await {
+            log::warn!("Preflight space check warning: {}", e);
+            self.emit(OffloadEvent::Warning {
+                message: format!("Space check: {}", e),
+            });
+        }
         self.create_db_records(&source_files)?;
 
         // Mark job as actively copying

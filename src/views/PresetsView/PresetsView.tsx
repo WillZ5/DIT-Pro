@@ -367,6 +367,38 @@ export function PresetsView() {
               </div>
             </div>
 
+            <div className="field-row">
+              <label className="field-label">{t.presets.defaultDestinations}</label>
+              <div className="preset-dest-list">
+                {editing.defaultDestPaths.map((p, i) => (
+                  <div key={i} className="preset-dest-row">
+                    <input type="text" value={p} readOnly className="settings-input" />
+                    <button
+                      className="btn-remove"
+                      onClick={() => {
+                        const updated = editing.defaultDestPaths.filter((_: string, idx: number) => idx !== i);
+                        updateField("defaultDestPaths", updated);
+                      }}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+                <button
+                  className="btn-secondary btn-sm"
+                  onClick={async () => {
+                    const { open } = await import("@tauri-apps/plugin-dialog");
+                    const selected = await open({ directory: true, title: t.presets.defaultDestinations });
+                    if (selected) {
+                      updateField("defaultDestPaths", [...editing.defaultDestPaths, selected as string]);
+                    }
+                  }}
+                >
+                  + {t.presets.addDestination}
+                </button>
+              </div>
+            </div>
+
             <div className="preset-editor-actions">
               <button className="btn-secondary" onClick={handleCancel}>
                 {t.common.cancel}

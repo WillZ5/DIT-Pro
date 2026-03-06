@@ -157,8 +157,15 @@ const zh: TranslationKeys = {
     spaceCheckRequired: "所需空间",
     spaceCheckDeficit: "缺少空间",
     spaceCheckScanning: "正在扫描源文件...",
+    spaceCheckProceedAnyway: "仍然继续",
+    spaceCheckWarning: "磁盘空间不足，拷贝过程中空间耗尽时部分文件可能拷贝失败。",
     // Source released (cascade mode)
     sourceReleased: "源数据盘拷贝完毕 -- 可以安全弹出",
+    sourceReleasedTitle: "源卡可以安全弹出",
+    sourceReleasedBody: "{volume} 的主目标拷贝已校验通过，可以安全弹出源卡。",
+    sourceReleasedDismiss: "知道了",
+    // Preset mount check
+    presetPathsUnavailable: "以下预设目标路径当前未挂载：",
     // Phase messages (i18n)
     phaseOffloadComplete: "拷卡完成",
     phasePaused: "已暂停",
@@ -228,6 +235,8 @@ const zh: TranslationKeys = {
     cascade: "级联",
     srcVerify: "源校验",
     postVerifyFlag: "拷后校验",
+    defaultDestinations: "默认目标路径",
+    addDestination: "添加目标路径",
   },
 
   // ─── Reports View ──────────────────────────────────────────────────

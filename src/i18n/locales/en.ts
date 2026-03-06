@@ -156,8 +156,15 @@ const en = {
     spaceCheckRequired: "Required",
     spaceCheckDeficit: "Deficit",
     spaceCheckScanning: "Scanning source...",
+    spaceCheckProceedAnyway: "Proceed Anyway",
+    spaceCheckWarning: "Disk space is insufficient. Some files may fail to copy if space runs out during the offload.",
     // Source released (cascade mode)
     sourceReleased: "Source card copy complete -- safe to eject",
+    sourceReleasedTitle: "Source Card Safe to Eject",
+    sourceReleasedBody: "Primary copy of {volume} is verified. You may safely eject the source card.",
+    sourceReleasedDismiss: "Got It",
+    // Preset mount check
+    presetPathsUnavailable: "Some preset destinations are not currently mounted:",
     // Phase messages (i18n)
     phaseOffloadComplete: "Offload complete",
     phasePaused: "Paused",
@@ -227,6 +234,8 @@ const en = {
     cascade: "Cascade",
     srcVerify: "SrcVerify",
     postVerifyFlag: "PostVerify",
+    defaultDestinations: "Default Destinations",
+    addDestination: "Add Destination",
   },
 
   // ─── Reports View ──────────────────────────────────────────────────

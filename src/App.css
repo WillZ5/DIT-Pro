@@ -840,6 +840,123 @@
   50% { opacity: 0.6; }
 }
 
+/* ─── Source Released Modal (prominent eject notification) ───────────────── */
+
+.source-released-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: modal-fadein 0.3s ease;
+}
+
+.source-released-modal {
+  background: #1a1a2e;
+  border: 2px solid #22c55e;
+  border-radius: 16px;
+  padding: 40px 48px;
+  text-align: center;
+  max-width: 440px;
+  box-shadow: 0 0 60px rgba(34, 197, 94, 0.25);
+  animation: modal-scalein 0.3s ease;
+}
+
+.source-released-modal-icon {
+  font-size: 48px;
+  color: #22c55e;
+  margin-bottom: 12px;
+}
+
+.source-released-modal h3 {
+  color: #22c55e;
+  font-size: 22px;
+  margin-bottom: 12px;
+}
+
+.source-released-modal p {
+  color: #a1a1aa;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.source-released-modal .btn-primary {
+  min-width: 140px;
+  font-size: 15px;
+}
+
+@keyframes modal-fadein {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-scalein {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* ─── Preset Unavailable Notice ─────────────────────────────────────────── */
+
+.preset-unavailable-notice {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  color: #f59e0b;
+  font-size: 12px;
+}
+
+.preset-unavailable-notice ul {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+
+.preset-unavailable-notice .unavailable-path {
+  color: #71717a;
+  text-decoration: line-through;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ─── Preset Destinations Editor ────────────────────────────────────────── */
+
+.preset-dest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preset-dest-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.preset-dest-row .settings-input {
+  flex: 1;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.preset-dest-row .btn-remove {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.preset-dest-row .btn-remove:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
 /* ─── Volume Cards ───────────────────────────────────────────────────────── */
 
 .volumes-grid {

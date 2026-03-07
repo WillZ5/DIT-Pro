@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { safeInvoke, isTauri } from "../../utils/tauriCompat";
 import { useI18n, type Locale } from "../../i18n";
 import { SystemLog } from "../../components/SystemLog";
-import type { CommandResult, AppSettings, DeviceIoConfig } from "../../types";
+import { playChime, type ChimeEvent } from "../../utils/audioChimes";
+import { initNotifications, checkNotificationPermission } from "../../utils/notifications";
+import type { CommandResult, AppSettings, DeviceIoConfig, SoundSettings } from "../../types";
 
 export function SettingsView() {
   const { t, locale, setLocale } = useI18n();
@@ -23,6 +25,12 @@ export function SettingsView() {
   const [clearing, setClearing] = useState(false);
   const [exportingBundle, setExportingBundle] = useState(false);
   const [bundlePath, setBundlePath] = useState<string | null>(null);
+  const [notifPermission, setNotifPermission] = useState<boolean | null>(null);
+
+  // Check notification permission on mount
+  useEffect(() => {
+    checkNotificationPermission().then(setNotifPermission);
+  }, []);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -61,7 +69,7 @@ export function SettingsView() {
     }
   };
 
-  const updateOffload = (key: string, value: boolean | number) => {
+  const updateOffload = (key: string, value: boolean | number | string) => {
     if (!settings) return;
     setSettings({
       ...settings,
@@ -101,6 +109,28 @@ export function SettingsView() {
       ...settings,
       report: { ...settings.report, [key]: value },
     });
+  };
+
+  const updateSound = (key: keyof SoundSettings, value: boolean | number) => {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      sound: { ...settings.sound, [key]: value },
+    });
+  };
+
+  const updateNotification = (key: string, value: boolean) => {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      notification: { ...settings.notification, [key]: value },
+    });
+  };
+
+  const handleTestChime = (event: ChimeEvent) => {
+    if (!settings) return;
+    // Play with current settings but force the specific event enabled
+    playChime(event, { ...settings.sound, [event]: true, enabled: true });
   };
 
   const handleBrowseExportPath = async () => {
@@ -253,6 +283,32 @@ export function SettingsView() {
               />
               <span className="toggle-switch" />
             </label>
+
+            {settings.offload.cascade && (
+              <div className="number-row">
+                <span className="toggle-label">{t.settings.cascadeStrategyTitle}</span>
+                <span className="toggle-desc">{t.settings.cascadeStrategyDesc}</span>
+                <div className="algo-grid algo-grid--compact">
+                  {([
+                    { id: "speed", label: t.settings.cascadeStrategySpeed },
+                    { id: "custom", label: t.settings.cascadeStrategyCustom },
+                  ] as const).map((opt) => (
+                    <label
+                      key={opt.id}
+                      className={`algo-chip ${settings.offload.cascadeStrategy === opt.id ? "algo-chip--active" : ""}`}
+                    >
+                      <input
+                        type="radio"
+                        name="cascadeStrategy"
+                        checked={settings.offload.cascadeStrategy === opt.id}
+                        onChange={() => updateOffload("cascadeStrategy", opt.id)}
+                      />
+                      <span className="algo-name">{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="number-row">
               <span className="toggle-label">{t.settings.bufferSize}</span>
@@ -518,6 +574,128 @@ export function SettingsView() {
                   onChange={(e) => updateEmail("toAddress", e.target.value)}
                 />
               </div>
+            </div>
+          )}
+        </section>
+
+        {/* ─── Sound Notifications ─────────────────────────────── */}
+        <section className="settings-section">
+          <h3>{t.settings.soundTitle}</h3>
+          <p>{t.settings.soundDesc}</p>
+
+          <label className="toggle-row" style={{ marginBottom: 12 }}>
+            <span className="toggle-label">{t.settings.soundEnabled}</span>
+            <span className="toggle-desc">{t.settings.soundEnabledDesc}</span>
+            <input
+              type="checkbox"
+              className="toggle-input"
+              checked={settings.sound.enabled}
+              onChange={(e) => updateSound("enabled", e.target.checked)}
+            />
+            <span className="toggle-switch" />
+          </label>
+
+          {settings.sound.enabled && (
+            <div className="settings-grid">
+              <div className="number-row">
+                <span className="toggle-label">{t.settings.soundVolume}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round(settings.sound.volume * 100)}
+                    onChange={(e) => updateSound("volume", Number(e.target.value) / 100)}
+                    style={{ flex: 1 }}
+                  />
+                  <span style={{ fontSize: 12, color: "#a1a1aa", minWidth: 36, textAlign: "right" }}>
+                    {Math.round(settings.sound.volume * 100)}%
+                  </span>
+                </div>
+              </div>
+
+              {([
+                { key: "taskComplete" as const, label: t.settings.soundTaskComplete, desc: t.settings.soundTaskCompleteDesc, event: "taskComplete" as ChimeEvent },
+                { key: "taskFailed" as const, label: t.settings.soundTaskFailed, desc: t.settings.soundTaskFailedDesc, event: "taskFailed" as ChimeEvent },
+                { key: "sourceReleased" as const, label: t.settings.soundSourceReleased, desc: t.settings.soundSourceReleasedDesc, event: "sourceReleased" as ChimeEvent },
+                { key: "warning" as const, label: t.settings.soundWarning, desc: t.settings.soundWarningDesc, event: "warning" as ChimeEvent },
+              ]).map((item) => (
+                <div key={item.key} className="toggle-row" style={{ display: "flex", alignItems: "center" }}>
+                  <label style={{ display: "contents" }}>
+                    <span className="toggle-label">{item.label}</span>
+                    <span className="toggle-desc">{item.desc}</span>
+                    <input
+                      type="checkbox"
+                      className="toggle-input"
+                      checked={settings.sound[item.key]}
+                      onChange={(e) => updateSound(item.key, e.target.checked)}
+                    />
+                    <span className="toggle-switch" />
+                  </label>
+                  <button
+                    className="btn-secondary btn-sm"
+                    style={{ marginLeft: 8, fontSize: 11, padding: "2px 8px" }}
+                    onClick={() => handleTestChime(item.event)}
+                  >
+                    {t.settings.soundTest}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* ─── System Notifications (Push) ────────────────────── */}
+        <section className="settings-section">
+          <h3>{t.settings.notificationTitle}</h3>
+          <p>{t.settings.notificationDesc}</p>
+
+          <label className="toggle-row" style={{ marginBottom: 12 }}>
+            <span className="toggle-label">{t.settings.notificationEnabled}</span>
+            <span className="toggle-desc">{t.settings.notificationEnabledDesc}</span>
+            <input
+              type="checkbox"
+              className="toggle-input"
+              checked={settings.notification.enabled}
+              onChange={(e) => updateNotification("enabled", e.target.checked)}
+            />
+            <span className="toggle-switch" />
+          </label>
+
+          {settings.notification.enabled && (
+            <div className="settings-grid">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <button
+                  className="btn-secondary btn-sm"
+                  onClick={async () => {
+                    const granted = await initNotifications();
+                    setNotifPermission(granted);
+                  }}
+                >
+                  {t.settings.notificationPermission}
+                </button>
+                <span style={{ fontSize: 12, color: notifPermission ? "#4caf50" : "#ef4444" }}>
+                  {notifPermission === null ? "—" : notifPermission ? t.settings.notificationGranted : t.settings.notificationDenied}
+                </span>
+              </div>
+
+              {([
+                { key: "taskComplete" as const, label: t.settings.notificationTaskComplete, desc: t.settings.notificationTaskCompleteDesc },
+                { key: "taskFailed" as const, label: t.settings.notificationTaskFailed, desc: t.settings.notificationTaskFailedDesc },
+                { key: "sourceReleased" as const, label: t.settings.notificationSourceReleased, desc: t.settings.notificationSourceReleasedDesc },
+              ]).map((item) => (
+                <label key={item.key} className="toggle-row">
+                  <span className="toggle-label">{item.label}</span>
+                  <span className="toggle-desc">{item.desc}</span>
+                  <input
+                    type="checkbox"
+                    className="toggle-input"
+                    checked={settings.notification[item.key]}
+                    onChange={(e) => updateNotification(item.key, e.target.checked)}
+                  />
+                  <span className="toggle-switch" />
+                </label>
+              ))}
             </div>
           )}
         </section>

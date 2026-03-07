@@ -263,6 +263,7 @@ export const MOCK_SETTINGS: AppSettings = {
     bufferSize: 4194304,
     maxRetries: 3,
     cascade: false,
+    cascadeStrategy: "speed",
   },
   ioScheduling: {
     hdd: { maxConcurrent: 1, bufferSizeMb: 4 },
@@ -285,6 +286,20 @@ export const MOCK_SETTINGS: AppSettings = {
     exportFormat: "html",
     askPathEachTime: true,
     askFormatEachTime: false,
+  },
+  sound: {
+    enabled: true,
+    taskComplete: true,
+    taskFailed: true,
+    sourceReleased: true,
+    warning: true,
+    volume: 0.5,
+  },
+  notification: {
+    enabled: true,
+    taskComplete: true,
+    taskFailed: true,
+    sourceReleased: true,
   },
 };
 

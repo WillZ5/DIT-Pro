@@ -29,6 +29,14 @@ pub struct AppSettings {
     /// Report export settings
     #[serde(default)]
     pub report: ReportSettings,
+
+    /// Sound notification settings
+    #[serde(default)]
+    pub sound: SoundSettings,
+
+    /// Push notification settings
+    #[serde(default)]
+    pub notification: NotificationSettings,
 }
 
 /// Default options for the offload workflow
@@ -59,6 +67,10 @@ pub struct OffloadDefaults {
     /// from that copy to slower destinations (frees source card sooner)
     #[serde(default)]
     pub cascade: bool,
+
+    /// Cascade strategy: "speed" (auto-sort by benchmark) or "custom" (manual order)
+    #[serde(default = "default_cascade_strategy")]
+    pub cascade_strategy: String,
 }
 
 impl Default for OffloadDefaults {
@@ -70,8 +82,13 @@ impl Default for OffloadDefaults {
             buffer_size: default_buffer_size(),
             max_retries: 3,
             cascade: false,
+            cascade_strategy: default_cascade_strategy(),
         }
     }
+}
+
+fn default_cascade_strategy() -> String {
+    "speed".to_string()
 }
 
 fn default_true() -> bool {
@@ -208,6 +225,74 @@ impl Default for ReportSettings {
 
 fn default_export_format() -> String {
     "html".to_string()
+}
+
+/// Sound notification settings (Web Audio API chimes)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoundSettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    #[serde(default = "default_true")]
+    pub task_complete: bool,
+
+    #[serde(default = "default_true")]
+    pub task_failed: bool,
+
+    #[serde(default = "default_true")]
+    pub source_released: bool,
+
+    #[serde(default = "default_true")]
+    pub warning: bool,
+
+    #[serde(default = "default_volume")]
+    pub volume: f64,
+}
+
+impl Default for SoundSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            task_complete: true,
+            task_failed: true,
+            source_released: true,
+            warning: true,
+            volume: 0.5,
+        }
+    }
+}
+
+fn default_volume() -> f64 {
+    0.5
+}
+
+/// Push notification settings (macOS/Windows system notifications)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    #[serde(default = "default_true")]
+    pub task_complete: bool,
+
+    #[serde(default = "default_true")]
+    pub task_failed: bool,
+
+    #[serde(default = "default_true")]
+    pub source_released: bool,
+}
+
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            task_complete: true,
+            task_failed: true,
+            source_released: true,
+        }
+    }
 }
 
 // ─── Persistence ──────────────────────────────────────────────────────────

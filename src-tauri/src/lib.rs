@@ -62,6 +62,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             // Always enable logging — Warn in release, Info in debug
             let log_level = if cfg!(debug_assertions) {
@@ -254,6 +255,7 @@ pub fn run() {
             commands::list_volumes,
             commands::get_space_info,
             commands::reveal_in_finder,
+            commands::benchmark_dest_speed,
             commands::preflight_check,
             commands::scan_source_size,
             // Hash

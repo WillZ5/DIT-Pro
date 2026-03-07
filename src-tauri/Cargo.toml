@@ -66,6 +66,7 @@ uuid = { version = "1", features = ["v4", "v5", "serde"] }
 # XML (for ASC MHL)
 quick-xml = { version = "0.31", features = ["serialize"] }
 tauri-plugin-process = "2"
+tauri-plugin-notification = "2"
 
 # Platform-specific
 [target.'cfg(unix)'.dependencies]

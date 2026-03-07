@@ -39,7 +39,7 @@ export const test = base.extend<{ appPage: Page }>({
     // Verify demo badge is present (confirms browser/demo mode)
     await expect(page.locator(DEMO_BADGE)).toBeVisible({ timeout: 3_000 });
 
-    await use(page);
+    await use(page); // eslint-disable-line react-hooks/rules-of-hooks
   },
 });
 

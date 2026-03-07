@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures/app.fixture";
 import {
   navItem, PRESETS_VIEW, PRESET_CARD, PRESET_CARD_NAME,
-  PRESET_EDITOR, ALGO_CHIP, ALGO_CHIP_ACTIVE, BTN_PRIMARY,
+  PRESET_EDITOR, ALGO_CHIP, ALGO_CHIP_ACTIVE,
 } from "./helpers/selectors";
 
 test.describe("Presets View", () => {

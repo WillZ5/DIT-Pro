@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { safeInvoke, isTauri } from "../../utils/tauriCompat";
 import { setActiveJobCount } from "../../state/activeJobCount";
 import { useI18n, type TranslationKeys } from "../../i18n";
+import { playChime, DEFAULT_SOUND_SETTINGS, type SoundSettings } from "../../utils/audioChimes";
+import { sendDitNotification, DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "../../utils/notifications";
 import type {
   AppSettings,
   CommandResult,
@@ -426,10 +428,15 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
     setDestPaths(destPaths.filter((_, i) => i !== index));
   };
 
-  // Move destination up/down for reorder
+  // Benchmark speeds cache: path → bytes/sec
+  const [benchmarkSpeeds, setBenchmarkSpeeds] = useState<Record<string, number>>({});
+  const [benchmarking, setBenchmarking] = useState(false);
+
+  // Move destination up/down for reorder (manual reorder disables speedPriority)
   const handleMoveDest = (index: number, direction: "up" | "down") => {
     const newIdx = direction === "up" ? index - 1 : index + 1;
     if (newIdx < 0 || newIdx >= destPaths.length) return;
+    setSpeedPriority(false);
     setDestPaths((prev) => {
       const updated = [...prev];
       [updated[index], updated[newIdx]] = [updated[newIdx], updated[index]];
@@ -437,34 +444,35 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
     });
   };
 
-  // Speed priority: sort destinations by device speed (SSD > RAID > HDD > Network)
-  const sortBySpeed = useCallback(async (paths: string[]) => {
+  // Benchmark and sort: measure actual write speed for each destination
+  const benchmarkAndSort = useCallback(async (paths: string[]) => {
     if (paths.length < 2) return paths;
-    const SPEED_RANK: Record<string, number> = { SSD: 0, SD: 1, RAID: 2, HDD: 3, Network: 4, Unknown: 5 };
+    setBenchmarking(true);
+    const speeds: Record<string, number> = { ...benchmarkSpeeds };
     try {
-      const result = await safeInvoke<CommandResult<VolumeInfoResponse[]>>("list_volumes");
-      if (!result.success || !result.data) return paths;
-      const volumes = result.data;
-      const getType = (p: string): string => {
-        // Match by mount point prefix
-        const vol = volumes.find((v) => p.startsWith(v.mountPoint));
-        return vol?.deviceType || "Unknown";
-      };
-      const sorted = [...paths].sort((a, b) => {
-        const ra = SPEED_RANK[getType(a)] ?? 5;
-        const rb = SPEED_RANK[getType(b)] ?? 5;
-        return ra - rb;
-      });
+      for (const p of paths) {
+        if (speeds[p] !== undefined) continue; // use cached result
+        const result = await safeInvoke<CommandResult<number>>("benchmark_dest_speed", { path: p });
+        if (result.success && result.data) {
+          speeds[p] = result.data;
+        } else {
+          speeds[p] = 0;
+        }
+      }
+      setBenchmarkSpeeds(speeds);
+      const sorted = [...paths].sort((a, b) => (speeds[b] ?? 0) - (speeds[a] ?? 0));
       return sorted;
     } catch {
       return paths;
+    } finally {
+      setBenchmarking(false);
     }
-  }, []);
+  }, [benchmarkSpeeds]);
 
-  // Auto-sort when speedPriority toggled on, or when paths change with speedPriority active
+  // Auto-sort when speedPriority toggled on
   useEffect(() => {
     if (speedPriority && destPaths.length >= 2) {
-      sortBySpeed(destPaths).then((sorted) => {
+      benchmarkAndSort(destPaths).then((sorted) => {
         if (JSON.stringify(sorted) !== JSON.stringify(destPaths)) {
           setDestPaths(sorted);
         }
@@ -591,19 +599,24 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
                   <div className="dest-reorder-btns">
                     <button
                       className="btn-reorder"
-                      disabled={i === 0}
+                      disabled={i === 0 || speedPriority}
                       onClick={() => handleMoveDest(i, "up")}
                       title="Move up"
                     >&#9650;</button>
                     <button
                       className="btn-reorder"
-                      disabled={i === destPaths.length - 1}
+                      disabled={i === destPaths.length - 1 || speedPriority}
                       onClick={() => handleMoveDest(i, "down")}
                       title="Move down"
                     >&#9660;</button>
                   </div>
                   <span className="dest-index">{i === 0 && cascade ? t.jobs.primary : `${t.jobs.dest} ${i + 1}`}</span>
                   <span className="dest-path" title={path}>{path}</span>
+                  {benchmarkSpeeds[path] !== undefined && (
+                    <span className="dest-speed" style={{ fontSize: 11, color: "#a1a1aa", marginLeft: 4 }}>
+                      {formatSpeed(benchmarkSpeeds[path])}
+                    </span>
+                  )}
                   <button
                     className="btn-icon btn-remove"
                     onClick={() => handleRemoveDest(i)}
@@ -617,7 +630,10 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
                 {t.jobs.addDest}
               </button>
             </div>
-            {speedPriority && cascade && (
+            {benchmarking && (
+              <p className="speed-priority-hint" style={{ color: "#f59e0b" }}>{t.jobs.speedPriorityBenchmarking}</p>
+            )}
+            {speedPriority && cascade && !benchmarking && (
               <p className="speed-priority-hint">{t.jobs.speedPriorityHint}</p>
             )}
             {presetUnavailablePaths.length > 0 && (
@@ -798,6 +814,18 @@ export function JobsView() {
   const [showSourceReleasedModal, setShowSourceReleasedModal] = useState(false);
   const [sourceReleasedVolumeName, setSourceReleasedVolumeName] = useState("");
 
+  // Sound + notification settings refs (loaded once, used in event handler without re-subscribe)
+  const soundSettingsRef = useRef<SoundSettings>(DEFAULT_SOUND_SETTINGS);
+  const notifSettingsRef = useRef<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
+  useEffect(() => {
+    safeInvoke<CommandResult<AppSettings>>("get_settings").then((result) => {
+      if (result.success && result.data) {
+        if (result.data.sound) soundSettingsRef.current = result.data.sound;
+        if (result.data.notification) notifSettingsRef.current = result.data.notification;
+      }
+    });
+  }, []);
+
   // Report active job count for exit confirmation dialog
   useEffect(() => {
     const running = Array.from(activeOffloads.values()).filter(
@@ -959,6 +987,7 @@ export function JobsView() {
 
             case "warning":
               updated.warnings = [...updated.warnings, ev.message];
+              playChime("warning", soundSettingsRef.current);
               break;
 
             case "sourceReleased": {
@@ -971,21 +1000,8 @@ export function JobsView() {
               setSourceReleasedVolumeName(volName);
               setShowSourceReleasedModal(true);
 
-              // Play notification chime using Web Audio API (no shell permissions needed)
-              try {
-                const ctx = new AudioContext();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.frequency.setValueAtTime(880, ctx.currentTime);         // A5
-                osc.frequency.setValueAtTime(1175, ctx.currentTime + 0.12); // D6
-                osc.frequency.setValueAtTime(1760, ctx.currentTime + 0.24); // A6
-                gain.gain.setValueAtTime(0.3, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-                osc.start(ctx.currentTime);
-                osc.stop(ctx.currentTime + 0.5);
-              } catch { /* Audio not available — skip silently */ }
+              playChime("sourceReleased", soundSettingsRef.current);
+              sendDitNotification("sourceReleased", "DIT Pro", `Source released: ${volName}`, notifSettingsRef.current);
               break;
             }
 
@@ -993,12 +1009,15 @@ export function JobsView() {
               const evFailedFiles = ev.failedFiles ?? 0;
               updated.failedFiles = evFailedFiles;
               if (evFailedFiles > 0) {
-                // Some files failed — show as Failed, not Complete
                 updated.phase = "Failed";
                 updated.phaseMessage = `${evFailedFiles} ${tRef.current.jobs.filesFailed}`;
+                playChime("taskFailed", soundSettingsRef.current);
+                sendDitNotification("taskFailed", "DIT Pro", `${evFailedFiles} files failed`, notifSettingsRef.current);
               } else {
                 updated.phase = "Complete";
                 updated.phaseMessage = tRef.current.jobs.phaseOffloadComplete;
+                playChime("taskComplete", soundSettingsRef.current);
+                sendDitNotification("taskComplete", "DIT Pro", tRef.current.jobs.phaseOffloadComplete, notifSettingsRef.current);
               }
               updated.completedFiles = Math.max(0, ev.totalFiles - evFailedFiles);
               updated.totalFiles = ev.totalFiles;
@@ -1016,6 +1035,8 @@ export function JobsView() {
               updated.error = ev.message;
               updated.phaseMessage = ev.message;
               updated.currentSpeed = 0;
+              playChime("taskFailed", soundSettingsRef.current);
+              sendDitNotification("taskFailed", "DIT Pro", ev.message || "Offload failed", notifSettingsRef.current);
               loadJobs();
               break;
 

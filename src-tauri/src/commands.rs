@@ -414,6 +414,21 @@ pub fn get_space_info(path: String) -> Result<CommandResult<VolumeSpaceInfo>, St
     }
 }
 
+/// Benchmark sequential write speed to a destination path.
+/// Returns bytes/sec measured by writing a 64 MB temp file.
+#[tauri::command]
+pub async fn benchmark_dest_speed(path: String) -> Result<CommandResult<u64>, String> {
+    let p = PathBuf::from(&path);
+    // Run blocking IO in a spawn_blocking to avoid blocking the async runtime
+    let result = tokio::task::spawn_blocking(move || volume::benchmark_write_speed(&p))
+        .await
+        .map_err(|e| e.to_string())?;
+    match result {
+        Ok(bytes_per_sec) => Ok(CommandResult::ok(bytes_per_sec)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
 /// Open a path in the system file manager (Finder on macOS)
 #[tauri::command]
 pub fn reveal_in_finder(path: String) -> Result<CommandResult<bool>, String> {

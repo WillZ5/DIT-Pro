@@ -930,6 +930,67 @@ pub fn preflight_space_check(
     issues
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Disk benchmark — sequential write speed measurement
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Benchmark sequential write speed to a destination path.
+/// Writes a 64 MB temporary file in 1 MB chunks with fsync, returns bytes/sec.
+/// The temp file is cleaned up afterwards.
+pub fn benchmark_write_speed(dest_path: &Path) -> Result<u64> {
+    use std::io::Write;
+
+    let dir = if dest_path.is_dir() {
+        dest_path.to_path_buf()
+    } else {
+        dest_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| dest_path.to_path_buf())
+    };
+
+    if !dir.exists() {
+        anyhow::bail!("Benchmark path does not exist: {:?}", dir);
+    }
+
+    let tmp_name = format!(".dit-benchmark-{}.tmp", uuid::Uuid::new_v4());
+    let tmp_path = dir.join(&tmp_name);
+
+    const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
+    const TOTAL_SIZE: usize = 64 * 1024 * 1024; // 64 MB
+    let chunk = vec![0xA5u8; CHUNK_SIZE];
+
+    let start = std::time::Instant::now();
+
+    let result = (|| -> Result<()> {
+        let mut file = std::fs::File::create(&tmp_path)
+            .with_context(|| format!("Failed to create benchmark file at {:?}", tmp_path))?;
+
+        let mut written = 0;
+        while written < TOTAL_SIZE {
+            file.write_all(&chunk)?;
+            written += CHUNK_SIZE;
+        }
+        file.flush()?;
+        file.sync_all()?;
+        Ok(())
+    })();
+
+    let elapsed = start.elapsed();
+
+    // Always clean up temp file
+    let _ = std::fs::remove_file(&tmp_path);
+
+    result?;
+
+    let secs = elapsed.as_secs_f64();
+    if secs <= 0.0 {
+        return Ok(TOTAL_SIZE as u64);
+    }
+
+    Ok((TOTAL_SIZE as f64 / secs) as u64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

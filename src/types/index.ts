@@ -316,6 +316,7 @@ export interface OffloadDefaults {
   bufferSize: number;
   maxRetries: number;
   cascade: boolean;
+  cascadeStrategy: string;
 }
 
 export interface EmailSettings {
@@ -336,11 +337,29 @@ export interface ReportSettings {
   askFormatEachTime: boolean;
 }
 
+export interface SoundSettings {
+  enabled: boolean;
+  taskComplete: boolean;
+  taskFailed: boolean;
+  sourceReleased: boolean;
+  warning: boolean;
+  volume: number;
+}
+
+export interface NotificationSettings {
+  enabled: boolean;
+  taskComplete: boolean;
+  taskFailed: boolean;
+  sourceReleased: boolean;
+}
+
 export interface AppSettings {
   offload: OffloadDefaults;
   ioScheduling: IoSchedulingSettings;
   email: EmailSettings;
   report: ReportSettings;
+  sound: SoundSettings;
+  notification: NotificationSettings;
 }
 
 // ─── Workflow Preset Types ──────────────────────────────────────────────

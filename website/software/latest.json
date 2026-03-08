@@ -1,7 +1,14 @@
 {
-  "tag_name": "v1.0.1",
-  "body": "## v1.0.1\n\n- Pre-flight destination space check\n- Cascade copy source release notification\n- Unified speed waveform chart\n- Update checker (GitHub + website fallback)\n- Bug fixes: SourceReleased timing, space check failure handling, speed chart phase collision",
-  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.0.1",
-  "published_at": "2026-03-03T21:33:23Z",
-  "download_url": "https://ditpro.negdims.com/software/DIT-Pro_latest_universal.dmg"
+  "tag_name": "v1.2.0",
+  "body": "## DIT Pro v1.2.0 — Stable Release\n\n### New Features\n\n**A. Notification Sounds (P0)**\n- Web Audio chimes for 4 event types: task complete, task failed, source released, warning\n- Per-event enable/disable controls and volume slider in Settings\n- Preview button for each chime\n\n**B. macOS / Windows Push Notifications**\n- Integrated `tauri-plugin-notification` with permission request flow\n- Per-event notification toggles for task complete, task failed, source released\n- Permission status indicator in Settings\n\n**C. Cascade Benchmark Strategy**\n- 64 MB sequential write benchmark replaces device-type heuristic\n- Measured speed displayed next to each destination path\n- Cascade strategy selector in Settings: Speed Priority or Custom Order\n\n### Tests\n- **225 Rust tests passed, 0 failed** (Windows)\n- Build: macOS universal DMG + Windows x64 NSIS installer\n\n### Downloads\n| Platform | File |\n|----------|------|\n| macOS (Universal) | `DIT.Pro_1.2.0_universal.dmg` |\n| Windows (x64) | `DIT.Pro_1.2.0_x64-setup.exe` |",
+  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.2.0",
+  "published_at": "2026-03-07T22:21:18Z",
+  "download_url": "https://ditpro.negdims.com/software/stable-DIT.Pro_1.2.0_universal.dmg",
+  "channel": "stable",
+  "name": "v1.2.0",
+  "windows_download_url": "https://ditpro.negdims.com/software/stable-DIT.Pro_1.2.0_x64-setup.exe",
+  "macos_asset_name": "stable-DIT.Pro_1.2.0_universal.dmg",
+  "windows_asset_name": "stable-DIT.Pro_1.2.0_x64-setup.exe",
+  "macos_source_asset_name": "DIT.Pro_1.2.0_universal.dmg",
+  "windows_source_asset_name": "DIT.Pro_1.2.0_x64-setup.exe"
 }

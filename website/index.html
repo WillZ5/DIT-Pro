@@ -1165,14 +1165,14 @@
     <h3 id="download-modal-title" class="download-modal-title">Choose your platform</h3>
     <p class="download-modal-desc">Pick macOS or Windows for this release.</p>
     <div class="download-modal-actions">
-      <a href="./software/DIT-Pro_latest_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-secondary download-option download-option-macos">
+      <a href="./software/stable-DIT.Pro_1.2.0_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-secondary download-option download-option-macos">
         <i class="fa-brands fa-apple" aria-hidden="true"></i>
         <span class="download-option-copy">
           <span class="download-option-title download-option-macos-text">macOS download</span>
         </span>
         <span class="cta-arrow" aria-hidden="true">→</span>
       </a>
-      <a href="#" target="_blank" rel="noopener noreferrer" class="btn-secondary download-option download-option-windows">
+      <a href="./software/stable-DIT.Pro_1.2.0_x64-setup.exe" target="_blank" rel="noopener noreferrer" class="btn-secondary download-option download-option-windows">
         <i class="fa-brands fa-windows" aria-hidden="true"></i>
         <span class="download-option-copy">
           <span class="download-option-title download-option-windows-text">Windows download</span>
@@ -1407,11 +1407,11 @@
         titleHtml: "<span class=\"hero-typing-line\"><span class=\"hero-typing-prefix accent\"></span></span><br><span class=\"hero-typing-suffix\"></span>",
         sub: "Professional-grade, open-source data integrity with a clear GUI for production teams. No gimmicks. No guesswork. Just bulletproof backup.",
         stable: "Download stable",
-        stableMacosFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
-        stableWindowsFallbackUrl: "",
+        stableMacosFallbackUrl: "./software/stable-DIT.Pro_1.2.0_universal.dmg",
+        stableWindowsFallbackUrl: "./software/stable-DIT.Pro_1.2.0_x64-setup.exe",
         beta: "Download beta",
-        betaMacosFallbackUrl: "./software/DIT-Pro_v1.1.0-rc.1_universal.dmg",
-        betaWindowsFallbackUrl: "",
+        betaMacosFallbackUrl: "./software/beta-DIT.Pro_1.2.0_universal.dmg",
+        betaWindowsFallbackUrl: "./software/beta-DIT.Pro_1.2.0_x64-setup.exe",
         downloadLabel: "// download",
         stablePickerTitle: "Choose your stable build",
         stablePickerDesc: "Pick macOS or Windows for the latest stable release.",
@@ -1527,11 +1527,11 @@
         titleHtml: "<span class=\"hero-typing-line\"><span class=\"hero-typing-prefix accent\"></span></span><br><span class=\"hero-typing-suffix\"></span>",
         sub: "面向专业拍摄现场的开源数据完整性保障，配备清晰直观的图形操作界面。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
         stable: "下载稳定版",
-        stableMacosFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
-        stableWindowsFallbackUrl: "",
+        stableMacosFallbackUrl: "./software/stable-DIT.Pro_1.2.0_universal.dmg",
+        stableWindowsFallbackUrl: "./software/stable-DIT.Pro_1.2.0_x64-setup.exe",
         beta: "下载测试版",
-        betaMacosFallbackUrl: "./software/DIT-Pro_v1.1.0-rc.1_universal.dmg",
-        betaWindowsFallbackUrl: "",
+        betaMacosFallbackUrl: "./software/beta-DIT.Pro_1.2.0_universal.dmg",
+        betaWindowsFallbackUrl: "./software/beta-DIT.Pro_1.2.0_x64-setup.exe",
         downloadLabel: "// 下载",
         stablePickerTitle: "选择稳定版平台",
         stablePickerDesc: "请选择 macOS 或 Windows，以下载最新稳定版。",
@@ -1797,18 +1797,40 @@
     return fallbackUrl || null;
   };
 
+  const resolveAbsoluteUrl = (url) => {
+    if (!url) return null;
+    try {
+      return new URL(url, window.location.href);
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const isSameOriginUrl = (url) => {
+    const absoluteUrl = resolveAbsoluteUrl(url);
+    return absoluteUrl ? absoluteUrl.origin === window.location.origin : false;
+  };
+
   const updateDownloadOption = (selector, url, title) => {
     const el = document.querySelector(selector);
     if (!el) return;
     const titleEl = el.querySelector(".download-option-title");
     if (titleEl) titleEl.textContent = title;
     if (url) {
-      el.setAttribute("href", url);
+      const absoluteUrl = resolveAbsoluteUrl(url);
+      el.setAttribute("href", absoluteUrl ? absoluteUrl.toString() : url);
+      if (isSameOriginUrl(url)) {
+        const filename = absoluteUrl && absoluteUrl.pathname ? absoluteUrl.pathname.split("/").pop() : "";
+        el.setAttribute("download", filename || "");
+      } else {
+        el.removeAttribute("download");
+      }
       el.classList.remove("download-option-disabled");
       el.removeAttribute("aria-disabled");
       el.setAttribute("tabindex", "0");
     } else {
       el.setAttribute("href", "#");
+      el.removeAttribute("download");
       el.classList.add("download-option-disabled");
       el.setAttribute("aria-disabled", "true");
       el.setAttribute("tabindex", "-1");
@@ -2029,6 +2051,40 @@
   document.querySelector(".hero-download-beta-btn")?.addEventListener("click", () => {
     openDownloadModal("beta");
   });
+
+  const bindDownloadOption = (selector, platform) => {
+    document.querySelector(selector)?.addEventListener("click", (event) => {
+      const heroConfig = i18n[currentLanguage] && i18n[currentLanguage].hero;
+      const targetUrl = getDownloadTargetUrl(heroConfig, activeDownloadChannel, platform);
+      if (!targetUrl) {
+        event.preventDefault();
+        return;
+      }
+
+      event.preventDefault();
+      const absoluteUrl = resolveAbsoluteUrl(targetUrl);
+      if (!absoluteUrl) return;
+
+      closeDownloadModal();
+
+      const tempLink = document.createElement("a");
+      tempLink.href = absoluteUrl.toString();
+      tempLink.rel = "noopener noreferrer";
+      const sameOrigin = isSameOriginUrl(targetUrl);
+      if (sameOrigin) {
+        const filename = absoluteUrl.pathname.split("/").pop();
+        tempLink.setAttribute("download", filename || "");
+      } else {
+        tempLink.target = "_blank";
+      }
+      document.body.appendChild(tempLink);
+      tempLink.click();
+      tempLink.remove();
+    });
+  };
+
+  bindDownloadOption(".download-option-macos", "macos");
+  bindDownloadOption(".download-option-windows", "windows");
 
   downloadModal?.addEventListener("click", (event) => {
     if (event.target === downloadModal) closeDownloadModal();

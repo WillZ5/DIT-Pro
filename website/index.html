@@ -338,6 +338,126 @@
     animation: fadeUp 0.8s 0.35s ease both;
   }
 
+  body.modal-open {
+    overflow: hidden;
+  }
+
+  .download-modal[hidden] {
+    display: none;
+  }
+
+  .download-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 220;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(10, 10, 11, 0.78);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .download-modal-card {
+    position: relative;
+    width: min(560px, 100%);
+    padding: 32px;
+    border-radius: 18px;
+    border: 1px solid var(--border-hover);
+    background:
+      radial-gradient(circle at top right, rgba(0, 133, 255, 0.12), transparent 38%),
+      linear-gradient(180deg, rgba(22, 22, 24, 0.98), rgba(14, 14, 16, 0.98));
+    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+  }
+
+  .download-modal-label {
+    margin-bottom: 14px;
+  }
+
+  .download-modal-title {
+    font-size: clamp(24px, 3vw, 32px);
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+  }
+
+  .download-modal-desc {
+    margin-top: 12px;
+    color: var(--text-secondary);
+    line-height: 1.75;
+    max-width: 46ch;
+  }
+
+  .download-modal-close {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-secondary);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+  }
+
+  .download-modal-close:hover {
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .download-modal-actions {
+    margin-top: 28px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .download-option {
+    min-height: 88px;
+    justify-content: space-between;
+    align-items: center;
+    text-align: left;
+  }
+
+  .download-option-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+  }
+
+  .download-option-title {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .download-option-meta {
+    font-size: 12px;
+    color: inherit;
+    opacity: 0.78;
+  }
+
+  .download-option i {
+    width: 18px;
+    font-size: 18px;
+    text-align: center;
+  }
+
+  .download-option-disabled,
+  .download-option-disabled:hover {
+    pointer-events: none;
+    opacity: 0.52;
+    transform: none;
+    box-shadow: none;
+    background: var(--bg-card);
+    color: var(--text-tertiary);
+    border: 1px solid var(--border);
+  }
+
   .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -957,6 +1077,7 @@
     .hero-terminal { margin-top: 60px; }
     footer { flex-direction: column; gap: 24px; text-align: center; }
     .cta-actions { flex-direction: column; align-items: center; }
+    .download-modal-actions { grid-template-columns: 1fr; }
   }
 
   @media (max-width: 480px) {
@@ -1012,8 +1133,8 @@
     No gimmicks. No guesswork. Just bulletproof backup.
   </p>
   <div class="hero-actions">
-    <a href="./software/DIT-Pro_latest_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-primary hero-download-btn hero-download-stable-btn"><span class="hero-stable-text">Download stable</span></a>
-    <a href="./software/DIT-Pro_v1.1.0-rc.1_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-secondary hero-download-beta-btn"><span class="hero-beta-text">Download beta</span></a>
+    <button type="button" class="btn-primary hero-download-btn hero-download-stable-btn"><span class="hero-stable-text">Download stable</span></button>
+    <button type="button" class="btn-secondary hero-download-beta-btn"><span class="hero-beta-text">Download beta</span></button>
     <a href="#safety" class="btn-secondary hero-learn-more-btn">Learn more ↓</a>
   </div>
   <p class="hero-install-note">
@@ -1043,6 +1164,33 @@
     </div>
   </div>
 </section>
+
+<div class="download-modal" hidden>
+  <div class="download-modal-card" role="dialog" aria-modal="true" aria-labelledby="download-modal-title">
+    <button type="button" class="download-modal-close" aria-label="Close download picker">×</button>
+    <div class="section-label download-modal-label">// download</div>
+    <h3 id="download-modal-title" class="download-modal-title">Choose your platform</h3>
+    <p class="download-modal-desc">Pick macOS or Windows for this release.</p>
+    <div class="download-modal-actions">
+      <a href="./software/DIT-Pro_latest_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-primary download-option download-option-macos">
+        <i class="fa-brands fa-apple" aria-hidden="true"></i>
+        <span class="download-option-copy">
+          <span class="download-option-title download-option-macos-text">macOS download</span>
+          <span class="download-option-meta download-option-macos-meta">DMG / latest available build</span>
+        </span>
+        <span class="cta-arrow" aria-hidden="true">→</span>
+      </a>
+      <a href="#" target="_blank" rel="noopener noreferrer" class="btn-secondary download-option download-option-windows">
+        <i class="fa-brands fa-windows" aria-hidden="true"></i>
+        <span class="download-option-copy">
+          <span class="download-option-title download-option-windows-text">Windows download</span>
+          <span class="download-option-meta download-option-windows-meta">EXE / latest available build</span>
+        </span>
+        <span class="cta-arrow" aria-hidden="true">→</span>
+      </a>
+    </div>
+  </div>
+</div>
 
 <!-- SAFETY PILLARS -->
 <section id="safety">
@@ -1268,11 +1416,21 @@
         titleHtml: "<span class=\"hero-typing-line\"><span class=\"hero-typing-prefix accent\"></span></span><br><span class=\"hero-typing-suffix\"></span>",
         sub: "Professional-grade, open-source data integrity with a clear GUI for production teams. No gimmicks. No guesswork. Just bulletproof backup.",
         stable: "Download stable",
-        stableUrl: "https://github.com/WillZ5/DIT-Pro/releases/latest/download/DIT-Pro_latest_universal.dmg",
-        stableFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
+        stableMacosFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
+        stableWindowsFallbackUrl: "",
         beta: "Download beta",
-        betaUrl: "https://github.com/WillZ5/DIT-Pro/releases",
-        betaFallbackUrl: "./software/DIT-Pro_v1.1.0-rc.1_universal.dmg",
+        betaMacosFallbackUrl: "./software/DIT-Pro_v1.1.0-rc.1_universal.dmg",
+        betaWindowsFallbackUrl: "",
+        downloadLabel: "// download",
+        stablePickerTitle: "Choose your stable build",
+        stablePickerDesc: "Pick macOS or Windows for the latest stable release.",
+        betaPickerTitle: "Choose your beta build",
+        betaPickerDesc: "Pick macOS or Windows for the latest prerelease build.",
+        macosOption: "macOS download",
+        macosMeta: "DMG / latest available build",
+        windowsOption: "Windows download",
+        windowsMeta: "EXE / latest available build",
+        unavailableMeta: "Unavailable right now",
         installNote: "DIT Pro is not signed by an Apple-verified developer. After installation, open \"System Settings\" >> \"Privacy & Security\", scroll down, then click \"Open Anyway\".",
         secondary: "Learn more ↓",
         terminalTitle: "dit-pro — offload",
@@ -1381,11 +1539,21 @@
         titleHtml: "<span class=\"hero-typing-line\"><span class=\"hero-typing-prefix accent\"></span></span><br><span class=\"hero-typing-suffix\"></span>",
         sub: "面向专业拍摄现场的开源数据完整性保障，配备清晰直观的图形操作界面。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
         stable: "下载稳定版",
-        stableUrl: "https://github.com/WillZ5/DIT-Pro/releases/latest/download/DIT-Pro_latest_universal.dmg",
-        stableFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
+        stableMacosFallbackUrl: "./software/DIT-Pro_latest_universal.dmg",
+        stableWindowsFallbackUrl: "",
         beta: "下载测试版",
-        betaUrl: "https://github.com/WillZ5/DIT-Pro/releases",
-        betaFallbackUrl: "./software/DIT-Pro_v1.1.0-rc.1_universal.dmg",
+        betaMacosFallbackUrl: "./software/DIT-Pro_v1.1.0-rc.1_universal.dmg",
+        betaWindowsFallbackUrl: "",
+        downloadLabel: "// 下载",
+        stablePickerTitle: "选择稳定版平台",
+        stablePickerDesc: "请选择 macOS 或 Windows，以下载最新稳定版。",
+        betaPickerTitle: "选择测试版平台",
+        betaPickerDesc: "请选择 macOS 或 Windows，以下载最新测试版。",
+        macosOption: "下载 macOS 版",
+        macosMeta: "DMG / 最新可用版本",
+        windowsOption: "下载 Windows 版",
+        windowsMeta: "EXE / 最新可用版本",
+        unavailableMeta: "当前不可用",
         installNote: "由于 DIT Pro 当前未通过 Apple 开发者签名验证，安装完成后请按以下步骤操作：<br>打开“系统设置”>>“隐私与安全性”，向下滚动后点击“仍要打开”。",
         secondary: "了解更多 ↓",
         terminalTitle: "dit-pro — 数据转储",
@@ -1629,24 +1797,79 @@
   const GITHUB_RELEASES_API = "https://api.github.com/repos/WillZ5/DIT-Pro/releases?per_page=30";
   let currentLanguage = "en";
   let githubHostReachable = null;
-  let latestStableDmgUrl = null;
-  let latestBetaDmgUrl = null;
+  let activeDownloadChannel = "stable";
+  const resolvedDownloadUrls = {
+    stable: { macos: null, windows: null },
+    beta: { macos: null, windows: null }
+  };
 
-  const applyHeroDownloadHrefs = (heroConfig) => {
+  const getDownloadTargetUrl = (heroConfig, channel, platform) => {
+    if (!heroConfig) return null;
+    const fallbackKey = `${channel}${platform === "macos" ? "Macos" : "Windows"}FallbackUrl`;
+    const fallbackUrl = heroConfig[fallbackKey] || "";
+    const detectedUrl = resolvedDownloadUrls[channel] ? resolvedDownloadUrls[channel][platform] : null;
+    if (githubHostReachable === true) return detectedUrl || fallbackUrl || null;
+    return fallbackUrl || null;
+  };
+
+  const updateDownloadOption = (selector, url, title, meta, unavailableMeta) => {
+    const el = document.querySelector(selector);
+    if (!el) return;
+    const titleEl = el.querySelector(".download-option-title");
+    const metaEl = el.querySelector(".download-option-meta");
+    if (titleEl) titleEl.textContent = title;
+    if (metaEl) metaEl.textContent = url ? meta : unavailableMeta;
+    if (url) {
+      el.setAttribute("href", url);
+      el.classList.remove("download-option-disabled");
+      el.removeAttribute("aria-disabled");
+      el.setAttribute("tabindex", "0");
+    } else {
+      el.setAttribute("href", "#");
+      el.classList.add("download-option-disabled");
+      el.setAttribute("aria-disabled", "true");
+      el.setAttribute("tabindex", "-1");
+    }
+  };
+
+  const updateDownloadModal = (heroConfig) => {
     if (!heroConfig) return;
-    const stableBtn = document.querySelector(".hero-download-stable-btn");
-    const betaBtn = document.querySelector(".hero-download-beta-btn");
-    const stableFallbackUrl = heroConfig.stableFallbackUrl || "./software/DIT-Pro_latest_universal.dmg";
-    const betaFallbackUrl = heroConfig.betaFallbackUrl || stableFallbackUrl;
-    const canUseGithub = githubHostReachable === true;
-    const stableTargetUrl = canUseGithub
-      ? (latestStableDmgUrl || heroConfig.stableUrl || stableFallbackUrl)
-      : stableFallbackUrl;
-    const betaTargetUrl = canUseGithub
-      ? (latestBetaDmgUrl || heroConfig.betaUrl || betaFallbackUrl)
-      : betaFallbackUrl;
-    if (stableBtn) stableBtn.setAttribute("href", stableTargetUrl);
-    if (betaBtn) betaBtn.setAttribute("href", betaTargetUrl);
+    const title = activeDownloadChannel === "stable" ? heroConfig.stablePickerTitle : heroConfig.betaPickerTitle;
+    const desc = activeDownloadChannel === "stable" ? heroConfig.stablePickerDesc : heroConfig.betaPickerDesc;
+    setText(".download-modal-label", heroConfig.downloadLabel);
+    setText(".download-modal-title", title);
+    setText(".download-modal-desc", desc);
+    updateDownloadOption(
+      ".download-option-macos",
+      getDownloadTargetUrl(heroConfig, activeDownloadChannel, "macos"),
+      heroConfig.macosOption,
+      heroConfig.macosMeta,
+      heroConfig.unavailableMeta
+    );
+    updateDownloadOption(
+      ".download-option-windows",
+      getDownloadTargetUrl(heroConfig, activeDownloadChannel, "windows"),
+      heroConfig.windowsOption,
+      heroConfig.windowsMeta,
+      heroConfig.unavailableMeta
+    );
+  };
+
+  const downloadModal = document.querySelector(".download-modal");
+
+  const openDownloadModal = (channel) => {
+    activeDownloadChannel = channel;
+    const heroConfig = i18n[currentLanguage] && i18n[currentLanguage].hero;
+    updateDownloadModal(heroConfig);
+    if (!downloadModal) return;
+    downloadModal.hidden = false;
+    document.body.classList.add("modal-open");
+  };
+
+  const closeDownloadModal = () => {
+    if (!downloadModal) return;
+    downloadModal.hidden = true;
+    document.body.classList.remove("modal-open");
   };
 
   const probeGithubHostReachability = async () => {
@@ -1669,11 +1892,10 @@
     } finally {
       clearTimeout(timeoutId);
     }
-    const heroConfig = i18n[currentLanguage] && i18n[currentLanguage].hero;
-    applyHeroDownloadHrefs(heroConfig);
+    updateDownloadModal(i18n[currentLanguage] && i18n[currentLanguage].hero);
   };
 
-  const pickDmgAssetUrl = (releaseData) => {
+  const pickMacosAssetUrl = (releaseData) => {
     const assets = Array.isArray(releaseData && releaseData.assets) ? releaseData.assets : [];
     const dmgAssets = assets.filter((asset) =>
       typeof asset.name === "string" &&
@@ -1682,6 +1904,20 @@
     );
     if (!dmgAssets.length) return null;
     const preferred = dmgAssets.find((asset) => /universal/i.test(asset.name)) || dmgAssets[0];
+    return preferred.browser_download_url || null;
+  };
+
+  const pickWindowsAssetUrl = (releaseData) => {
+    const assets = Array.isArray(releaseData && releaseData.assets) ? releaseData.assets : [];
+    const windowsAssets = assets.filter((asset) =>
+      typeof asset.name === "string" &&
+      typeof asset.browser_download_url === "string" &&
+      /\.(exe|msi)$/i.test(asset.name)
+    );
+    if (!windowsAssets.length) return null;
+    const preferred = windowsAssets.find((asset) => /setup\.exe$/i.test(asset.name))
+      || windowsAssets.find((asset) => /\.exe$/i.test(asset.name))
+      || windowsAssets[0];
     return preferred.browser_download_url || null;
   };
 
@@ -1701,21 +1937,24 @@
       const releases = await response.json();
       if (!Array.isArray(releases)) throw new Error("Invalid GitHub releases payload");
       const stableRelease = releases.find((release) =>
-        release && !release.draft && !release.prerelease && pickDmgAssetUrl(release)
+        release && !release.draft && !release.prerelease && (pickMacosAssetUrl(release) || pickWindowsAssetUrl(release))
       );
       const betaRelease = releases.find((release) =>
-        release && !release.draft && release.prerelease && pickDmgAssetUrl(release)
+        release && !release.draft && release.prerelease && (pickMacosAssetUrl(release) || pickWindowsAssetUrl(release))
       );
-      latestStableDmgUrl = stableRelease ? pickDmgAssetUrl(stableRelease) : null;
-      latestBetaDmgUrl = betaRelease ? pickDmgAssetUrl(betaRelease) : null;
+      resolvedDownloadUrls.stable.macos = stableRelease ? pickMacosAssetUrl(stableRelease) : null;
+      resolvedDownloadUrls.stable.windows = stableRelease ? pickWindowsAssetUrl(stableRelease) : null;
+      resolvedDownloadUrls.beta.macos = betaRelease ? pickMacosAssetUrl(betaRelease) : null;
+      resolvedDownloadUrls.beta.windows = betaRelease ? pickWindowsAssetUrl(betaRelease) : null;
     } catch (_) {
-      latestStableDmgUrl = null;
-      latestBetaDmgUrl = null;
+      resolvedDownloadUrls.stable.macos = null;
+      resolvedDownloadUrls.stable.windows = null;
+      resolvedDownloadUrls.beta.macos = null;
+      resolvedDownloadUrls.beta.windows = null;
     } finally {
       clearTimeout(timeoutId);
     }
-    const heroConfig = i18n[currentLanguage] && i18n[currentLanguage].hero;
-    applyHeroDownloadHrefs(heroConfig);
+    updateDownloadModal(i18n[currentLanguage] && i18n[currentLanguage].hero);
   };
 
   const applyLanguage = (lang) => {
@@ -1738,7 +1977,7 @@
     setText(".hero-sub", t.hero.sub);
     setText(".hero-stable-text", t.hero.stable);
     setText(".hero-beta-text", t.hero.beta);
-    applyHeroDownloadHrefs(t.hero);
+    updateDownloadModal(t.hero);
     setHtml(".hero-install-note", t.hero.installNote);
     setText(".hero-learn-more-btn", t.hero.secondary);
     setText(".terminal-title", t.hero.terminalTitle);
@@ -1802,6 +2041,24 @@
 
   document.querySelectorAll("[data-lang-btn]").forEach((btn) => {
     btn.addEventListener("click", () => applyLanguage(btn.dataset.langBtn));
+  });
+
+  document.querySelector(".hero-download-stable-btn")?.addEventListener("click", () => {
+    openDownloadModal("stable");
+  });
+
+  document.querySelector(".hero-download-beta-btn")?.addEventListener("click", () => {
+    openDownloadModal("beta");
+  });
+
+  downloadModal?.addEventListener("click", (event) => {
+    if (event.target === downloadModal) closeDownloadModal();
+  });
+
+  document.querySelector(".download-modal-close")?.addEventListener("click", closeDownloadModal);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeDownloadModal();
   });
 
   probeGithubHostReachability();

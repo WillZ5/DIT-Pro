@@ -426,19 +426,12 @@
   .download-option-copy {
     display: flex;
     flex-direction: column;
-    gap: 4px;
     flex: 1;
   }
 
   .download-option-title {
     font-size: 15px;
     font-weight: 600;
-  }
-
-  .download-option-meta {
-    font-size: 12px;
-    color: inherit;
-    opacity: 0.78;
   }
 
   .download-option i {
@@ -1172,11 +1165,10 @@
     <h3 id="download-modal-title" class="download-modal-title">Choose your platform</h3>
     <p class="download-modal-desc">Pick macOS or Windows for this release.</p>
     <div class="download-modal-actions">
-      <a href="./software/DIT-Pro_latest_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-primary download-option download-option-macos">
+      <a href="./software/DIT-Pro_latest_universal.dmg" target="_blank" rel="noopener noreferrer" class="btn-secondary download-option download-option-macos">
         <i class="fa-brands fa-apple" aria-hidden="true"></i>
         <span class="download-option-copy">
           <span class="download-option-title download-option-macos-text">macOS download</span>
-          <span class="download-option-meta download-option-macos-meta">DMG / latest available build</span>
         </span>
         <span class="cta-arrow" aria-hidden="true">→</span>
       </a>
@@ -1184,7 +1176,6 @@
         <i class="fa-brands fa-windows" aria-hidden="true"></i>
         <span class="download-option-copy">
           <span class="download-option-title download-option-windows-text">Windows download</span>
-          <span class="download-option-meta download-option-windows-meta">EXE / latest available build</span>
         </span>
         <span class="cta-arrow" aria-hidden="true">→</span>
       </a>
@@ -1427,10 +1418,7 @@
         betaPickerTitle: "Choose your beta build",
         betaPickerDesc: "Pick macOS or Windows for the latest prerelease build.",
         macosOption: "macOS download",
-        macosMeta: "DMG / latest available build",
         windowsOption: "Windows download",
-        windowsMeta: "EXE / latest available build",
-        unavailableMeta: "Unavailable right now",
         installNote: "DIT Pro is not signed by an Apple-verified developer. After installation, open \"System Settings\" >> \"Privacy & Security\", scroll down, then click \"Open Anyway\".",
         secondary: "Learn more ↓",
         terminalTitle: "dit-pro — offload",
@@ -1550,10 +1538,7 @@
         betaPickerTitle: "选择测试版平台",
         betaPickerDesc: "请选择 macOS 或 Windows，以下载最新测试版。",
         macosOption: "下载 macOS 版",
-        macosMeta: "DMG / 最新可用版本",
         windowsOption: "下载 Windows 版",
-        windowsMeta: "EXE / 最新可用版本",
-        unavailableMeta: "当前不可用",
         installNote: "由于 DIT Pro 当前未通过 Apple 开发者签名验证，安装完成后请按以下步骤操作：<br>打开“系统设置”>>“隐私与安全性”，向下滚动后点击“仍要打开”。",
         secondary: "了解更多 ↓",
         terminalTitle: "dit-pro — 数据转储",
@@ -1812,13 +1797,11 @@
     return fallbackUrl || null;
   };
 
-  const updateDownloadOption = (selector, url, title, meta, unavailableMeta) => {
+  const updateDownloadOption = (selector, url, title) => {
     const el = document.querySelector(selector);
     if (!el) return;
     const titleEl = el.querySelector(".download-option-title");
-    const metaEl = el.querySelector(".download-option-meta");
     if (titleEl) titleEl.textContent = title;
-    if (metaEl) metaEl.textContent = url ? meta : unavailableMeta;
     if (url) {
       el.setAttribute("href", url);
       el.classList.remove("download-option-disabled");
@@ -1842,16 +1825,12 @@
     updateDownloadOption(
       ".download-option-macos",
       getDownloadTargetUrl(heroConfig, activeDownloadChannel, "macos"),
-      heroConfig.macosOption,
-      heroConfig.macosMeta,
-      heroConfig.unavailableMeta
+      heroConfig.macosOption
     );
     updateDownloadOption(
       ".download-option-windows",
       getDownloadTargetUrl(heroConfig, activeDownloadChannel, "windows"),
-      heroConfig.windowsOption,
-      heroConfig.windowsMeta,
-      heroConfig.unavailableMeta
+      heroConfig.windowsOption
     );
   };
 

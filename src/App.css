@@ -2810,3 +2810,160 @@
 .website-btn:hover {
   color: #a1a1aa !important;
 }
+
+/* ─── Rushes Log View ───────────────────────────────────────────────── */
+
+.rushes-log-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.rushes-log-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.rushes-date-input {
+  width: 160px;
+  color-scheme: dark;
+}
+
+.rushes-log-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.rushes-stat-card {
+  background: #111113;
+  border: 1px solid #1c1c22;
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+}
+
+.rushes-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #fafafa;
+}
+
+.rushes-stat-label {
+  font-size: 11px;
+  color: #71717a;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+.rushes-log-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #1c1c22;
+  border-radius: 10px;
+}
+
+.rushes-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.rushes-log-table thead th {
+  background: #111113;
+  color: #71717a;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #1c1c22;
+  position: sticky;
+  top: 0;
+}
+
+.rushes-log-table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #18181b;
+  color: #e4e4e7;
+}
+
+.rushes-log-table tbody tr:hover {
+  background: #18181b;
+}
+
+.rushes-cell-reel {
+  font-weight: 600;
+  color: #fafafa;
+}
+
+.rushes-cell-clip {
+  font-family: 'SF Mono', Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: #a1a1aa;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rushes-cell-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rushes-cell-meta {
+  font-size: 0.82rem;
+  color: #d4d4d8;
+  white-space: nowrap;
+}
+.rushes-cell-dest {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #a1a1aa;
+}
+
+.rushes-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rushes-status-verified {
+  background: #22c55e18;
+  color: #22c55e;
+}
+
+.rushes-status-partial {
+  background: #f59e0b18;
+  color: #f59e0b;
+}
+
+.rushes-status-failed {
+  background: #ef444418;
+  color: #ef4444;
+}
+
+.rushes-status-pending {
+  background: #3b82f618;
+  color: #3b82f6;
+}
+
+.rushes-mhl-yes {
+  color: #22c55e;
+  font-weight: 700;
+}
+
+.rushes-mhl-no {
+  color: #ef4444;
+  font-weight: 700;
+}
+
+.rushes-log-actions {
+  display: flex;
+  gap: 10px;
+  padding-top: 4px;
+}

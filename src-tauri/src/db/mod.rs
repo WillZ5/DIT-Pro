@@ -113,5 +113,32 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
     // Migration: add config_json column for job re-run support
     let _ = conn.execute_batch("ALTER TABLE jobs ADD COLUMN config_json TEXT");
 
+    // Migration: add camera identification columns to jobs table (v1.3)
+    for col in [
+        "camera_brand TEXT DEFAULT ''",
+        "camera_model TEXT DEFAULT ''",
+        "reel_name TEXT DEFAULT ''",
+        "clip_count INTEGER DEFAULT 0",
+        "first_clip TEXT DEFAULT ''",
+        "last_clip TEXT DEFAULT ''",
+    ] {
+        let sql = format!("ALTER TABLE jobs ADD COLUMN {}", col);
+        let _ = conn.execute_batch(&sql);
+    }
+
+    // Migration: add media metadata columns to copy_tasks (v1.3 P2)
+    for col in [
+        "resolution TEXT DEFAULT ''",
+        "frame_rate TEXT DEFAULT ''",
+        "codec TEXT DEFAULT ''",
+        "color_space TEXT DEFAULT ''",
+        "bit_depth INTEGER DEFAULT 0",
+        "timecode_start TEXT DEFAULT ''",
+        "media_duration REAL DEFAULT 0",
+    ] {
+        let sql = format!("ALTER TABLE copy_tasks ADD COLUMN {}", col);
+        let _ = conn.execute_batch(&sql);
+    }
+
     Ok(conn)
 }

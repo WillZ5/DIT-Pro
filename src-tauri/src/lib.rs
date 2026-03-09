@@ -1,6 +1,7 @@
 // DIT Pro — Professional Card Offload Engine
 // Core modules for the DIT Pro system
 
+pub mod camera;
 pub mod checkpoint;
 pub mod commands;
 pub mod config;
@@ -15,6 +16,7 @@ pub mod mhl;
 pub mod notify;
 pub mod preset;
 pub mod report;
+pub mod rushes_log;
 pub mod tray;
 pub mod version;
 pub mod volume;
@@ -296,6 +298,10 @@ pub fn run() {
             commands::get_job_report,
             commands::export_day_report,
             commands::export_job_report,
+            // Rushes Log
+            commands::get_rushes_log,
+            commands::export_rushes_log,
+            commands::copy_rushes_log_clipboard,
             // Notifications
             commands::send_test_email,
             commands::save_smtp_password,

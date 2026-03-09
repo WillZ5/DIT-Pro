@@ -194,6 +194,22 @@ pub async fn create_job(
     checkpoint::create_job(&conn, &job_id, &request.name, &request.source_path, None)
         .map_err(|e| e.to_string())?;
 
+    // Identify camera from source folder structure
+    let camera_info = crate::camera::identify_camera(&source);
+    conn.execute(
+        "UPDATE jobs SET camera_brand=?1, camera_model=?2, reel_name=?3, clip_count=?4, first_clip=?5, last_clip=?6 WHERE id=?7",
+        rusqlite::params![
+            camera_info.brand,
+            camera_info.model,
+            camera_info.reel_name,
+            camera_info.clip_count,
+            camera_info.first_clip,
+            camera_info.last_clip,
+            job_id,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
     // Create copy tasks for each file × each destination
     for (rel_path, file_size) in &files {
         let source_file = source.join(rel_path);
@@ -1699,6 +1715,66 @@ pub fn export_job_report(
         )),
         Err(e) => Ok(CommandResult::<String>::err(e.to_string())),
     }
+}
+
+// ─── Rushes Log Commands ──────────────────────────────────────────────────
+
+/// Get a rushes log report for a given date
+#[tauri::command]
+pub fn get_rushes_log(
+    state: State<'_, AppState>,
+    date: String,
+) -> Result<CommandResult<crate::rushes_log::RushesLogReport>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    match crate::rushes_log::get_rushes_log(&conn, &date) {
+        Ok(report) => Ok(CommandResult::ok(report)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+/// Export rushes log as CSV, TSV, Excel, or PDF. Returns saved file path.
+#[tauri::command]
+pub fn export_rushes_log(
+    state: State<'_, AppState>,
+    date: String,
+    format: String,
+    output_path: String,
+) -> Result<CommandResult<String>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let report = crate::rushes_log::get_rushes_log(&conn, &date).map_err(|e| e.to_string())?;
+    let out = std::path::Path::new(&output_path);
+
+    let result = match format.to_lowercase().as_str() {
+        "xlsx" => crate::rushes_log::excel::export_xlsx(&report, out),
+        "pdf" => crate::rushes_log::pdf::export_pdf(&report, out),
+        "tsv" => crate::rushes_log::export_to_file(
+            &report,
+            &crate::rushes_log::ExportFormat::Tsv,
+            out,
+        ),
+        _ => crate::rushes_log::export_to_file(
+            &report,
+            &crate::rushes_log::ExportFormat::Csv,
+            out,
+        ),
+    };
+
+    match result {
+        Ok(path) => Ok(CommandResult::ok(path)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
+/// Get rushes log as TSV string for clipboard copy
+#[tauri::command]
+pub fn copy_rushes_log_clipboard(
+    state: State<'_, AppState>,
+    date: String,
+) -> Result<CommandResult<String>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let report = crate::rushes_log::get_rushes_log(&conn, &date).map_err(|e| e.to_string())?;
+    let tsv = crate::rushes_log::export_to_string(&report, &crate::rushes_log::ExportFormat::Tsv);
+    Ok(CommandResult::ok(tsv))
 }
 
 // ─── Notification Commands ────────────────────────────────────────────────

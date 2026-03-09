@@ -1280,7 +1280,11 @@ impl OffloadWorkflow {
             config_json.as_deref(),
         )?;
 
+        // Track task IDs per source file for metadata update
+        let mut source_task_map: Vec<(std::path::PathBuf, Vec<String>)> = Vec::new();
+
         for file in files {
+            let mut task_ids_for_file = Vec::new();
             for dest_root in &self.config.dest_paths {
                 let dest_file = dest_root.join(&file.rel_path);
                 let task_id = uuid::Uuid::new_v4().to_string();
@@ -1292,8 +1296,36 @@ impl OffloadWorkflow {
                     dest_file.to_string_lossy().as_ref(),
                     file.size,
                 )?;
+                task_ids_for_file.push(task_id);
+            }
+            if crate::camera::metadata::is_video_file(&file.abs_path) {
+                source_task_map.push((file.abs_path.clone(), task_ids_for_file));
             }
         }
+
+        // Extract media metadata for video files (non-blocking, best-effort)
+        if !source_task_map.is_empty() {
+            let db = self.db.clone();
+            std::thread::spawn(move || {
+                for (source_path, task_ids) in &source_task_map {
+                    let meta = crate::camera::metadata::probe_media_file(source_path);
+                    if meta.resolution.is_some() || meta.codec.is_some() {
+                        if let Ok(conn) = db.lock() {
+                            for task_id in task_ids {
+                                let _ = checkpoint::update_task_media_metadata(
+                                    &conn, task_id, &meta,
+                                );
+                            }
+                        }
+                    }
+                }
+                log::info!(
+                    "Media metadata extraction completed for {} video files",
+                    source_task_map.len()
+                );
+            });
+        }
+
         Ok(())
     }
 

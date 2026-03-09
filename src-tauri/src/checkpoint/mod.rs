@@ -200,6 +200,31 @@ pub fn update_task_skipped(conn: &Connection, task_id: &str, hashes: &TaskHashes
     Ok(())
 }
 
+/// Update media metadata for a copy task
+pub fn update_task_media_metadata(
+    conn: &Connection,
+    task_id: &str,
+    meta: &crate::camera::metadata::MediaMetadata,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE copy_tasks SET
+         resolution = ?1, frame_rate = ?2, codec = ?3, color_space = ?4,
+         bit_depth = ?5, timecode_start = ?6, media_duration = ?7
+         WHERE id = ?8",
+        params![
+            meta.resolution.as_deref().unwrap_or(""),
+            meta.frame_rate.as_deref().unwrap_or(""),
+            meta.codec.as_deref().unwrap_or(""),
+            meta.color_space.as_deref().unwrap_or(""),
+            meta.bit_depth.unwrap_or(0) as i64,
+            meta.timecode_start.as_deref().unwrap_or(""),
+            meta.duration_seconds.unwrap_or(0.0),
+            task_id,
+        ],
+    )?;
+    Ok(())
+}
+
 /// Get all pending tasks for a job
 pub fn get_pending_tasks(conn: &Connection, job_id: &str) -> Result<Vec<CheckpointRecord>> {
     let mut stmt = conn.prepare(

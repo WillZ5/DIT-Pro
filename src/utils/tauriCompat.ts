@@ -7,6 +7,7 @@ import {
   MOCK_SETTINGS,
   MOCK_DAY_REPORT,
   MOCK_JOB_REPORT,
+  MOCK_RUSHES_LOG,
 } from "./mockData";
 
 /** True when running inside the Tauri desktop shell */
@@ -171,6 +172,12 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
       return ok({ totalFiles: 342, totalBytes: 453_800_000_000 }) as T;
     case "preflight_check":
       return ok([]) as T;
+    case "get_rushes_log":
+      return ok(MOCK_RUSHES_LOG) as T;
+    case "export_rushes_log":
+      return ok("/tmp/rushes-log-demo.csv") as T;
+    case "copy_rushes_log_clipboard":
+      return ok("Reel\tCamera\tClips\tFirst Clip\tLast Clip\tSize\tDuration\tSpeed\tStatus\tMHL\tDestinations\nA001\tARRI ALEXA Mini\t42\tA001C001_240215_R1AB.mxf\tA001C042_240215_R1AB.mxf\t453.8 GB\t47m 27s\t171.1 MB/s\tVerified\t✓\tRAID_SHUTTLE_01, RAID_SHUTTLE_02") as T;
     default:
       return ok(null) as T;
   }

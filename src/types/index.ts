@@ -52,7 +52,53 @@ export interface VolumeInfo {
   isMounted: boolean;
 }
 
-export type ViewType = "jobs" | "volumes" | "presets" | "reports" | "settings";
+export type ViewType = "jobs" | "volumes" | "presets" | "reports" | "rushesLog" | "settings";
+
+// ─── Rushes Log Types ────────────────────────────────────────────────────
+
+export interface RushesLogEntry {
+  jobId: string;
+  jobName: string;
+  reelName: string;
+  cameraBrand: string;
+  cameraModel: string;
+  clipCount: number;
+  firstClip: string;
+  lastClip: string;
+  sourcePath: string;
+  totalSize: number;
+  totalFiles: number;
+  completedFiles: number;
+  failedFiles: number;
+  durationSeconds: number;
+  avgSpeedMbps: number;
+  backupStatus: string;
+  mhlVerified: boolean;
+  destPaths: string[];
+  startedAt: string;
+  completedAt: string;
+  // Media metadata (P2)
+  resolution: string | null;
+  frameRate: string | null;
+  codec: string | null;
+  colorSpace: string | null;
+  timecodeRange: string | null;
+}
+
+export interface RushesLogSummary {
+  totalReels: number;
+  totalClips: number;
+  totalSize: number;
+  totalDurationSeconds: number;
+  camerasUsed: string[];
+}
+
+export interface RushesLogReport {
+  generatedAt: string;
+  shootDate: string;
+  entries: RushesLogEntry[];
+  summary: RushesLogSummary;
+}
 
 // ─── Backend Response Types ───────────────────────────────────────────────
 

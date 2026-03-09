@@ -620,7 +620,10 @@ async fn test_disk_full_atomic_writer_abort_cleans_tmp() {
 
     // Start a normal write, then abort (simulates a write failure scenario)
     let mut writer = AtomicWriter::new(&final_path).await.unwrap();
-    writer.write(b"partial data before disk full").await.unwrap();
+    writer
+        .write(b"partial data before disk full")
+        .await
+        .unwrap();
 
     let tmp = writer.temp_path().to_path_buf();
     assert!(tmp.exists(), ".tmp should exist during write");
@@ -804,7 +807,9 @@ async fn test_permission_denied_source_unreadable() {
     let dst_dir = tempdir().unwrap();
 
     let src_file = src_dir.path().join("secret.mov");
-    tokio::fs::write(&src_file, b"confidential data").await.unwrap();
+    tokio::fs::write(&src_file, b"confidential data")
+        .await
+        .unwrap();
 
     // Remove all permissions from source
     std::fs::set_permissions(&src_file, std::fs::Permissions::from_mode(0o000)).unwrap();
@@ -837,7 +842,9 @@ async fn test_source_disappears_before_copy() {
     let dst_dir = tempdir().unwrap();
 
     let src_file = src_dir.path().join("vanishing.mov");
-    tokio::fs::write(&src_file, b"i will disappear").await.unwrap();
+    tokio::fs::write(&src_file, b"i will disappear")
+        .await
+        .unwrap();
 
     // Delete source before copy
     tokio::fs::remove_file(&src_file).await.unwrap();
@@ -950,7 +957,9 @@ async fn test_source_renamed_during_processing() {
 
     let src_file = src_dir.path().join("original.mov");
     let renamed_file = src_dir.path().join("renamed.mov");
-    tokio::fs::write(&src_file, b"data to rename").await.unwrap();
+    tokio::fs::write(&src_file, b"data to rename")
+        .await
+        .unwrap();
 
     // Rename the file
     tokio::fs::rename(&src_file, &renamed_file).await.unwrap();
@@ -1099,10 +1108,7 @@ async fn test_concurrent_db_access_10_tasks() {
     // All 10 tasks should be recorded
     let c = conn.lock().unwrap();
     let progress = checkpoint::get_job_progress(&c, "job-conc").unwrap();
-    assert_eq!(
-        progress.total_tasks, 10,
-        "All 10 tasks should be inserted"
-    );
+    assert_eq!(progress.total_tasks, 10, "All 10 tasks should be inserted");
     assert_eq!(progress.pending, 10);
 }
 

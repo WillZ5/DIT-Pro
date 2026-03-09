@@ -1312,9 +1312,8 @@ impl OffloadWorkflow {
                     if meta.resolution.is_some() || meta.codec.is_some() {
                         if let Ok(conn) = db.lock() {
                             for task_id in task_ids {
-                                let _ = checkpoint::update_task_media_metadata(
-                                    &conn, task_id, &meta,
-                                );
+                                let _ =
+                                    checkpoint::update_task_media_metadata(&conn, task_id, &meta);
                             }
                         }
                     }

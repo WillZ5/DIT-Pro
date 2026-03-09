@@ -234,7 +234,13 @@ fn error_log_write_read_resolve_clear() {
 
     // Write
     let id1 = error_log::log_raw_error(
-        &conn, "E1001", "error", "IO", "copy_engine", "Read failed on sector 42", None,
+        &conn,
+        "E1001",
+        "error",
+        "IO",
+        "copy_engine",
+        "Read failed on sector 42",
+        None,
     )
     .unwrap();
     let id2 = error_log::log_raw_error(
@@ -507,7 +513,10 @@ async fn mhl_create_and_verify_chain() {
     let mut file_hashes = HashMap::new();
     file_hashes.insert("A001C001.mov".to_string(), file_hash);
     let mut file_metadata = HashMap::new();
-    file_metadata.insert("A001C001.mov".to_string(), (file_data.len() as u64, Utc::now()));
+    file_metadata.insert(
+        "A001C001.mov".to_string(),
+        (file_data.len() as u64, Utc::now()),
+    );
 
     let manifest_path = mhl::create_generation(
         &mut history,
@@ -538,9 +547,14 @@ async fn mhl_multiple_generations() {
 
     // Gen 1
     let data1 = b"file1 data";
-    tokio::fs::write(root.join("clip1.mov"), data1).await.unwrap();
+    tokio::fs::write(root.join("clip1.mov"), data1)
+        .await
+        .unwrap();
     let mut hashes1 = HashMap::new();
-    hashes1.insert("clip1.mov".to_string(), hash_bytes(data1, &[HashAlgorithm::XXH64]));
+    hashes1.insert(
+        "clip1.mov".to_string(),
+        hash_bytes(data1, &[HashAlgorithm::XXH64]),
+    );
     let mut meta1 = HashMap::new();
     meta1.insert("clip1.mov".to_string(), (data1.len() as u64, Utc::now()));
     mhl::create_generation(
@@ -555,9 +569,14 @@ async fn mhl_multiple_generations() {
 
     // Gen 2
     let data2 = b"file2 data";
-    tokio::fs::write(root.join("clip2.mov"), data2).await.unwrap();
+    tokio::fs::write(root.join("clip2.mov"), data2)
+        .await
+        .unwrap();
     let mut hashes2 = HashMap::new();
-    hashes2.insert("clip2.mov".to_string(), hash_bytes(data2, &[HashAlgorithm::XXH64]));
+    hashes2.insert(
+        "clip2.mov".to_string(),
+        hash_bytes(data2, &[HashAlgorithm::XXH64]),
+    );
     let mut meta2 = HashMap::new();
     meta2.insert("clip2.mov".to_string(), (data2.len() as u64, Utc::now()));
     mhl::create_generation(
@@ -599,11 +618,17 @@ async fn offload_small_files_checkpoint_round_trip() {
     }
 
     let conn = setup_db();
-    checkpoint::create_job(&conn, "job-e2e", "E2E Test", src_dir.path().to_str().unwrap(), None)
-        .unwrap();
+    checkpoint::create_job(
+        &conn,
+        "job-e2e",
+        "E2E Test",
+        src_dir.path().to_str().unwrap(),
+        None,
+    )
+    .unwrap();
 
     // Insert tasks
-    for i in 0..5 {
+    for (i, content) in file_contents.iter().enumerate() {
         let name = format!("A001C{:04}.mov", i + 1);
         checkpoint::insert_task(
             &conn,
@@ -611,7 +636,7 @@ async fn offload_small_files_checkpoint_round_trip() {
             "job-e2e",
             src_dir.path().join(&name).to_str().unwrap(),
             dst_dir.path().join(&name).to_str().unwrap(),
-            file_contents[i].len() as u64,
+            content.len() as u64,
         )
         .unwrap();
     }
@@ -628,8 +653,14 @@ async fn offload_small_files_checkpoint_round_trip() {
         // Hash and mark complete
         let hashes = hash_bytes(content, &[HashAlgorithm::XXH64, HashAlgorithm::SHA256]);
         let task_hashes = checkpoint::TaskHashes {
-            xxh64: hashes.iter().find(|h| h.algorithm == HashAlgorithm::XXH64).map(|h| h.hex_digest.clone()),
-            sha256: hashes.iter().find(|h| h.algorithm == HashAlgorithm::SHA256).map(|h| h.hex_digest.clone()),
+            xxh64: hashes
+                .iter()
+                .find(|h| h.algorithm == HashAlgorithm::XXH64)
+                .map(|h| h.hex_digest.clone()),
+            sha256: hashes
+                .iter()
+                .find(|h| h.algorithm == HashAlgorithm::SHA256)
+                .map(|h| h.hex_digest.clone()),
             ..Default::default()
         };
         checkpoint::update_task_completed(&conn, &format!("t-{}", i), &task_hashes).unwrap();

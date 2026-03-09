@@ -53,8 +53,7 @@ impl Default for CameraInfo {
 
 /// Known media file extensions for clip counting
 const VIDEO_EXTENSIONS: &[&str] = &[
-    "ari", "r3d", "braw", "mov", "mp4", "mxf", "crm", "crmz", "mts", "m2ts", "avi", "dpx",
-    "exr",
+    "ari", "r3d", "braw", "mov", "mp4", "mxf", "crm", "crmz", "mts", "m2ts", "avi", "dpx", "exr",
 ];
 
 /// Identify camera brand and collect clip statistics from a source directory.
@@ -87,8 +86,14 @@ pub fn identify_camera(source_path: &Path) -> CameraInfo {
     if !media_files.is_empty() {
         // Sort alphabetically for first/last clip
         media_files.sort_by(|a, b| a.0.cmp(&b.0));
-        info.first_clip = media_files.first().map(|(n, _)| n.clone()).unwrap_or_default();
-        info.last_clip = media_files.last().map(|(n, _)| n.clone()).unwrap_or_default();
+        info.first_clip = media_files
+            .first()
+            .map(|(n, _)| n.clone())
+            .unwrap_or_default();
+        info.last_clip = media_files
+            .last()
+            .map(|(n, _)| n.clone())
+            .unwrap_or_default();
     }
 
     // Detect camera brand from folder structure and file extensions

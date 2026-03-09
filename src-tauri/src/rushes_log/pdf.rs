@@ -68,8 +68,8 @@ fn load_font_family() -> Result<FontFamily<FontData>> {
 
 /// Export a rushes log report to a PDF file.
 pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String> {
-    let font_family = load_font_family()
-        .context("Cannot generate PDF: no suitable font found on this system")?;
+    let font_family =
+        load_font_family().context("Cannot generate PDF: no suitable font found on this system")?;
 
     let mut doc = genpdf::Document::new(font_family);
     doc.set_title(format!("Rushes Log — {}", report.shoot_date));
@@ -142,8 +142,17 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
     let header_style = Style::new().bold().with_font_size(8);
     let mut header_row = table.row();
     for header in [
-        "Reel", "Camera", "Clips", "Size", "Duration", "Speed", "Status", "MHL", "Resolution",
-        "Codec", "FPS",
+        "Reel",
+        "Camera",
+        "Clips",
+        "Size",
+        "Duration",
+        "Speed",
+        "Status",
+        "MHL",
+        "Resolution",
+        "Codec",
+        "FPS",
     ] {
         header_row.push_element(Paragraph::new(header).styled(header_style));
     }
@@ -173,18 +182,11 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
         row.push_element(Paragraph::new(format_duration(entry.duration_seconds)).styled(s));
         row.push_element(Paragraph::new(format!("{:.1} MB/s", entry.avg_speed_mbps)).styled(s));
         row.push_element(Paragraph::new(&entry.backup_status).styled(s));
-        row.push_element(
-            Paragraph::new(if entry.mhl_verified { "Yes" } else { "No" }).styled(s),
-        );
-        row.push_element(
-            Paragraph::new(entry.resolution.as_deref().unwrap_or("-")).styled(s),
-        );
+        row.push_element(Paragraph::new(if entry.mhl_verified { "Yes" } else { "No" }).styled(s));
+        row.push_element(Paragraph::new(entry.resolution.as_deref().unwrap_or("-")).styled(s));
         row.push_element(Paragraph::new(entry.codec.as_deref().unwrap_or("-")).styled(s));
-        row.push_element(
-            Paragraph::new(entry.frame_rate.as_deref().unwrap_or("-")).styled(s),
-        );
-        row.push()
-            .context("Failed to push data row")?;
+        row.push_element(Paragraph::new(entry.frame_rate.as_deref().unwrap_or("-")).styled(s));
+        row.push().context("Failed to push data row")?;
     }
 
     doc.push(table);
@@ -206,10 +208,8 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
     );
     sig_layout.push(Break::new(1.0));
     sig_layout.push(
-        Paragraph::new(
-            "Notes: _______________________________________________________________",
-        )
-        .styled(Style::new().with_font_size(10)),
+        Paragraph::new("Notes: _______________________________________________________________")
+            .styled(Style::new().with_font_size(10)),
     );
     doc.push(sig_layout);
 
@@ -236,7 +236,7 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rushes_log::{RushesLogEntry, RushesLogSummary, RushesLogReport};
+    use crate::rushes_log::{RushesLogEntry, RushesLogReport, RushesLogSummary};
 
     #[test]
     fn test_export_pdf_basic() {

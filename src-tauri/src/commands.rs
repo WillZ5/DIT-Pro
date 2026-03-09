@@ -1747,16 +1747,10 @@ pub fn export_rushes_log(
     let result = match format.to_lowercase().as_str() {
         "xlsx" => crate::rushes_log::excel::export_xlsx(&report, out),
         "pdf" => crate::rushes_log::pdf::export_pdf(&report, out),
-        "tsv" => crate::rushes_log::export_to_file(
-            &report,
-            &crate::rushes_log::ExportFormat::Tsv,
-            out,
-        ),
-        _ => crate::rushes_log::export_to_file(
-            &report,
-            &crate::rushes_log::ExportFormat::Csv,
-            out,
-        ),
+        "tsv" => {
+            crate::rushes_log::export_to_file(&report, &crate::rushes_log::ExportFormat::Tsv, out)
+        }
+        _ => crate::rushes_log::export_to_file(&report, &crate::rushes_log::ExportFormat::Csv, out),
     };
 
     match result {

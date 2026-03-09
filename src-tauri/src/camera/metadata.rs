@@ -80,11 +80,7 @@ pub fn is_video_file(path: &Path) -> bool {
 /// Try to find ffprobe in common locations
 fn find_ffprobe() -> Option<String> {
     // Try PATH first
-    if Command::new("ffprobe")
-        .arg("-version")
-        .output()
-        .is_ok()
-    {
+    if Command::new("ffprobe").arg("-version").output().is_ok() {
         return Some("ffprobe".to_string());
     }
 
@@ -118,11 +114,14 @@ pub fn probe_media_file(file_path: &Path) -> MediaMetadata {
 
     let output = match Command::new(&ffprobe)
         .args([
-            "-v", "error",
+            "-v",
+            "error",
             "-show_format",
             "-show_streams",
-            "-select_streams", "v:0",
-            "-of", "json",
+            "-select_streams",
+            "v:0",
+            "-of",
+            "json",
         ])
         .arg(file_path.as_os_str())
         .output()
@@ -151,29 +150,21 @@ pub fn probe_media_file(file_path: &Path) -> MediaMetadata {
     };
 
     // Find the first video stream
-    let video_stream = parsed
-        .streams
-        .as_ref()
-        .and_then(|streams| {
-            streams
-                .iter()
-                .find(|s| s.codec_type.as_deref() == Some("video"))
-        });
-
-    let resolution = video_stream.and_then(|s| {
-        match (s.width, s.height) {
-            (Some(w), Some(h)) if w > 0 && h > 0 => Some(format!("{}x{}", w, h)),
-            _ => None,
-        }
+    let video_stream = parsed.streams.as_ref().and_then(|streams| {
+        streams
+            .iter()
+            .find(|s| s.codec_type.as_deref() == Some("video"))
     });
 
-    let frame_rate = video_stream.and_then(|s| {
-        s.r_frame_rate.as_ref().and_then(|r| parse_frame_rate(r))
+    let resolution = video_stream.and_then(|s| match (s.width, s.height) {
+        (Some(w), Some(h)) if w > 0 && h > 0 => Some(format!("{}x{}", w, h)),
+        _ => None,
     });
 
-    let codec = video_stream.and_then(|s| {
-        s.codec_name.as_ref().map(|c| prettify_codec(c))
-    });
+    let frame_rate =
+        video_stream.and_then(|s| s.r_frame_rate.as_ref().and_then(|r| parse_frame_rate(r)));
+
+    let codec = video_stream.and_then(|s| s.codec_name.as_ref().map(|c| prettify_codec(c)));
 
     let color_space = video_stream.and_then(|s| s.color_space.clone());
 
@@ -226,14 +217,24 @@ fn parse_frame_rate(raw: &str) -> Option<String> {
         }
         // Common frame rates: show nice values
         let rounded = (fps * 1000.0).round() / 1000.0;
-        Some(format!("{:.3}", rounded).trim_end_matches('0').trim_end_matches('.').to_string())
+        Some(
+            format!("{:.3}", rounded)
+                .trim_end_matches('0')
+                .trim_end_matches('.')
+                .to_string(),
+        )
     } else {
         // Already a number
         let fps: f64 = raw.parse().ok()?;
         if fps <= 0.0 || fps > 1000.0 {
             return None;
         }
-        Some(format!("{:.3}", fps).trim_end_matches('0').trim_end_matches('.').to_string())
+        Some(
+            format!("{:.3}", fps)
+                .trim_end_matches('0')
+                .trim_end_matches('.')
+                .to_string(),
+        )
     }
 }
 

@@ -170,8 +170,8 @@ struct JobRow {
 /// Build a single RushesLogEntry from a job row + aggregated copy_tasks.
 fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
     // Aggregate copy task stats
-    let (total_files, completed_files, failed_files, total_size): (u32, u32, u32, u64) =
-        conn.query_row(
+    let (total_files, completed_files, failed_files, total_size): (u32, u32, u32, u64) = conn
+        .query_row(
             "SELECT
                 COUNT(*),
                 SUM(CASE WHEN status IN ('completed','skipped') THEN 1 ELSE 0 END),
@@ -183,9 +183,8 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
         )?;
 
     // Get distinct destination root paths
-    let mut dest_stmt = conn.prepare(
-        "SELECT DISTINCT dest_path FROM copy_tasks WHERE job_id = ?1",
-    )?;
+    let mut dest_stmt =
+        conn.prepare("SELECT DISTINCT dest_path FROM copy_tasks WHERE job_id = ?1")?;
     let dest_paths: Vec<String> = dest_stmt
         .query_map(rusqlite::params![job.id], |row| {
             let full_path: String = row.get(0)?;
@@ -245,15 +244,43 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
              WHERE job_id = ?1 AND resolution != '' AND resolution IS NOT NULL
              LIMIT 1",
             rusqlite::params![job.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .unwrap_or_default();
 
-    let resolution = if media_meta.0.is_empty() { None } else { Some(media_meta.0) };
-    let frame_rate = if media_meta.1.is_empty() { None } else { Some(media_meta.1) };
-    let codec = if media_meta.2.is_empty() { None } else { Some(media_meta.2) };
-    let color_space = if media_meta.3.is_empty() { None } else { Some(media_meta.3) };
-    let timecode_range = if media_meta.4.is_empty() { None } else { Some(media_meta.4) };
+    let resolution = if media_meta.0.is_empty() {
+        None
+    } else {
+        Some(media_meta.0)
+    };
+    let frame_rate = if media_meta.1.is_empty() {
+        None
+    } else {
+        Some(media_meta.1)
+    };
+    let codec = if media_meta.2.is_empty() {
+        None
+    } else {
+        Some(media_meta.2)
+    };
+    let color_space = if media_meta.3.is_empty() {
+        None
+    } else {
+        Some(media_meta.3)
+    };
+    let timecode_range = if media_meta.4.is_empty() {
+        None
+    } else {
+        Some(media_meta.4)
+    };
 
     Ok(RushesLogEntry {
         job_id: job.id.clone(),
@@ -434,7 +461,7 @@ fn escape_field(value: &str, format: &ExportFormat) -> String {
         }
         ExportFormat::Tsv => {
             // TSV: replace tabs and newlines
-            value.replace('\t', " ").replace('\n', " ")
+            value.replace(['\t', '\n'], " ")
         }
     }
 }
@@ -519,14 +546,7 @@ mod tests {
         conn
     }
 
-    fn insert_job(
-        conn: &Connection,
-        id: &str,
-        name: &str,
-        status: &str,
-        brand: &str,
-        reel: &str,
-    ) {
+    fn insert_job(conn: &Connection, id: &str, name: &str, status: &str, brand: &str, reel: &str) {
         conn.execute(
             "INSERT INTO jobs (id, name, status, source_path, camera_brand, reel_name, clip_count, first_clip, last_clip)
              VALUES (?1, ?2, ?3, '/Volumes/CARD_A', ?4, ?5, 3, 'A001.mov', 'A003.mov')",

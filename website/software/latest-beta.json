@@ -1,26 +1,26 @@
 {
   "channel": "beta",
-  "tag_name": "v1.2.0-rc.1",
-  "name": "v1.2.0-rc.1 — 首个候选版：通知、系统通知与级联测速 / First Release Candidate: Sounds, Notifications, and Cascade Benchmarking",
-  "body": "v1.2 的首个候选版本，新增三项核心能力 / The first release candidate for v1.2, introducing three major capabilities.\n\n## 新功能 | New Features\n\n### A. 通知声音（P0） | Notification Sounds (P0)\n- 为 4 类事件新增 Web Audio 提示音：任务完成、任务失败、源卡可弹出、警告 / Added Web Audio chimes for 4 event types: task complete, task failed, source released, and warning\n- 设置页支持按事件启用或禁用，并提供音量滑块 / Added per-event enable or disable controls and a volume slider in Settings\n- 每个提示音都带有测试预览按钮 / Added a preview button for each chime\n- 新增工具文件 `src/utils/audioChimes.ts`，替换 `JobsView` 中的内联 `AudioContext` 代码 / Added `src/utils/audioChimes.ts` and replaced the inline `AudioContext` logic in `JobsView`\n\n### B. macOS / Windows 系统通知 | macOS / Windows Push Notifications\n- 集成 `tauri-plugin-notification` 并加入权限请求流程 / Integrated `tauri-plugin-notification` with a permission request flow\n- 支持按事件控制通知：任务完成、任务失败、源卡可弹出 / Added per-event notification toggles for task complete, task failed, and source released\n- 设置页新增通知权限状态指示 / Added a permission status indicator in Settings\n- 新增工具文件 `src/utils/notifications.ts` / Added `src/utils/notifications.ts`\n\n### C. 级联测速策略 | Cascade Benchmark Strategy\n- 使用 64 MB 顺序写入测速 `benchmark_write_speed()` 替代基于设备类型的启发式判断 / Replaced the device-type heuristic with a 64 MB sequential write benchmark using `benchmark_write_speed()`\n- 新增 Tauri 命令 `benchmark_dest_speed` / Added the `benchmark_dest_speed` Tauri command\n- 每个目标路径旁显示实测速度 / Displayed the measured speed next to each destination path\n- 手动重排目标顺序时会自动关闭速度优先 / Automatically disabled speed priority when destinations are reordered manually\n- 设置页新增级联策略选择：速度优先或自定义顺序 / Added a cascade strategy selector in Settings: Speed Priority or Custom Order\n- `OffloadDefaults` 新增 `cascade_strategy` 字段 / Added a `cascade_strategy` field to `OffloadDefaults`\n\n## 后端变更 | Backend Changes\n\n- `config.rs`：新增 `SoundSettings`、`NotificationSettings` 和 `cascade_strategy` / `config.rs`: added `SoundSettings`, `NotificationSettings`, and `cascade_strategy`\n- `volume/mod.rs`：新增 `benchmark_write_speed()`，使用 64 MB 临时文件并执行 `fsync` / `volume/mod.rs`: added `benchmark_write_speed()` using a 64 MB temp file with `fsync`\n- `commands.rs`：新增异步命令 `benchmark_dest_speed` / `commands.rs`: added the async `benchmark_dest_speed` command\n- `lib.rs`：新增 `tauri_plugin_notification::init()` / `lib.rs`: added `tauri_plugin_notification::init()`\n- `capabilities/default.json`：新增 4 项通知权限 / `capabilities/default.json`: added 4 notification permissions\n\n## 前端变更 | Frontend Changes\n\n- `JobsView.tsx`：完成、失败、源卡可弹出和警告事件均支持提示音与系统通知；排序逻辑改为基于测速结果 / `JobsView.tsx`: added chimes and system notifications for complete, failed, source released, and warning events; benchmark sort now replaces device-type sorting\n- `SettingsView.tsx`：新增 3 个设置区块，分别用于声音、系统通知和级联策略 / `SettingsView.tsx`: added 3 new sections for Sound, System Notifications, and Cascade Strategy\n- `types/index.ts`：新增 `SoundSettings`、`NotificationSettings` 和 `cascadeStrategy` / `types/index.ts`: added `SoundSettings`, `NotificationSettings`, and `cascadeStrategy`\n- i18n：新增约 50 个中英文键值 / i18n: added about 50 new localization keys in English and Chinese\n\n## 修复 | Fixes\n\n- 移除 `presets.spec.ts` 中未使用的 `BTN_PRIMARY` 导入 / Removed the unused `BTN_PRIMARY` import from `presets.spec.ts`\n- 修复 `JobsView.tsx` 中无效的 `eslint-disable` 指令 / Fixed the invalid `eslint-disable` directive in `JobsView.tsx`\n- 修复 Playwright fixture `use()` 的误报 lint 错误 / Fixed the false-positive lint error around Playwright fixture `use()`\n\n## 测试 | Tests\n\n- 119 个 Rust 库测试全部通过 / 119 Rust library tests passing\n- 55 个 Playwright E2E 测试全部通过 / 55 Playwright E2E tests passing\n- 构建通过 / Build passing\n- Lint：0 errors, 0 warnings / Lint: 0 errors, 0 warnings\n",
-  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.2.0-rc.1",
-  "published_at": "2026-03-07T15:39:44Z",
-  "download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.2.0_universal.dmg",
-  "windows_download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.2.0_x64-setup.exe",
+  "tag_name": "v1.3.0-beta",
+  "name": "v1.3.0-beta — Rushes Log",
+  "body": "## Rushes Log (Beta)\n\nProfessional shooting day report for DIT workflows.\n\n### New Features\n- **Camera card auto-identification** — ARRI, RED, Blackmagic, Sony, Canon, DJI folder pattern matching\n- **ffprobe media metadata** — resolution, frame rate, codec, color space, timecode (non-blocking background extraction)\n- **4 export formats** — CSV, TSV, Excel (.xlsx), PDF with DIT sign-off area\n- **Frontend view** — date picker, summary cards, sortable data table with 20 columns\n\n### Quality\n- 203 tests passed (145 lib + 23 abnormal + 13 AC + 22 command)\n- All gates green: `fmt` / `clippy --all-targets` / `lint` / `build`\n- Pinned `rust-toolchain.toml` at 1.93.1 for reproducible builds\n\n### New Dependencies\n- `rust_xlsxwriter 0.79` — Excel export\n- `genpdf 0.2` — PDF export",
+  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.3.0-beta",
+  "published_at": "2026-03-09T23:24:24Z",
+  "download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.3.0_universal.dmg",
+  "windows_download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.3.0_x64-setup.exe",
   "assets": {
     "macos": {
-      "name": "beta-DIT.Pro_1.2.0_universal.dmg",
-      "source_asset_name": "DIT.Pro_1.2.0_universal.dmg",
-      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.2.0-rc.1/DIT.Pro_1.2.0_universal.dmg",
-      "backup_relative_url": "./software/beta-DIT.Pro_1.2.0_universal.dmg",
-      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.2.0_universal.dmg"
+      "name": "beta-DIT.Pro_1.3.0_universal.dmg",
+      "source_asset_name": "DIT.Pro_1.3.0_universal.dmg",
+      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.3.0-beta/DIT.Pro_1.3.0_universal.dmg",
+      "backup_relative_url": "./software/beta-DIT.Pro_1.3.0_universal.dmg",
+      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.3.0_universal.dmg"
     },
     "windows": {
-      "name": "beta-DIT.Pro_1.2.0_x64-setup.exe",
-      "source_asset_name": "DIT.Pro_1.2.0_x64-setup.exe",
-      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.2.0-rc.1/DIT.Pro_1.2.0_x64-setup.exe",
-      "backup_relative_url": "./software/beta-DIT.Pro_1.2.0_x64-setup.exe",
-      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.2.0_x64-setup.exe"
+      "name": "beta-DIT.Pro_1.3.0_x64-setup.exe",
+      "source_asset_name": "DIT.Pro_1.3.0_x64-setup.exe",
+      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.3.0-beta/DIT.Pro_1.3.0_x64-setup.exe",
+      "backup_relative_url": "./software/beta-DIT.Pro_1.3.0_x64-setup.exe",
+      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.3.0_x64-setup.exe"
     }
   }
 }

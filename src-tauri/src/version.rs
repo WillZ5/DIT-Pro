@@ -187,7 +187,6 @@ fn is_newer(local: &str, remote: &str) -> bool {
 
 const WEBSITE_HOME: &str = "https://ditpro.negdims.com/";
 const WEBSITE_LATEST: &str = "https://ditpro.negdims.com/software/latest.json";
-const RELEASE_PAGE: &str = "https://github.com/WillZ5/DIT-Pro/releases/latest";
 
 /// Shape of the website's `/software/latest.json` (fallback source).
 /// Extra fields kept for forward compatibility with the JSON schema.
@@ -345,23 +344,13 @@ pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
     let remote_ver = final_version.trim_start_matches('v');
     let has_update = is_newer(current, remote_ver);
 
-    // Download URL: direct link to latest GitHub release DMG
-    let download_url = if has_update {
-        Some(format!(
-            "https://github.com/WillZ5/DIT-Pro/releases/download/{}/DIT.Pro_{}_universal.dmg",
-            final_version, remote_ver
-        ))
-    } else {
-        None
-    };
-
     Ok(UpdateCheckResult {
         has_update,
         latest_version: final_version,
         current_version: format!("v{}", current),
         release_notes: final_notes,
-        release_url: RELEASE_PAGE.to_string(),
-        download_url,
+        release_url: WEBSITE_HOME.to_string(),
+        download_url: None,
         published_at: String::new(),
     })
 }

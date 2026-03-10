@@ -181,7 +181,8 @@ function App() {
 
   const handleUpdateClick = async () => {
     if (!updateInfo) return;
-    const url = updateInfo.downloadUrl || updateInfo.releaseUrl;
+    // Always open the website — let the user choose their platform download
+    const url = updateInfo.releaseUrl;
     try {
       if (isTauri()) {
         const { open } = await import("@tauri-apps/plugin-shell");

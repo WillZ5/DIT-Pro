@@ -45,11 +45,11 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
   switch (cmd) {
     case "get_app_version":
       return {
-        version: "1.0.0",
-        preRelease: "beta.3",
+        version: "1.3.0",
+        preRelease: "beta",
         buildMeta: null,
         channel: "beta",
-        fullString: "1.0.0-beta.3",
+        fullString: "1.3.0-beta",
         gitHash: null,
         buildTime: null,
       } as T;
@@ -137,13 +137,13 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
       return ok("/tmp/dit-debug-demo.json") as T;
     case "check_for_update":
       return {
-        hasUpdate: true,
-        latestVersion: "v1.0.2",
-        currentVersion: "v1.0.1",
-        releaseNotes: "Bug fixes and performance improvements.",
-        releaseUrl: "https://github.com/WillZ5/DIT-Pro/releases/latest",
+        hasUpdate: false,
+        latestVersion: "v1.3.0-beta",
+        currentVersion: "v1.3.0-beta",
+        releaseNotes: "Rushes Log with camera card ID, ffprobe metadata, CSV/TSV/Excel/PDF export.",
+        releaseUrl: "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.3.0-beta",
         downloadUrl: null,
-        publishedAt: "2026-03-10T00:00:00Z",
+        publishedAt: "2026-03-09T00:00:00Z",
       } as T;
     case "get_job_config":
       return ok('{"job_id":"demo","job_name":"Demo Job","source_path":"/Volumes/CARD_A","dest_paths":["/Volumes/Backup1"],"hash_algorithms":["XXH64","SHA256"],"buffer_size":1048576,"source_verify":true,"post_verify":true,"generate_mhl":true,"max_retries":3,"cascade":false,"conflict_resolutions":{}}') as T;

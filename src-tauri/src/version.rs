@@ -161,22 +161,6 @@ pub struct UpdateCheckResult {
     pub published_at: String,
 }
 
-/// Minimal JSON shape returned by GitHub / Gitee Releases API.
-#[derive(Debug, Deserialize)]
-struct GhRelease {
-    tag_name: String,
-    body: Option<String>,
-    html_url: String,
-    published_at: Option<String>,
-    assets: Option<Vec<GhAsset>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GhAsset {
-    name: String,
-    browser_download_url: String,
-}
-
 /// Compare two semver strings (e.g. "1.0.1" vs "1.0.2").
 /// Returns true if `remote` is newer than `local`.
 fn is_newer(local: &str, remote: &str) -> bool {
@@ -201,11 +185,14 @@ fn is_newer(local: &str, remote: &str) -> bool {
     false
 }
 
-const GITHUB_API: &str = "https://api.github.com/repos/WillZ5/DIT-Pro/releases/latest";
+const WEBSITE_HOME: &str = "https://ditpro.negdims.com/";
 const WEBSITE_LATEST: &str = "https://ditpro.negdims.com/software/latest.json";
+const RELEASE_PAGE: &str = "https://github.com/WillZ5/DIT-Pro/releases/latest";
 
-/// Shape of the website's `/software/latest.json`.
+/// Shape of the website's `/software/latest.json` (fallback source).
+/// Extra fields kept for forward compatibility with the JSON schema.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct WebsiteLatest {
     tag_name: String,
     body: Option<String>,
@@ -214,35 +201,46 @@ struct WebsiteLatest {
     download_url: Option<String>,
 }
 
-impl From<WebsiteLatest> for GhRelease {
-    fn from(w: WebsiteLatest) -> Self {
-        let assets = w.download_url.map(|url| {
-            vec![GhAsset {
-                name: url.rsplit('/').next().unwrap_or("DIT-Pro.dmg").to_string(),
-                browser_download_url: url,
-            }]
-        });
-        GhRelease {
-            tag_name: w.tag_name,
-            body: w.body,
-            html_url: w.html_url,
-            published_at: w.published_at,
-            assets,
-        }
-    }
+/// Build an HTTP client with timeout.
+fn build_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))
 }
 
-/// Fetch JSON from a URL with timeout + retries. Deserializes into `T`.
+/// Fetch raw text from a URL with retries.
+async fn fetch_text(url: &str, retries: u32, timeout_secs: u64) -> Result<String, String> {
+    let client = build_client(timeout_secs)?;
+    let mut last_err = String::new();
+    for attempt in 1..=retries {
+        match client
+            .get(url)
+            .header("User-Agent", "DIT-Pro-Updater")
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => match resp.text().await {
+                Ok(text) => return Ok(text),
+                Err(e) => last_err = format!("Body read error: {}", e),
+            },
+            Ok(resp) => last_err = format!("HTTP {}", resp.status()),
+            Err(e) => last_err = format!("Request failed: {}", e),
+        }
+        if attempt < retries {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    }
+    Err(last_err)
+}
+
+/// Fetch JSON from a URL with retries. Deserializes into `T`.
 async fn fetch_json<T: serde::de::DeserializeOwned>(
     url: &str,
     retries: u32,
     timeout_secs: u64,
 ) -> Result<T, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_secs))
-        .build()
-        .map_err(|e| format!("HTTP client error: {}", e))?;
-
+    let client = build_client(timeout_secs)?;
     let mut last_err = String::new();
     for attempt in 1..=retries {
         match client
@@ -256,12 +254,8 @@ async fn fetch_json<T: serde::de::DeserializeOwned>(
                 Ok(data) => return Ok(data),
                 Err(e) => last_err = format!("JSON parse error: {}", e),
             },
-            Ok(resp) => {
-                last_err = format!("HTTP {}", resp.status());
-            }
-            Err(e) => {
-                last_err = format!("Request failed: {}", e);
-            }
+            Ok(resp) => last_err = format!("HTTP {}", resp.status()),
+            Err(e) => last_err = format!("Request failed: {}", e),
         }
         if attempt < retries {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -270,53 +264,105 @@ async fn fetch_json<T: serde::de::DeserializeOwned>(
     Err(last_err)
 }
 
-/// Check for updates: GitHub first (10s timeout, 3 retries), fallback to website.
+/// Parse `<meta name="ditpro-stable-version" content="vX.X.X">` from HTML.
+/// Returns the content value (e.g. "v1.2.0") or None.
+fn parse_stable_version_meta(html: &str) -> Option<String> {
+    // Look for: <meta name="ditpro-stable-version" content="...">
+    let needle = "name=\"ditpro-stable-version\"";
+    let pos = html.find(needle)?;
+    // Search for content="..." within the same <meta> tag
+    let tag_start = html[..pos].rfind('<')?;
+    let tag_end = html[pos..].find('>')? + pos;
+    let tag = &html[tag_start..=tag_end];
+    let content_marker = "content=\"";
+    let c_start = tag.find(content_marker)? + content_marker.len();
+    let c_end = tag[c_start..].find('"')? + c_start;
+    let version = tag[c_start..c_end].trim().to_string();
+    // Validate format: must be vX.X.X
+    if version.starts_with('v')
+        && version[1..].split('.').count() == 3
+        && version[1..].split('.').all(|p| p.parse::<u64>().is_ok())
+    {
+        Some(version)
+    } else {
+        None
+    }
+}
+
+/// Check for updates:
+/// 1. Primary: fetch website HTML, parse `<meta name="ditpro-stable-version">`
+/// 2. Fallback: fetch `/software/latest.json`, use `tag_name`
 pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
     let current = env!("CARGO_PKG_VERSION");
 
-    // Try GitHub API first
-    let release = match fetch_json::<GhRelease>(GITHUB_API, 3, 10).await {
-        Ok(r) => {
-            log::info!("Update check: fetched from GitHub (tag={})", r.tag_name);
-            r
-        }
-        Err(gh_err) => {
-            log::warn!("GitHub update check failed: {}, trying website...", gh_err);
-            // Fallback to website latest.json
-            match fetch_json::<WebsiteLatest>(WEBSITE_LATEST, 3, 10).await {
-                Ok(w) => {
-                    log::info!("Update check: fetched from website (tag={})", w.tag_name);
-                    GhRelease::from(w)
-                }
-                Err(web_err) => {
-                    return Err(format!(
-                        "Update check failed — GitHub: {}; Website: {}",
-                        gh_err, web_err
-                    ));
-                }
+    // ── Primary: parse meta tag from website homepage ──
+    let (stable_version, release_notes) = match fetch_text(WEBSITE_HOME, 3, 10).await {
+        Ok(html) => match parse_stable_version_meta(&html) {
+            Some(ver) => {
+                log::info!(
+                    "Update check: parsed stable version from website meta: {}",
+                    ver
+                );
+                (ver, String::new())
             }
+            None => {
+                log::warn!(
+                    "Update check: meta tag ditpro-stable-version not found, trying fallback..."
+                );
+                (String::new(), String::new())
+            }
+        },
+        Err(e) => {
+            log::warn!(
+                "Update check: website fetch failed: {}, trying fallback...",
+                e
+            );
+            (String::new(), String::new())
         }
     };
 
-    let remote_ver = release.tag_name.trim_start_matches('v');
+    // ── Fallback: /software/latest.json ──
+    let (final_version, final_notes) = if stable_version.is_empty() {
+        match fetch_json::<WebsiteLatest>(WEBSITE_LATEST, 3, 10).await {
+            Ok(w) => {
+                log::info!(
+                    "Update check: fetched from latest.json (tag={})",
+                    w.tag_name
+                );
+                (w.tag_name, w.body.unwrap_or_default())
+            }
+            Err(json_err) => {
+                return Err(format!(
+                    "Update check failed — website HTML: meta not found; latest.json: {}",
+                    json_err
+                ));
+            }
+        }
+    } else {
+        (stable_version, release_notes)
+    };
+
+    let remote_ver = final_version.trim_start_matches('v');
     let has_update = is_newer(current, remote_ver);
 
-    // Find DMG asset
-    let download_url = release.assets.as_ref().and_then(|assets| {
-        assets
-            .iter()
-            .find(|a| a.name.ends_with(".dmg"))
-            .map(|a| a.browser_download_url.clone())
-    });
+    // Download URL: direct link to latest GitHub release DMG
+    let download_url = if has_update {
+        Some(format!(
+            "https://github.com/WillZ5/DIT-Pro/releases/download/{}/DIT.Pro_{}_universal.dmg",
+            final_version, remote_ver
+        ))
+    } else {
+        None
+    };
 
     Ok(UpdateCheckResult {
         has_update,
-        latest_version: release.tag_name,
+        latest_version: final_version,
         current_version: format!("v{}", current),
-        release_notes: release.body.unwrap_or_default(),
-        release_url: release.html_url,
+        release_notes: final_notes,
+        release_url: RELEASE_PAGE.to_string(),
         download_url,
-        published_at: release.published_at.unwrap_or_default(),
+        published_at: String::new(),
     })
 }
 
@@ -395,5 +441,44 @@ mod tests {
         // Roundtrip
         let deserialized: VersionInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.version, info.version);
+    }
+
+    #[test]
+    fn test_parse_stable_version_meta() {
+        // Normal case
+        let html = r#"<html><head>
+            <meta name="ditpro-stable-version" content="v1.2.0">
+        </head></html>"#;
+        assert_eq!(parse_stable_version_meta(html), Some("v1.2.0".to_string()));
+
+        // Different version
+        let html2 = r#"<meta name="ditpro-stable-version" content="v2.0.1">"#;
+        assert_eq!(parse_stable_version_meta(html2), Some("v2.0.1".to_string()));
+
+        // Missing meta tag
+        let html3 = r#"<html><head><meta name="description" content="test"></head></html>"#;
+        assert_eq!(parse_stable_version_meta(html3), None);
+
+        // Invalid version format (has beta suffix)
+        let html4 = r#"<meta name="ditpro-stable-version" content="v1.3.0-beta">"#;
+        assert_eq!(parse_stable_version_meta(html4), None);
+
+        // Missing v prefix
+        let html5 = r#"<meta name="ditpro-stable-version" content="1.2.0">"#;
+        assert_eq!(parse_stable_version_meta(html5), None);
+
+        // content before name attribute (reversed order)
+        let html6 = r#"<meta content="v1.5.0" name="ditpro-stable-version">"#;
+        assert_eq!(parse_stable_version_meta(html6), Some("v1.5.0".to_string()));
+    }
+
+    #[test]
+    fn test_is_newer() {
+        assert!(is_newer("1.2.0", "1.3.0"));
+        assert!(is_newer("1.2.0", "2.0.0"));
+        assert!(is_newer("1.2.0", "1.2.1"));
+        assert!(!is_newer("1.3.0", "1.2.0"));
+        assert!(!is_newer("1.2.0", "1.2.0"));
+        assert!(is_newer("v1.2.0", "v1.3.0")); // with v prefix
     }
 }

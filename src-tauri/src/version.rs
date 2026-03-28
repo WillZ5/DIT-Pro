@@ -288,14 +288,14 @@ fn parse_stable_version_meta(html: &str) -> Option<String> {
     }
 }
 
-/// Check for updates:
-/// 1. Primary: fetch website HTML, parse `<meta name="ditpro-stable-version">`
-/// 2. Fallback: fetch `/software/latest.json`, use `tag_name`
-pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
-    let current = env!("CARGO_PKG_VERSION");
-
+/// Shared update check implementation with injectable endpoints for tests.
+async fn check_for_update_from_sources(
+    current: &str,
+    website_home: &str,
+    website_latest: &str,
+) -> Result<UpdateCheckResult, String> {
     // ── Primary: parse meta tag from website homepage ──
-    let (stable_version, release_notes) = match fetch_text(WEBSITE_HOME, 3, 10).await {
+    let (stable_version, release_notes) = match fetch_text(website_home, 3, 10).await {
         Ok(html) => match parse_stable_version_meta(&html) {
             Some(ver) => {
                 log::info!(
@@ -322,7 +322,7 @@ pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
 
     // ── Fallback: /software/latest.json ──
     let (final_version, final_notes) = if stable_version.is_empty() {
-        match fetch_json::<WebsiteLatest>(WEBSITE_LATEST, 3, 10).await {
+        match fetch_json::<WebsiteLatest>(website_latest, 3, 10).await {
             Ok(w) => {
                 log::info!(
                     "Update check: fetched from latest.json (tag={})",
@@ -349,10 +349,17 @@ pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
         latest_version: final_version,
         current_version: format!("v{}", current),
         release_notes: final_notes,
-        release_url: WEBSITE_HOME.to_string(),
+        release_url: website_home.to_string(),
         download_url: None,
         published_at: String::new(),
     })
+}
+
+/// Check for updates:
+/// 1. Primary: fetch website HTML, parse `<meta name="ditpro-stable-version">`
+/// 2. Fallback: fetch `/software/latest.json`, use `tag_name`
+pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
+    check_for_update_from_sources(env!("CARGO_PKG_VERSION"), WEBSITE_HOME, WEBSITE_LATEST).await
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -360,6 +367,74 @@ pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[derive(Clone)]
+    struct TestResponse {
+        status: &'static str,
+        content_type: &'static str,
+        body: String,
+    }
+
+    async fn spawn_test_server(
+        routes: HashMap<String, TestResponse>,
+    ) -> (String, Arc<Mutex<Vec<String>>>, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let routes = Arc::new(routes);
+        let request_log = Arc::clone(&requests);
+
+        let handle = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let routes = Arc::clone(&routes);
+                let request_log = Arc::clone(&request_log);
+
+                tokio::spawn(async move {
+                    let mut buf = [0_u8; 4096];
+                    let n = match stream.read(&mut buf).await {
+                        Ok(n) if n > 0 => n,
+                        _ => return,
+                    };
+
+                    let request = String::from_utf8_lossy(&buf[..n]);
+                    let path = request
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().nth(1))
+                        .unwrap_or("/")
+                        .to_string();
+
+                    request_log.lock().unwrap().push(path.clone());
+
+                    let response = routes.get(&path).cloned().unwrap_or(TestResponse {
+                        status: "404 Not Found",
+                        content_type: "text/plain",
+                        body: "not found".to_string(),
+                    });
+
+                    let http = format!(
+                        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        response.status,
+                        response.content_type,
+                        response.body.len(),
+                        response.body
+                    );
+
+                    let _ = stream.write_all(http.as_bytes()).await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+
+        (base_url, requests, handle)
+    }
 
     #[test]
     fn test_current_version() {
@@ -459,6 +534,60 @@ mod tests {
         // content before name attribute (reversed order)
         let html6 = r#"<meta content="v1.5.0" name="ditpro-stable-version">"#;
         assert_eq!(parse_stable_version_meta(html6), Some("v1.5.0".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_check_for_update_prefers_website_meta_and_returns_website_url() {
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/".to_string(),
+            TestResponse {
+                status: "200 OK",
+                content_type: "text/html",
+                body: r#"
+                    <html><head>
+                      <meta name="ditpro-stable-version" content="v1.2.0">
+                    </head><body>DIT Pro</body></html>
+                "#
+                .to_string(),
+            },
+        );
+        routes.insert(
+            "/software/latest.json".to_string(),
+            TestResponse {
+                status: "200 OK",
+                content_type: "application/json",
+                body: r#"{
+                    "tag_name":"v9.9.9",
+                    "body":"fallback should not be used",
+                    "html_url":"https://example.com/releases/v9.9.9",
+                    "published_at":"2026-03-10T00:00:00Z",
+                    "download_url":"https://example.com/fallback.dmg"
+                }"#
+                .to_string(),
+            },
+        );
+
+        let (base_url, request_log, server) = spawn_test_server(routes).await;
+        let home_url = format!("{}/", base_url);
+        let latest_url = format!("{}/software/latest.json", base_url);
+
+        let result = check_for_update_from_sources("1.1.0", &home_url, &latest_url)
+            .await
+            .unwrap();
+
+        assert!(result.has_update);
+        assert_eq!(result.current_version, "v1.1.0");
+        assert_eq!(result.latest_version, "v1.2.0");
+        assert!(result.release_notes.is_empty());
+        assert_eq!(result.release_url, home_url);
+        assert_eq!(result.download_url, None);
+
+        let seen = request_log.lock().unwrap().clone();
+        assert!(seen.iter().any(|path| path == "/"));
+        assert!(!seen.iter().any(|path| path == "/software/latest.json"));
+
+        server.abort();
     }
 
     #[test]

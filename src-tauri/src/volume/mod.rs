@@ -150,10 +150,21 @@ fn get_volume_space_statvfs(path: &Path) -> Result<VolumeSpaceInfo> {
     }
 
     let stat = unsafe { stat.assume_init() };
-    let block_size = stat.f_frsize;
-    let total_bytes = (stat.f_blocks as u64) * block_size;
-    let available_bytes = (stat.f_bavail as u64) * block_size;
-    let used_bytes = total_bytes.saturating_sub((stat.f_bfree as u64) * block_size);
+
+    // Use u128 for intermediate calculations to prevent overflow with 
+    // extremely large drives or weird block sizes.
+    let block_size = stat.f_frsize as u128;
+    if block_size == 0 {
+        anyhow::bail!("Filesystem reported zero fragment size for {:?}", path);
+    }
+
+    let total_bytes = (stat.f_blocks as u128) * block_size;
+    let free_bytes = (stat.f_bfree as u128) * block_size;
+    let available_bytes = (stat.f_bavail as u128) * block_size;
+    
+    // used_bytes is calculated from total minus free blocks.
+    let used_bytes = total_bytes.saturating_sub(free_bytes);
+    
     let usage_percent = if total_bytes > 0 {
         (used_bytes as f64 / total_bytes as f64) * 100.0
     } else {
@@ -161,9 +172,9 @@ fn get_volume_space_statvfs(path: &Path) -> Result<VolumeSpaceInfo> {
     };
 
     Ok(VolumeSpaceInfo {
-        total_bytes,
-        available_bytes,
-        used_bytes,
+        total_bytes: total_bytes as u64,
+        available_bytes: available_bytes as u64,
+        used_bytes: used_bytes as u64,
         usage_percent,
     })
 }

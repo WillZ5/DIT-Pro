@@ -2686,7 +2686,7 @@ impl OffloadWorkflow {
                 std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
             let verify_progress_cb = move |bytes_hashed: u64, _file_total: u64| {
                 let mut last = last_verify_emit.lock().unwrap_or_else(|e| e.into_inner());
-                if last.elapsed() >= std::time::Duration::from_millis(300) {
+                if last.elapsed() >= std::time::Duration::from_millis(500) {
                     event_tx_verify
                         .send(OffloadEvent::JobProgress {
                             completed_files: fi_verify,

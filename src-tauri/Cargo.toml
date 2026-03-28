@@ -1,6 +1,6 @@
 [package]
 name = "dit-pro"
-version = "1.3.2"
+version = "1.4.0-beta"
 description = "DIT Pro — Professional Card Offload Engine"
 authors = ["William Zhao"]
 license = "MIT"

@@ -138,8 +138,8 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
     case "check_for_update":
       return {
         hasUpdate: false,
-        latestVersion: "1.3.2",
-        currentVersion: "1.3.2",
+        latestVersion: "1.4.0-beta",
+        currentVersion: "1.4.0-beta",
         releaseNotes: "Rushes Log with camera card ID, ffprobe metadata, CSV/TSV/Excel/PDF export.",
         releaseUrl: "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.3.0-beta",
         downloadUrl: null,

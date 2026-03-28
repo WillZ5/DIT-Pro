@@ -275,6 +275,7 @@ async fn real_device_small_scale() {
         max_retries: 3,
         cascade: false,
         conflict_resolutions: HashMap::new(),
+        ..Default::default()
     };
 
     // Execute
@@ -420,6 +421,7 @@ async fn real_device_full_offload() {
         max_retries: 3,
         cascade: false,
         conflict_resolutions: HashMap::new(),
+        ..Default::default()
     };
 
     // Execute

@@ -203,9 +203,10 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
  */
 export function convertPathToSrc(path: string): string {
   if (isTauri()) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { convertFileSrc } = require("@tauri-apps/api/core");
-    return convertFileSrc(path);
+    // Note: convertFileSrc is synchronous, but we can't top-level import it in web mode.
+    // As a workaround, we assume the window.__TAURI__ or tauri asset protocol is available
+    // For Tauri v2, the protocol is usually asset://localhost/
+    return `asset://localhost/${encodeURIComponent(path)}`;
   }
   // Mock image for demo mode
   return "https://via.placeholder.com/480x270?text=Thumbnail";

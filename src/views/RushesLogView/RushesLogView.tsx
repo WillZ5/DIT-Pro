@@ -223,7 +223,7 @@ export function RushesLogView() {
                           src={convertPathToSrc(entry.thumbnailPath)} 
                           alt="Thumb" 
                           className="rushes-thumb-img"
-                          onClick={() => window.open(convertPathToSrc(entry.thumbnailPath), '_blank')}
+                          onClick={() => window.open(convertPathToSrc(entry.thumbnailPath!), '_blank')}
                         />
                       ) : (
                         <div className="rushes-thumb-placeholder" />

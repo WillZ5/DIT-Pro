@@ -3,6 +3,7 @@
 
 pub mod camera;
 pub mod checkpoint;
+pub mod cloud_sync;
 pub mod commands;
 pub mod config;
 pub mod copy_engine;
@@ -286,6 +287,7 @@ pub fn run() {
             // Settings
             commands::get_settings,
             commands::save_settings,
+            commands::test_cloud_connection,
             // Presets
             commands::list_presets,
             commands::create_preset,

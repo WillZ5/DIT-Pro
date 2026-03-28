@@ -136,6 +136,7 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
         "timecode_start TEXT DEFAULT ''",
         "media_duration REAL DEFAULT 0",
         "thumbnail_path TEXT DEFAULT ''",
+        "proxy_path TEXT DEFAULT ''",
     ] {
         let sql = format!("ALTER TABLE copy_tasks ADD COLUMN {}", col);
         let _ = conn.execute_batch(&sql);

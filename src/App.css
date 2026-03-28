@@ -3007,3 +3007,37 @@
 .rushes-log-table td {
   vertical-align: middle;
 }
+
+/* ─── Proxy Settings UI ────────────────────────────────────────────────── */
+
+.proxy-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px;
+  border-radius: 8px;
+  margin-top: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.proxy-setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.proxy-setting-item label {
+  font-size: 11px;
+  color: #a1a1aa;
+  margin-bottom: 2px;
+}
+
+.proxy-setting-item select {
+  background: #18181b;
+  border: 1px solid #3f3f46;
+  color: #f4f4f5;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}

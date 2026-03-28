@@ -302,6 +302,12 @@ export const MOCK_SETTINGS: AppSettings = {
     taskFailed: true,
     sourceReleased: true,
   },
+  cloud: {
+    enabled: false,
+    provider: { type: "webdav", endpoint: "", username: "", password: "", root: "/" },
+    remotePath: "/DIT_Pro_Sync",
+    syncProxies: false,
+  },
 };
 
 // ─── Mock Reports ───────────────────────────────────────────────────────────
@@ -397,8 +403,9 @@ export const MOCK_RUSHES_LOG: RushesLogReport = {
       resolution: "4096x2160",
       frameRate: "23.976",
       codec: "Apple ProRes",
-      colorSpace: "bt709",
+      color_space: "bt709",
       timecodeRange: "01:00:00:00",
+      thumbnailPath: null,
     },
     {
       jobId: "job-002",
@@ -424,8 +431,9 @@ export const MOCK_RUSHES_LOG: RushesLogReport = {
       resolution: "8192x4320",
       frameRate: "23.976",
       codec: "REDCODE RAW",
-      colorSpace: "REDWideGamutRGB",
+      color_space: "REDWideGamutRGB",
       timecodeRange: "01:00:00:00",
+      thumbnailPath: null,
     },
     {
       jobId: "job-003",
@@ -451,8 +459,9 @@ export const MOCK_RUSHES_LOG: RushesLogReport = {
       resolution: null,
       frameRate: null,
       codec: null,
-      colorSpace: null,
+      color_space: null,
       timecodeRange: null,
+      thumbnailPath: null,
     },
     {
       jobId: "job-005",
@@ -478,8 +487,9 @@ export const MOCK_RUSHES_LOG: RushesLogReport = {
       resolution: "3840x2160",
       frameRate: "29.97",
       codec: "H.265/HEVC",
-      colorSpace: "bt709",
+      color_space: "bt709",
       timecodeRange: null,
+      thumbnailPath: null,
     },
   ],
   summary: {

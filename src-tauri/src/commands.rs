@@ -932,6 +932,8 @@ pub struct StartOffloadRequest {
     /// Optional conflict resolutions from the duplicate detection dialog.
     /// If provided, Skip/Overwrite/KeepBoth are applied per file.
     pub conflict_resolutions: Option<Vec<ConflictResolution>>,
+    pub generate_proxies: Option<bool>,
+    pub proxy_config: Option<crate::camera::transcode::ProxyConfig>,
 }
 
 /// Start an offload workflow. Returns immediately with job_id.
@@ -987,6 +989,9 @@ pub async fn start_offload(
         cascade: request.cascade.unwrap_or(saved.offload.cascade),
         conflict_resolutions: conflict_map,
         app_data_dir: state.app_data_dir.clone(),
+        generate_proxies: request.generate_proxies.unwrap_or(false),
+        proxy_config: request.proxy_config.unwrap_or_default(),
+        cloud_config: saved.cloud,
     };
 
     let db = state.db.clone();
@@ -1310,6 +1315,9 @@ pub async fn resume_offload(
         cascade: false,                                         // No cascade on resume
         conflict_resolutions: std::collections::HashMap::new(), // No conflicts on resume
         app_data_dir: state.app_data_dir.clone(),
+        generate_proxies: false, // Don't restart proxies on resume implicitly for now
+        proxy_config: crate::camera::transcode::ProxyConfig::default(),
+        cloud_config: saved.cloud,
     };
 
     // Step 5: Mark job as copying
@@ -1492,6 +1500,19 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<CommandResult<AppSetti
 }
 
 /// Save application settings to disk
+#[tauri::command]
+pub async fn test_cloud_connection(
+    provider: crate::cloud_sync::CloudProvider,
+) -> CommandResult<bool> {
+    match crate::cloud_sync::CloudClient::new(&provider) {
+        Ok(client) => match client.test_connection().await {
+            Ok(_) => CommandResult::ok(true),
+            Err(e) => CommandResult::err(format!("Connection failed: {}", e)),
+        },
+        Err(e) => CommandResult::err(format!("Invalid configuration: {}", e)),
+    }
+}
+
 #[tauri::command]
 pub fn save_settings(
     state: State<'_, AppState>,

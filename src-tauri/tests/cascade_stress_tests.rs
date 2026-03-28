@@ -113,6 +113,7 @@ fn make_cascade_config(
         max_retries: 3,
         cascade: true,
         conflict_resolutions,
+        ..Default::default()
     }
 }
 
@@ -363,6 +364,7 @@ async fn cascade_conflict_resolution_mixed() {
         max_retries: 3,
         cascade: true,
         conflict_resolutions: resolutions,
+        ..Default::default()
     };
 
     let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -510,6 +512,7 @@ async fn cascade_interrupt_and_resume() {
             max_retries: 3,
             cascade: true,
             conflict_resolutions: HashMap::new(),
+            ..Default::default()
         };
         let workflow = OffloadWorkflow::with_cancel(config, db_clone, tx1, cancel_clone);
         workflow.execute().await
@@ -569,6 +572,7 @@ async fn cascade_interrupt_and_resume() {
         max_retries: 3,
         cascade: true,
         conflict_resolutions: HashMap::new(),
+        ..Default::default()
     };
 
     let workflow2 = OffloadWorkflow::new(config2, db.clone(), tx2);

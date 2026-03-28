@@ -16,6 +16,7 @@ import type {
   VolumeInfoResponse,
   WorkflowPreset,
   StartOffloadRequest,
+  ProxyFormat,
 } from "../../types";
 
 /** Translate backend status string to localized display text */
@@ -68,6 +69,8 @@ function usePhaseInfo(): Record<OffloadPhase, { label: string; color: string }> 
     Copying: { label: t.jobs.phaseCopying, color: "#2196f3" },
     Cascading: { label: t.jobs.phaseCascading, color: "#ff5722" },
     Verifying: { label: t.jobs.phaseVerifying, color: "#00bcd4" },
+    Transcoding: { label: "Transcoding", color: "#e91e63" },
+    CloudSync: { label: "Syncing", color: "#0ea5e9" },
     Sealing: { label: t.jobs.phaseSealing, color: "#3f51b5" },
     Complete: { label: t.jobs.phaseComplete, color: "#4caf50" },
     Failed: { label: t.jobs.phaseFailed, color: "#f44336" },
@@ -382,6 +385,10 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
   const [postVerify, setPostVerify] = useState(true);
   const [generateMhl, setGenerateMhl] = useState(true);
   const [cascade, setCascade] = useState(false);
+  const [generateProxies, setGenerateProxies] = useState(false);
+  const [proxyFormat, setProxyFormat] = useState<ProxyFormat>("H264");
+  const [proxyWidth, setProxyWidth] = useState(1920);
+  const [proxyBurnTC, setProxyBurnTC] = useState(true);
 
   // Load presets + default settings
   useEffect(() => {
@@ -544,6 +551,13 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
       postVerify,
       generateMhl,
       cascade,
+      generateProxies,
+      proxyConfig: {
+        format: proxyFormat,
+        width: proxyWidth,
+        burnTimecode: proxyBurnTC,
+        crf: 24, // Default CRF
+      },
     });
   };
 
@@ -727,6 +741,47 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
                 </label>
               )}
             </div>
+          </div>
+
+          {/* Proxy Generation */}
+          <div className="form-group">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={generateProxies}
+                onChange={(e) => setGenerateProxies(e.target.checked)}
+              />
+              {t.jobs.generateProxies}
+            </label>
+            {generateProxies && (
+              <div className="proxy-settings-grid">
+                <div className="proxy-setting-item">
+                  <label>{t.jobs.proxyFormat}</label>
+                  <select value={proxyFormat} onChange={(e) => setProxyFormat(e.target.value as ProxyFormat)}>
+                    <option value="H264">H.264 (MP4)</option>
+                    <option value="ProResProxy">ProRes Proxy (MOV)</option>
+                  </select>
+                </div>
+                <div className="proxy-setting-item">
+                  <label>{t.jobs.proxyWidth}</label>
+                  <select value={proxyWidth} onChange={(e) => setProxyWidth(Number(e.target.value))}>
+                    <option value={1920}>1920 (1080p)</option>
+                    <option value={1280}>1280 (720p)</option>
+                    <option value={960}>960 (540p)</option>
+                  </select>
+                </div>
+                <div className="proxy-setting-item">
+                  <label className="checkbox-label" style={{ marginTop: 24 }}>
+                    <input
+                      type="checkbox"
+                      checked={proxyBurnTC}
+                      onChange={(e) => setProxyBurnTC(e.target.checked)}
+                    />
+                    {t.jobs.proxyBurnTC}
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Hash Algorithms */}

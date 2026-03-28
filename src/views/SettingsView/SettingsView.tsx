@@ -103,6 +103,49 @@ export function SettingsView() {
     });
   };
 
+  const updateCloud = <K extends keyof AppSettings["cloud"]>(key: K, value: AppSettings["cloud"][K]) => {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      cloud: { ...settings.cloud, [key]: value },
+    });
+  };
+
+  const updateCloudProvider = (key: string, value: string) => {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      cloud: {
+        ...settings.cloud,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        provider: { ...settings.cloud.provider, [key]: value } as any,
+      },
+    });
+  };
+
+  const [testingCloud, setTestingCloud] = useState(false);
+  const [cloudTestResult, setCloudTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const testCloudConnection = async () => {
+    if (!settings) return;
+    setTestingCloud(true);
+    setCloudTestResult(null);
+    try {
+      const result = await safeInvoke<CommandResult<boolean>>("test_cloud_connection", {
+        provider: settings.cloud.provider,
+      });
+      if (result.success) {
+        setCloudTestResult({ success: true, message: t.settings.cloudTestSuccess });
+      } else {
+        setCloudTestResult({ success: false, message: result.error || "Test failed" });
+      }
+    } catch (err) {
+      setCloudTestResult({ success: false, message: String(err) });
+    } finally {
+      setTestingCloud(false);
+    }
+  };
+
   const updateReport = (key: string, value: string | boolean) => {
     if (!settings) return;
     setSettings({
@@ -698,6 +741,103 @@ export function SettingsView() {
               ))}
             </div>
           )}
+        </section>
+
+        {/* ─── Cloud Synchronization ────────────────────────────────── */}
+        <section className="settings-section">
+          <h3 className="section-title">{t.settings.cloudSyncTitle}</h3>
+          <p className="section-desc">{t.settings.cloudSyncDesc}</p>
+
+          <div className="settings-grid">
+            <div className="settings-col">
+              <label className="settings-toggle">
+                <span className="toggle-label">{t.settings.cloudEnabled}</span>
+                <input
+                  type="checkbox"
+                  className="toggle-input"
+                  checked={settings.cloud.enabled}
+                  onChange={(e) => updateCloud("enabled", e.target.checked)}
+                />
+                <span className="toggle-switch" />
+              </label>
+
+              {settings.cloud.enabled && (
+                <>
+                  <div className="form-group" style={{ marginTop: 16 }}>
+                    <label>{t.settings.cloudProvider}</label>
+                    <select
+                      value={settings.cloud.provider.type}
+                      onChange={(e) => {
+                        const type = e.target.value as "s3" | "webdav";
+                        const newProvider = (type === "s3" 
+                          ? { type: "s3", endpoint: "", region: "", bucket: "", accessKey: "", secretKey: "" }
+                          : { type: "webdav", endpoint: "", username: "", password: "", root: "/" }) as any;
+                        updateCloud("provider", newProvider);
+                      }}
+                    >
+                      <option value="webdav">WebDAV (AList / NAS / Baidu / Aliyun)</option>
+                      <option value="s3">S3 Compatible (OSS / AWS / R2 / MinIO)</option>
+                    </select>
+                  </div>
+
+                  {settings.cloud.provider.type === "s3" ? (
+                    <div className="proxy-settings-grid" style={{ gridTemplateColumns: "1fr 1fr", background: "none", padding: 0 }}>
+                      <div className="form-group">
+                        <label>{t.settings.cloudEndpoint}</label>
+                        <input type="text" value={(settings.cloud.provider as { endpoint: string }).endpoint || ""} onChange={(e) => updateCloudProvider("endpoint", e.target.value)} placeholder="https://oss-cn-hangzhou.aliyuncs.com" />
+                      </div>
+                      <div className="form-group">
+                        <label>{t.settings.cloudRegion}</label>
+                        <input type="text" value={(settings.cloud.provider as { region: string }).region || ""} onChange={(e) => updateCloudProvider("region", e.target.value)} placeholder="cn-hangzhou" />
+                      </div>
+                      <div className="form-group">
+                        <label>{t.settings.cloudBucket}</label>
+                        <input type="text" value={(settings.cloud.provider as { bucket: string }).bucket || ""} onChange={(e) => updateCloudProvider("bucket", e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label>{t.settings.cloudAccessKey}</label>
+                        <input type="text" value={(settings.cloud.provider as { accessKey: string }).accessKey || ""} onChange={(e) => updateCloudProvider("accessKey", e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label>{t.settings.cloudSecretKey}</label>
+                        <input type="password" value={(settings.cloud.provider as { secretKey: string }).secretKey || ""} onChange={(e) => updateCloudProvider("secretKey", e.target.value)} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="proxy-settings-grid" style={{ gridTemplateColumns: "1fr 1fr", background: "none", padding: 0 }}>
+                      <div className="form-group">
+                        <label>{t.settings.cloudEndpoint}</label>
+                        <input type="text" value={(settings.cloud.provider as { endpoint: string }).endpoint || ""} onChange={(e) => updateCloudProvider("endpoint", e.target.value)} placeholder="http://192.168.1.100:5244/dav" />
+                      </div>
+                      <div className="form-group">
+                        <label>{t.settings.cloudUsername}</label>
+                        <input type="text" value={(settings.cloud.provider as { username: string }).username || ""} onChange={(e) => updateCloudProvider("username", e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label>{t.settings.cloudPassword}</label>
+                        <input type="password" value={(settings.cloud.provider as { password: string }).password || ""} onChange={(e) => updateCloudProvider("password", e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label>{t.settings.cloudRoot}</label>
+                        <input type="text" value={(settings.cloud.provider as { root: string }).root || ""} onChange={(e) => updateCloudProvider("root", e.target.value)} placeholder="/DIT_Pro" />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="form-group" style={{ marginTop: 12 }}>
+                    <button className="btn-secondary" onClick={testCloudConnection} disabled={testingCloud}>
+                      {testingCloud ? "Testing..." : t.settings.cloudTestConnection}
+                    </button>
+                    {cloudTestResult && (
+                      <span style={{ marginLeft: 12, fontSize: 12, color: cloudTestResult.success ? "#22c55e" : "#ef4444" }}>
+                        {cloudTestResult.message}
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </section>
 
         {/* ─── Diagnostics ──────────────────────────────────────── */}

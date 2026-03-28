@@ -12,6 +12,7 @@
 //! - Generic (`.mov`, `.mp4`, etc.)
 
 pub mod metadata;
+pub mod transcode;
 
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;

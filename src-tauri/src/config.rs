@@ -37,6 +37,10 @@ pub struct AppSettings {
     /// Push notification settings
     #[serde(default)]
     pub notification: NotificationSettings,
+
+    /// Cloud synchronization settings
+    #[serde(default)]
+    pub cloud: crate::cloud_sync::CloudConfig,
 }
 
 /// Default options for the offload workflow

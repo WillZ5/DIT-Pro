@@ -131,9 +131,8 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
         // Insert thumbnail if available (Col 0)
         if let Some(ref thumb_path) = entry.thumbnail_path {
             if Path::new(thumb_path).exists() {
-                if let Ok(mut image) = rust_xlsxwriter::Image::new(thumb_path) {
-                    image.set_scale_width(0.18); // Scale to fit 45pt row height
-                    image.set_scale_height(0.18);
+                if let Ok(image) = rust_xlsxwriter::Image::new(thumb_path) {
+                    let image = image.set_scale_width(0.18).set_scale_height(0.18);
                     let _ = worksheet.insert_image(row, 0, &image);
                 }
             }
@@ -292,8 +291,8 @@ mod tests {
                 codec: Some("Apple ProRes".to_string()),
                 color_space: Some("bt709".to_string()),
                 timecode_range: Some("01:00:00:00".to_string()),
-            }],
-            summary: RushesLogSummary {
+                thumbnail_path: None,
+                }],            summary: RushesLogSummary {
                 total_reels: 1,
                 total_clips: 10,
                 total_size: 10_737_418_240,

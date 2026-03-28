@@ -82,6 +82,15 @@ pub struct OffloadConfig {
     /// Application data directory (for thumbnails and DB)
     #[serde(default)]
     pub app_data_dir: PathBuf,
+    /// Whether to generate proxy files after offload
+    #[serde(default)]
+    pub generate_proxies: bool,
+    /// Configuration for proxy generation
+    #[serde(default)]
+    pub proxy_config: crate::camera::transcode::ProxyConfig,
+    /// Configuration for cloud synchronization
+    #[serde(default)]
+    pub cloud_config: crate::cloud_sync::CloudConfig,
 }
 
 impl Default for OffloadConfig {
@@ -100,6 +109,9 @@ impl Default for OffloadConfig {
             cascade: false,
             conflict_resolutions: HashMap::new(),
             app_data_dir: PathBuf::new(),
+            generate_proxies: false,
+            proxy_config: crate::camera::transcode::ProxyConfig::default(),
+            cloud_config: crate::cloud_sync::CloudConfig::default(),
         }
     }
 }
@@ -115,9 +127,12 @@ pub enum OffloadPhase {
     /// Cascading: copying from primary (fast) dest → secondary (slower) dests
     Cascading,
     Verifying,
+    Transcoding,
+    CloudSync,
     Sealing,
     Complete,
     Failed,
+    Terminated,
 }
 
 impl std::fmt::Display for OffloadPhase {
@@ -128,9 +143,12 @@ impl std::fmt::Display for OffloadPhase {
             Self::Copying => write!(f, "Copying"),
             Self::Cascading => write!(f, "Cascading to Secondary Destinations"),
             Self::Verifying => write!(f, "Post-Copy Verification"),
+            Self::Transcoding => write!(f, "Transcoding Proxies"),
+            Self::CloudSync => write!(f, "Syncing to Cloud"),
             Self::Sealing => write!(f, "MHL Sealing"),
             Self::Complete => write!(f, "Complete"),
             Self::Failed => write!(f, "Failed"),
+            Self::Terminated => write!(f, "Terminated"),
         }
     }
 }
@@ -174,6 +192,17 @@ pub enum OffloadEvent {
         dest_path: String,
         verified: bool,
         mismatch_detail: Option<String>,
+    },
+    ProxyTranscodeStarted {
+        rel_path: String,
+        file_index: usize,
+        total_files: usize,
+    },
+    ProxyTranscodeCompleted {
+        rel_path: String,
+        proxy_path: String,
+        file_index: usize,
+        total_files: usize,
     },
     JobProgress {
         completed_files: usize,
@@ -807,7 +836,13 @@ impl OffloadWorkflow {
         // Count actual remaining failures from DB (authoritative source)
         let failed_count = self.count_failed_tasks()?;
 
-        // ── Phase 5: MHL Sealing (optional) ─────────────────────────
+        // ── Phase 5: Transcoding (optional) ─────────────────────────
+        // Generate proxy files for video clips if enabled and no critical failures
+        if self.config.generate_proxies && failed_count == 0 {
+            self.run_transcoding(&source_files).await?;
+        }
+
+        // ── Phase 6: MHL Sealing (optional) ─────────────────────────
         if self.config.generate_mhl && failed_count == 0 {
             self.emit(OffloadEvent::PhaseChanged {
                 phase: OffloadPhase::Sealing,
@@ -815,6 +850,11 @@ impl OffloadWorkflow {
                 name: None,
             });
             mhl_paths = self.seal_mhl(&source_files, &source_hashes).await?;
+        }
+
+        // ── Phase 7: Cloud Synchronization (optional) ───────────────
+        if self.config.cloud_config.enabled && failed_count == 0 {
+            self.run_cloud_sync(&mhl_paths).await?;
         }
 
         // ── Finalize ────────────────────────────────────────────────
@@ -1048,6 +1088,33 @@ impl OffloadWorkflow {
         // Count actual remaining failures from DB
         let failed_count = self.count_failed_tasks()?;
 
+        // ── Transcoding (optional) ──
+        if self.config.generate_proxies && failed_count == 0 {
+            // Collect all completed files for this job to ensure everything has a proxy
+            let all_files = {
+                let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                let mut stmt = conn.prepare(
+                    "SELECT DISTINCT source_path, file_size FROM copy_tasks WHERE job_id = ?1 AND status IN ('completed', 'skipped')",
+                )?;
+                let rows = stmt.query_map(rusqlite::params![self.config.job_id], |row| {
+                    let source_path: String = row.get(0)?;
+                    let size: i64 = row.get(1)?;
+                    let p = PathBuf::from(&source_path);
+                    Ok(SourceFile {
+                        rel_path: p.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                        abs_path: p,
+                        size: size as u64,
+                    })
+                })?;
+                let mut files = Vec::new();
+                for r in rows {
+                    if let Ok(f) = r { files.push(f); }
+                }
+                files
+            };
+            self.run_transcoding(&all_files).await?;
+        }
+
         // ── MHL Sealing (optional) — covers ALL completed files in the job ──
         if self.config.generate_mhl && failed_count == 0 {
             self.emit(OffloadEvent::PhaseChanged {
@@ -1115,6 +1182,11 @@ impl OffloadWorkflow {
                 (files, hashes)
             };
             mhl_paths = self.seal_mhl(&all_files, &all_hashes).await?;
+        }
+
+        // ── Cloud Synchronization (optional) ──
+        if self.config.cloud_config.enabled && failed_count == 0 {
+            self.run_cloud_sync(&mhl_paths).await?;
         }
 
         // Finalize
@@ -3255,6 +3327,181 @@ impl OffloadWorkflow {
     // ── Internal: MHL Seal ───────────────────────────────────────────
 
     /// Generate ASC MHL manifests for each destination.
+    async fn run_transcoding(&self, files: &[SourceFile]) -> Result<()> {
+        if !self.config.generate_proxies {
+            return Ok(());
+        }
+
+        // Only transcode if we have at least one destination
+        if self.config.dest_paths.is_empty() {
+            return Ok(());
+        }
+
+        // Filter video files
+        let video_files: Vec<&SourceFile> = files
+            .iter()
+            .filter(|f| crate::camera::metadata::is_video_file(&f.abs_path))
+            .collect();
+
+        if video_files.is_empty() {
+            return Ok(());
+        }
+
+        self.emit(OffloadEvent::PhaseChanged {
+            phase: OffloadPhase::Transcoding,
+            message: format!("Generating proxies for {} video files...", video_files.len()),
+            name: None,
+        });
+
+        // Use the primary destination for proxies
+        let primary_dest = &self.config.dest_paths[0];
+        let proxy_dir = primary_dest.join("Proxies");
+
+        let total_video = video_files.len();
+        for (idx, file) in video_files.iter().enumerate() {
+            if self.cancel.is_cancelled() {
+                break;
+            }
+            
+            self.emit(OffloadEvent::ProxyTranscodeStarted {
+                rel_path: file.rel_path.clone(),
+                file_index: idx,
+                total_files: total_video,
+            });
+
+            // Get timecode from DB if possible
+            let timecode = {
+                if let Ok(conn) = self.db.lock() {
+                    conn.query_row(
+                        "SELECT timecode_start FROM copy_tasks WHERE job_id = ?1 AND rel_path = ?2 LIMIT 1",
+                        rusqlite::params![self.config.job_id, file.rel_path],
+                        |row| row.get::<_, String>(0)
+                    ).ok()
+                } else {
+                    None
+                }
+            };
+
+            // Use the file already copied to the primary destination as the source for transcoding
+            // to avoid reading from the source card again.
+            let source_on_primary = primary_dest.join(&file.rel_path);
+            
+            match crate::camera::transcode::generate_proxy(
+                &source_on_primary,
+                &proxy_dir,
+                &self.config.proxy_config,
+                timecode.as_deref().filter(|tc| !tc.is_empty()),
+            ) {
+                Ok(proxy_path) => {
+                    let proxy_path_str = proxy_path.to_string_lossy().to_string();
+                    // Update DB
+                    if let Ok(conn) = self.db.lock() {
+                        let _ = conn.execute(
+                            "UPDATE copy_tasks SET proxy_path = ?1 WHERE job_id = ?2 AND rel_path = ?3",
+                            rusqlite::params![proxy_path_str, self.config.job_id, file.rel_path],
+                        );
+                    }
+                    self.emit(OffloadEvent::ProxyTranscodeCompleted {
+                        rel_path: file.rel_path.clone(),
+                        proxy_path: proxy_path_str,
+                        file_index: idx,
+                        total_files: total_video,
+                    });
+                }
+                Err(e) => {
+                    log::error!("Proxy generation failed for {:?}: {}", file.rel_path, e);
+                    self.emit(OffloadEvent::Warning {
+                        message: format!("Proxy failed for {}: {}", file.rel_path, e),
+                    });
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn run_cloud_sync(&self, mhl_paths: &[PathBuf]) -> Result<()> {
+        if !self.config.cloud_config.enabled {
+            return Ok(());
+        }
+
+        self.emit(OffloadEvent::PhaseChanged {
+            phase: OffloadPhase::CloudSync,
+            message: "Initializing cloud synchronization...".into(),
+            name: None,
+        });
+
+        let client = match crate::cloud_sync::CloudClient::new(&self.config.cloud_config.provider) {
+            Ok(c) => c,
+            Err(e) => {
+                self.emit(OffloadEvent::Warning {
+                    message: format!("Cloud sync failed to initialize: {}", e),
+                });
+                return Ok(());
+            }
+        };
+
+        let remote_base = format!("{}/{}", self.config.cloud_config.remote_path.trim_end_matches('/'), self.config.job_id);
+
+        // 1. Upload MHL manifests
+        for path in mhl_paths {
+            if let Some(name) = path.file_name() {
+                let remote_path = format!("{}/MHL/{}", remote_base, name.to_string_lossy());
+                let _ = client.upload_file(path, &remote_path).await;
+            }
+        }
+
+        // 2. Upload Thumbnails
+        let thumbnails: Vec<String> = {
+            if let Ok(conn) = self.db.lock() {
+                let mut stmt = conn.prepare("SELECT DISTINCT thumbnail_path FROM copy_tasks WHERE job_id = ?1 AND thumbnail_path != ''")?;
+                let rows = stmt.query_map(rusqlite::params![self.config.job_id], |row| row.get(0))?;
+                rows.flatten().collect()
+            } else {
+                Vec::new()
+            }
+        };
+
+        for thumb_path_str in thumbnails {
+            let path = Path::new(&thumb_path_str);
+            if path.exists() {
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                let remote_path = format!("{}/Thumbnails/{}", remote_base, name);
+                let _ = client.upload_file(path, &remote_path).await;
+            }
+        }
+
+        // 3. Optional: Upload Proxies
+        if self.config.cloud_config.sync_proxies {
+            let proxies: Vec<String> = {
+                if let Ok(conn) = self.db.lock() {
+                    let mut stmt = conn.prepare("SELECT DISTINCT proxy_path FROM copy_tasks WHERE job_id = ?1 AND proxy_path != ''")?;
+                    let rows = stmt.query_map(rusqlite::params![self.config.job_id], |row| row.get(0))?;
+                    rows.flatten().collect()
+                } else {
+                    Vec::new()
+                }
+            };
+
+            for proxy_path_str in proxies {
+                let path = Path::new(&proxy_path_str);
+                if path.exists() {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    let remote_path = format!("{}/Proxies/{}", remote_base, name);
+                    let _ = client.upload_file(path, &remote_path).await;
+                }
+            }
+        }
+
+        self.emit(OffloadEvent::PhaseChanged {
+            phase: OffloadPhase::CloudSync,
+            message: "Cloud synchronization completed".into(),
+            name: None,
+        });
+
+        Ok(())
+    }
+
     async fn seal_mhl(
         &self,
         files: &[SourceFile],
@@ -3456,6 +3703,7 @@ mod tests {
             max_retries: 3,
             cascade: false,
             conflict_resolutions: HashMap::new(),
+            ..Default::default()
         };
 
         let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -3537,6 +3785,7 @@ mod tests {
             max_retries: 1,
             cascade: false,
             conflict_resolutions: HashMap::new(),
+            ..Default::default()
         };
 
         let workflow = OffloadWorkflow::new(config, db, tx);
@@ -3577,6 +3826,7 @@ mod tests {
             max_retries: 1,
             cascade: false,
             conflict_resolutions: HashMap::new(),
+            ..Default::default()
         };
 
         let workflow = OffloadWorkflow::new(config, db, tx);
@@ -3636,6 +3886,7 @@ mod tests {
             max_retries: 1,
             cascade: false,
             conflict_resolutions: HashMap::new(),
+            ..Default::default()
         };
 
         let workflow = OffloadWorkflow::new(config, db, tx);
@@ -3708,6 +3959,7 @@ mod tests {
             max_retries: 1,
             cascade: false,
             conflict_resolutions: HashMap::new(),
+            ..Default::default()
         };
 
         let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -3770,6 +4022,7 @@ mod tests {
             max_retries: 1,
             cascade: true,
             conflict_resolutions: HashMap::new(),
+            ..Default::default()
         };
 
         let workflow = OffloadWorkflow::new(config, db.clone(), tx);
@@ -3850,6 +4103,7 @@ mod tests {
             max_retries: 1,
             cascade: true, // enabled but only 1 dest → should not cascade
             conflict_resolutions: HashMap::new(),
+            ..Default::default()
         };
 
         let workflow = OffloadWorkflow::new(config, db, tx);

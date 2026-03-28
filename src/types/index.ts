@@ -230,10 +230,21 @@ export type OffloadPhase =
   | "Copying"
   | "Cascading"
   | "Verifying"
+  | "Transcoding"
+  | "CloudSync"
   | "Sealing"
   | "Complete"
   | "Failed"
   | "Terminated";
+
+export type ProxyFormat = "H264" | "ProResProxy";
+
+export interface ProxyConfig {
+  format: ProxyFormat;
+  width: number;
+  burnTimecode: boolean;
+  crf: number;
+}
 
 /** Envelope wrapping OffloadEvent with job_id for demuxing concurrent jobs */
 export interface OffloadEventEnvelope {
@@ -311,6 +322,8 @@ export interface StartOffloadRequest {
   generateMhl?: boolean;
   cascade?: boolean;
   conflictResolutions?: ConflictResolution[];
+  generateProxies?: boolean;
+  proxyConfig?: ProxyConfig;
 }
 
 // ─── Conflict Detection Types ────────────────────────────────────────────
@@ -400,6 +413,17 @@ export interface NotificationSettings {
   sourceReleased: boolean;
 }
 
+export type CloudProvider =
+  | { type: "s3"; endpoint: string; region: string; bucket: string; accessKey: string; secretKey: string }
+  | { type: "webdav"; endpoint: string; username: string; password: string; root: string };
+
+export interface CloudConfig {
+  enabled: boolean;
+  provider: CloudProvider;
+  remotePath: string;
+  syncProxies: boolean;
+}
+
 export interface AppSettings {
   offload: OffloadDefaults;
   ioScheduling: IoSchedulingSettings;
@@ -407,6 +431,7 @@ export interface AppSettings {
   report: ReportSettings;
   sound: SoundSettings;
   notification: NotificationSettings;
+  cloud: CloudConfig;
 }
 
 // ─── Workflow Preset Types ──────────────────────────────────────────────

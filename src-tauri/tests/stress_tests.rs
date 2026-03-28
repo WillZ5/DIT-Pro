@@ -123,6 +123,7 @@ fn make_config(
         max_retries: 3,
         cascade,
         conflict_resolutions: HashMap::new(),
+        ..Default::default()
     }
 }
 
@@ -487,6 +488,7 @@ async fn stress_interrupt_resume_200_files() {
             max_retries: 3,
             cascade: false,
             conflict_resolutions: HashMap::new(),
+            ..Default::default()
         };
         let workflow = OffloadWorkflow::with_cancel(config, db_clone, tx1, cancel_clone);
         workflow.execute().await
@@ -552,6 +554,7 @@ async fn stress_interrupt_resume_200_files() {
         max_retries: 3,
         cascade: false,
         conflict_resolutions: HashMap::new(),
+        ..Default::default()
     };
 
     let workflow2 = OffloadWorkflow::new(config2, db.clone(), tx2);
@@ -773,6 +776,7 @@ async fn stress_3_concurrent_jobs() {
                 max_retries: 3,
                 cascade: false,
                 conflict_resolutions: HashMap::new(),
+                ..Default::default()
             };
             let workflow = OffloadWorkflow::new(config, db_clone, tx);
             workflow.execute().await

@@ -1,26 +1,26 @@
 {
   "channel": "beta",
-  "tag_name": "v1.3.1-beta",
-  "name": "v1.3.1-beta — Stability & Performance",
-  "body": "## v1.3.1-beta — Stability & Performance\n\nThis release fixes critical bugs with HDD capacity display and optimizes offload performance.\n\n### Fixes\n- **HDD Capacity Fix** — Resolved an overflow issue that caused large mechanical hard drives to show 0 bytes total capacity.\n- **Copy Speed Optimization** — Throttled progress events and optimized database locking to prevent 'speed drops' during high-speed offloads.\n- **Metadata Extraction** — Optimized camera metadata probing to avoid thread contention during the start of a job.\n\n### New Features (from v1.3.0)\n- **Rushes Log** — Professional shooting day reports in CSV, TSV, Excel, and PDF.",
+  "tag_name": "v1.4.0-beta",
+  "name": "v1.4.0-beta — Proxy Generation & Cloud Sync",
+  "body": "## DIT Pro v1.4.0-beta\n\n### New Features\n\n**A. Proxy Generation (FFmpeg)**\n- Generate low-bitrate editing proxies (H.264 / ProRes) during offload.\n- Auto-burn source timecode into video.\n\n**B. Cloud Sync (OOM-Safe)**\n- Stream reports, thumbnails, and proxies to the cloud (WebDAV / S3).\n- Automatically supports Baidu/Aliyun via AList.\n\n**C. UI & Visuals**\n- Rushes Log now displays video thumbnails.",
   "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.3.1-beta",
   "published_at": "2026-03-28T10:00:00Z",
-  "download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.3.1_universal.dmg",
-  "windows_download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.3.1_x64-setup.exe",
+  "download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0_universal.dmg",
+  "windows_download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0_x64-setup.exe",
   "assets": {
     "macos": {
-      "name": "beta-DIT.Pro_1.3.1_universal.dmg",
-      "source_asset_name": "DIT.Pro_1.3.1_universal.dmg",
-      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.3.1-beta/DIT.Pro_1.3.1_universal.dmg",
-      "backup_relative_url": "./software/beta-DIT.Pro_1.3.1_universal.dmg",
-      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.3.1_universal.dmg"
+      "name": "beta-DIT.Pro_1.4.0_universal.dmg",
+      "source_asset_name": "DIT.Pro_1.4.0_universal.dmg",
+      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-beta/DIT.Pro_1.4.0_universal.dmg",
+      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0_universal.dmg",
+      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0_universal.dmg"
     },
     "windows": {
-      "name": "beta-DIT.Pro_1.3.1_x64-setup.exe",
-      "source_asset_name": "DIT.Pro_1.3.1_x64-setup.exe",
-      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.3.1-beta/DIT.Pro_1.3.1_x64-setup.exe",
-      "backup_relative_url": "./software/beta-DIT.Pro_1.3.1_x64-setup.exe",
-      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.3.1_x64-setup.exe"
+      "name": "beta-DIT.Pro_1.4.0_x64-setup.exe",
+      "source_asset_name": "DIT.Pro_1.4.0_x64-setup.exe",
+      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-beta/DIT.Pro_1.4.0_x64-setup.exe",
+      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0_x64-setup.exe",
+      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0_x64-setup.exe"
     }
   }
 }

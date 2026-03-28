@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { safeInvoke, isTauri } from "../../utils/tauriCompat";
+import { safeInvoke, isTauri, convertPathToSrc } from "../../utils/tauriCompat";
 import { useI18n } from "../../i18n";
 import type { CommandResult, RushesLogReport } from "../../types";
 
@@ -197,6 +197,7 @@ export function RushesLogView() {
             <table className="rushes-log-table">
               <thead>
                 <tr>
+                  <th>{t.rushesLog.thumbnail}</th>
                   <th>{t.rushesLog.reel}</th>
                   <th>{t.rushesLog.camera}</th>
                   <th>{t.rushesLog.clips}</th>
@@ -216,6 +217,18 @@ export function RushesLogView() {
               <tbody>
                 {report.entries.map((entry) => (
                   <tr key={entry.jobId}>
+                    <td className="rushes-cell-thumb">
+                      {entry.thumbnailPath ? (
+                        <img 
+                          src={convertPathToSrc(entry.thumbnailPath)} 
+                          alt="Thumb" 
+                          className="rushes-thumb-img"
+                          onClick={() => window.open(convertPathToSrc(entry.thumbnailPath), '_blank')}
+                        />
+                      ) : (
+                        <div className="rushes-thumb-placeholder" />
+                      )}
+                    </td>
                     <td className="rushes-cell-reel" title={entry.sourcePath}>{entry.reelName}</td>
                     <td>{entry.cameraBrand}{entry.cameraModel ? ` ${entry.cameraModel}` : ""}</td>
                     <td className="rushes-cell-num">{entry.clipCount}</td>

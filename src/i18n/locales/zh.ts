@@ -458,6 +458,7 @@ const zh: TranslationKeys = {
     failed: "失败",
     pending: "进行中",
     savedTo: "拍摄日志已保存至：",
+    thumbnail: "缩略图",
   },
   betaWarning: {
     title: "测试提醒",

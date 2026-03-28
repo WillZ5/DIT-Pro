@@ -2967,3 +2967,43 @@
   gap: 10px;
   padding-top: 4px;
 }
+
+/* ─── Rushes Log Thumbnail Styles ────────────────────────────────────────── */
+
+.rushes-cell-thumb {
+  width: 100px;
+  min-width: 100px;
+  padding: 8px !important;
+  vertical-align: middle;
+}
+
+.rushes-thumb-img {
+  width: 84px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #000;
+  cursor: zoom-in;
+  transition: transform 0.15s ease, border-color 0.15s;
+  display: block;
+}
+
+.rushes-thumb-img:hover {
+  transform: scale(1.05);
+  border-color: #3b82f6;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.rushes-thumb-placeholder {
+  width: 84px;
+  height: 56px;
+  background: #18181b;
+  border-radius: 6px;
+  border: 1px dashed #27272a;
+}
+
+/* Adjust rushes table alignment */
+.rushes-log-table td {
+  vertical-align: middle;
+}

@@ -461,6 +461,7 @@ const en = {
     failed: "Failed",
     pending: "Pending",
     savedTo: "Rushes log saved to:",
+    thumbnail: "Thumbnail",
   },
   betaWarning: {
     title: "Testing Notice",

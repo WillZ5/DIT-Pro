@@ -138,8 +138,8 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
     case "check_for_update":
       return {
         hasUpdate: false,
-        latestVersion: "v1.3.1",
-        currentVersion: "v1.3.1",
+        latestVersion: "1.3.2",
+        currentVersion: "1.3.2",
         releaseNotes: "Rushes Log with camera card ID, ffprobe metadata, CSV/TSV/Excel/PDF export.",
         releaseUrl: "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.3.0-beta",
         downloadUrl: null,
@@ -195,4 +195,18 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
   // Simulate slight network delay for realism
   await new Promise((r) => setTimeout(r, 80));
   return mockInvoke<T>(cmd, args);
+}
+
+/**
+ * Convert a local file path to a URL that can be loaded in the browser.
+ * Uses Tauri's convertFileSrc() when running in desktop shell.
+ */
+export function convertPathToSrc(path: string): string {
+  if (isTauri()) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { convertFileSrc } = require("@tauri-apps/api/core");
+    return convertFileSrc(path);
+  }
+  // Mock image for demo mode
+  return "https://via.placeholder.com/480x270?text=Thumbnail";
 }

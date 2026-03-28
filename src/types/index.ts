@@ -81,9 +81,10 @@ export interface RushesLogEntry {
   resolution: string | null;
   frameRate: string | null;
   codec: string | null;
-  colorSpace: string | null;
+  color_space: string | null;
   timecodeRange: string | null;
-}
+  thumbnailPath: string | null;
+  }
 
 export interface RushesLogSummary {
   totalReels: number;

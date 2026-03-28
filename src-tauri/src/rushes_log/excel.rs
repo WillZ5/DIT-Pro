@@ -65,6 +65,7 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
 
     // ── Headers ──
     let headers = [
+        "Thumb",
         "Reel",
         "Camera",
         "Model",
@@ -89,7 +90,7 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
 
     // Column widths (approximate)
     let col_widths: &[f64] = &[
-        12.0, 12.0, 14.0, 6.0, 24.0, 24.0, 10.0, 10.0, 10.0, 10.0, 5.0, 12.0, 10.0, 14.0, 12.0,
+        12.0, 12.0, 12.0, 14.0, 6.0, 24.0, 24.0, 10.0, 10.0, 10.0, 10.0, 5.0, 12.0, 10.0, 14.0, 12.0,
         14.0, 28.0, 30.0, 20.0, 20.0,
     ];
 
@@ -108,6 +109,9 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
         let is_failed = entry.backup_status == "Failed" || entry.failed_files > 0;
         let is_alt = idx % 2 == 1;
 
+        // Set row height to accommodate thumbnail
+        worksheet.set_row_height(row, 45.0)?;
+
         let txt_fmt = if is_failed {
             &failed_format
         } else if is_alt {
@@ -124,106 +128,106 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
             &num_format
         };
 
-        let camera = format!(
-            "{}{}",
-            entry.camera_brand,
-            if !entry.camera_model.is_empty() {
-                format!(" {}", entry.camera_model)
-            } else {
-                String::new()
+        // Insert thumbnail if available (Col 0)
+        if let Some(ref thumb_path) = entry.thumbnail_path {
+            if Path::new(thumb_path).exists() {
+                if let Ok(mut image) = rust_xlsxwriter::Image::new(thumb_path) {
+                    image.set_scale_width(0.18); // Scale to fit 45pt row height
+                    image.set_scale_height(0.18);
+                    let _ = worksheet.insert_image(row, 0, &image);
+                }
             }
-        );
+        }
 
-        worksheet.write_string_with_format(row, 0, &entry.reel_name, txt_fmt)?;
-        worksheet.write_string_with_format(row, 1, &entry.camera_brand, txt_fmt)?;
-        worksheet.write_string_with_format(row, 2, &entry.camera_model, txt_fmt)?;
-        worksheet.write_number_with_format(row, 3, entry.clip_count as f64, n_fmt)?;
-        worksheet.write_string_with_format(row, 4, &entry.first_clip, txt_fmt)?;
-        worksheet.write_string_with_format(row, 5, &entry.last_clip, txt_fmt)?;
-        worksheet.write_string_with_format(row, 6, format_bytes(entry.total_size), n_fmt)?;
+        worksheet.write_string_with_format(row, 1, &entry.reel_name, txt_fmt)?;
+        worksheet.write_string_with_format(row, 2, &entry.camera_brand, txt_fmt)?;
+        worksheet.write_string_with_format(row, 3, &entry.camera_model, txt_fmt)?;
+        worksheet.write_number_with_format(row, 4, entry.clip_count as f64, n_fmt)?;
+        worksheet.write_string_with_format(row, 5, &entry.first_clip, txt_fmt)?;
+        worksheet.write_string_with_format(row, 6, &entry.last_clip, txt_fmt)?;
+        worksheet.write_string_with_format(row, 7, format_bytes(entry.total_size), n_fmt)?;
         worksheet.write_string_with_format(
             row,
-            7,
+            8,
             format_duration(entry.duration_seconds),
             n_fmt,
         )?;
         worksheet.write_number_with_format(
             row,
-            8,
+            9,
             (entry.avg_speed_mbps * 10.0).round() / 10.0,
             n_fmt,
         )?;
-        worksheet.write_string_with_format(row, 9, &entry.backup_status, txt_fmt)?;
+        worksheet.write_string_with_format(row, 10, &entry.backup_status, txt_fmt)?;
         worksheet.write_string_with_format(
             row,
-            10,
+            11,
             if entry.mhl_verified { "Yes" } else { "No" },
             txt_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            11,
+            12,
             entry.resolution.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            12,
+            13,
             entry.frame_rate.as_deref().unwrap_or(""),
             n_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            13,
+            14,
             entry.codec.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            14,
+            15,
             entry.color_space.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            15,
+            16,
             entry.timecode_range.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
-        worksheet.write_string_with_format(row, 16, &entry.source_path, txt_fmt)?;
-        worksheet.write_string_with_format(row, 17, entry.dest_paths.join("; "), txt_fmt)?;
-        worksheet.write_string_with_format(row, 18, &entry.started_at, txt_fmt)?;
-        worksheet.write_string_with_format(row, 19, &entry.completed_at, txt_fmt)?;
-        drop(camera); // used for display, already written as brand + model separately
+        worksheet.write_string_with_format(row, 17, &entry.source_path, txt_fmt)?;
+        worksheet.write_string_with_format(row, 18, entry.dest_paths.join("; "), txt_fmt)?;
+        worksheet.write_string_with_format(row, 19, &entry.started_at, txt_fmt)?;
+        worksheet.write_string_with_format(row, 20, &entry.completed_at, txt_fmt)?;
     }
 
     // ── Summary Row ──
     let summary_row = (report.entries.len() + 2) as u32;
-    worksheet.write_string_with_format(summary_row, 0, "TOTAL", &summary_format)?;
+    worksheet.write_string_with_format(summary_row, 1, "TOTAL", &summary_format)?;
     worksheet.write_string_with_format(
         summary_row,
-        1,
+        2,
         format!("{} reels", report.summary.total_reels),
         &summary_format,
     )?;
-    worksheet.write_string_with_format(summary_row, 2, "", &summary_format)?;
+    worksheet.write_string_with_format(summary_row, 3, "", &summary_format)?;
     worksheet.write_number_with_format(
         summary_row,
-        3,
+        4,
         report.summary.total_clips as f64,
         &summary_format,
     )?;
-    worksheet.write_string_with_format(summary_row, 4, "", &summary_format)?;
     worksheet.write_string_with_format(summary_row, 5, "", &summary_format)?;
+    worksheet.write_string_with_format(summary_row, 6, "", &summary_format)?;
     worksheet.write_string_with_format(
         summary_row,
-        6,
+        7,
         format_bytes(report.summary.total_size),
         &summary_format,
     )?;
     worksheet.write_string_with_format(
         summary_row,
-        7,
+        8,
         format_duration(report.summary.total_duration_seconds),
         &summary_format,
     )?;

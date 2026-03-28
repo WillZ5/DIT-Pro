@@ -79,6 +79,9 @@ pub struct OffloadConfig {
     /// Key: "rel_path::dest_path" → action
     #[serde(default)]
     pub conflict_resolutions: HashMap<String, ConflictAction>,
+    /// Application data directory (for thumbnails and DB)
+    #[serde(default)]
+    pub app_data_dir: PathBuf,
 }
 
 impl Default for OffloadConfig {
@@ -96,6 +99,7 @@ impl Default for OffloadConfig {
             max_retries: 3,
             cascade: false,
             conflict_resolutions: HashMap::new(),
+            app_data_dir: PathBuf::new(),
         }
     }
 }
@@ -1303,26 +1307,22 @@ impl OffloadWorkflow {
             }
         }
 
-        // Extract media metadata for video files (non-blocking, best-effort)
+        // Extract media metadata for video files sequentially to prevent database 
+        // lock contention from massive thread spawning. 
         if !source_task_map.is_empty() {
-            let db = self.db.clone();
-            std::thread::spawn(move || {
-                for (source_path, task_ids) in &source_task_map {
-                    let meta = crate::camera::metadata::probe_media_file(source_path);
-                    if meta.resolution.is_some() || meta.codec.is_some() {
-                        if let Ok(conn) = db.lock() {
-                            for task_id in task_ids {
-                                let _ =
-                                    checkpoint::update_task_media_metadata(&conn, task_id, &meta);
-                            }
+            log::info!("Extracting media metadata for {} video files...", source_task_map.len());
+            let thumb_cache = self.config.app_data_dir.join("thumbnails");
+            for (source_path, task_ids) in &source_task_map {
+                let meta = crate::camera::metadata::probe_media_file(source_path, Some(&thumb_cache));
+                if meta.resolution.is_some() || meta.codec.is_some() || meta.thumbnail_path.is_some() {
+                    // Update DB (short-lived lock per file)
+                    if let Ok(conn) = self.db.lock() {
+                        for task_id in task_ids {
+                            let _ = checkpoint::update_task_media_metadata(&conn, task_id, &meta);
                         }
                     }
                 }
-                log::info!(
-                    "Media metadata extraction completed for {} video files",
-                    source_task_map.len()
-                );
-            });
+            }
         }
 
         Ok(())

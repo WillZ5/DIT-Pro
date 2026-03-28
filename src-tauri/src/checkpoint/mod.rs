@@ -209,8 +209,9 @@ pub fn update_task_media_metadata(
     conn.execute(
         "UPDATE copy_tasks SET
          resolution = ?1, frame_rate = ?2, codec = ?3, color_space = ?4,
-         bit_depth = ?5, timecode_start = ?6, media_duration = ?7
-         WHERE id = ?8",
+         bit_depth = ?5, timecode_start = ?6, media_duration = ?7,
+         thumbnail_path = ?8
+         WHERE id = ?9",
         params![
             meta.resolution.as_deref().unwrap_or(""),
             meta.frame_rate.as_deref().unwrap_or(""),
@@ -219,6 +220,7 @@ pub fn update_task_media_metadata(
             meta.bit_depth.unwrap_or(0) as i64,
             meta.timecode_start.as_deref().unwrap_or(""),
             meta.duration_seconds.unwrap_or(0.0),
+            meta.thumbnail_path.as_deref().unwrap_or(""),
             task_id,
         ],
     )?;

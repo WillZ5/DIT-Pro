@@ -56,6 +56,7 @@ pub struct RushesLogEntry {
     pub codec: Option<String>,
     pub color_space: Option<String>,
     pub timecode_range: Option<String>,
+    pub thumbnail_path: Option<String>,
 }
 
 /// Complete rushes log report for a shooting day
@@ -232,14 +233,15 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
     let mhl_verified = job.status == "completed" && failed_files == 0;
 
     // Query media metadata from the first video task (if available)
-    let media_meta: (String, String, String, String, String) = conn
+    let media_meta: (String, String, String, String, String, String) = conn
         .query_row(
             "SELECT
                 COALESCE(resolution, ''),
                 COALESCE(frame_rate, ''),
                 COALESCE(codec, ''),
                 COALESCE(color_space, ''),
-                COALESCE(timecode_start, '')
+                COALESCE(timecode_start, ''),
+                COALESCE(thumbnail_path, '')
              FROM copy_tasks
              WHERE job_id = ?1 AND resolution != '' AND resolution IS NOT NULL
              LIMIT 1",
@@ -251,6 +253,7 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
+                    row.get(5)?,
                 ))
             },
         )
@@ -280,6 +283,11 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
         None
     } else {
         Some(media_meta.4)
+    };
+    let thumbnail_path = if media_meta.5.is_empty() {
+        None
+    } else {
+        Some(media_meta.5)
     };
 
     Ok(RushesLogEntry {
@@ -317,6 +325,7 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
         codec,
         color_space,
         timecode_range,
+        thumbnail_path,
     })
 }
 

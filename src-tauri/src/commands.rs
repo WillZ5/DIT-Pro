@@ -986,6 +986,7 @@ pub async fn start_offload(
         max_retries: saved.offload.max_retries,
         cascade: request.cascade.unwrap_or(saved.offload.cascade),
         conflict_resolutions: conflict_map,
+        app_data_dir: state.app_data_dir.clone(),
     };
 
     let db = state.db.clone();
@@ -1308,6 +1309,7 @@ pub async fn resume_offload(
         max_retries: saved.offload.max_retries,
         cascade: false,                                         // No cascade on resume
         conflict_resolutions: std::collections::HashMap::new(), // No conflicts on resume
+        app_data_dir: state.app_data_dir.clone(),
     };
 
     // Step 5: Mark job as copying

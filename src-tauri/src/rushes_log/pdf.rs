@@ -136,12 +136,14 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
     doc.push(Break::new(0.5));
 
     // ── Data Table ──
-    let mut table = TableLayout::new(vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    // Column weights: Thumb(2), Reel(2), Camera(2), Clips(1), Size(1), Dur(1), Speed(1), Status(1), MHL(1), Res(1), Codec(1), FPS(1)
+    let mut table = TableLayout::new(vec![2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
 
     // Header row
     let header_style = Style::new().bold().with_font_size(8);
     let mut header_row = table.row();
     for header in [
+        "Thumb",
         "Reel",
         "Camera",
         "Clips",
@@ -175,6 +177,22 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
         };
 
         let mut row = table.row();
+
+        // Thumbnail column
+        if let Some(ref thumb_path) = entry.thumbnail_path {
+            if Path::new(thumb_path).exists() {
+                if let Ok(img) = genpdf::elements::Image::from_path(thumb_path) {
+                    row.push_element(img.with_alignment(Alignment::Center));
+                } else {
+                    row.push_element(Paragraph::new("-"));
+                }
+            } else {
+                row.push_element(Paragraph::new("-"));
+            }
+        } else {
+            row.push_element(Paragraph::new("-"));
+        }
+
         row.push_element(Paragraph::new(&entry.reel_name).styled(s));
         row.push_element(Paragraph::new(&camera).styled(s));
         row.push_element(Paragraph::new(entry.clip_count.to_string()).styled(s));

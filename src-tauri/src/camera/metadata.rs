@@ -27,6 +27,8 @@ pub struct MediaMetadata {
     pub timecode_start: Option<String>,
     /// Duration in seconds
     pub duration_seconds: Option<f64>,
+    /// Path to a generated thumbnail image (if any)
+    pub thumbnail_path: Option<String>,
 }
 
 /// ffprobe JSON output structures (subset we need)
@@ -103,7 +105,7 @@ fn find_ffprobe() -> Option<String> {
 /// Extract media metadata from a video file using ffprobe.
 ///
 /// Returns `MediaMetadata::default()` if ffprobe is not available or fails.
-pub fn probe_media_file(file_path: &Path) -> MediaMetadata {
+pub fn probe_media_file(file_path: &Path, cache_dir: Option<&Path>) -> MediaMetadata {
     let ffprobe = match find_ffprobe() {
         Some(p) => p,
         None => {
@@ -192,6 +194,17 @@ pub fn probe_media_file(file_path: &Path) -> MediaMetadata {
         .and_then(|d| d.parse::<f64>().ok())
         .filter(|&d| d > 0.0);
 
+    // Extract thumbnail if cache_dir is provided and it's a video file
+    let thumbnail_path = if let Some(dir) = cache_dir {
+        if video_stream.is_some() {
+            extract_thumbnail(file_path, dir)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     MediaMetadata {
         resolution,
         frame_rate,
@@ -200,7 +213,104 @@ pub fn probe_media_file(file_path: &Path) -> MediaMetadata {
         bit_depth,
         timecode_start,
         duration_seconds,
+        thumbnail_path,
     }
+}
+
+/// Extract a thumbnail from a video file using ffmpeg.
+///
+/// Saves a 480px JPEG to the cache directory.
+pub fn extract_thumbnail(file_path: &Path, cache_dir: &Path) -> Option<String> {
+    let ffmpeg = find_ffmpeg()?;
+
+    // Create a deterministic filename based on path hash to avoid re-generating
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    file_path.to_string_lossy().hash(&mut hasher);
+    let hash_str = format!("{:x}", hasher.finish());
+    let thumb_filename = format!("thumb_{}.jpg", hash_str);
+    let thumb_path = cache_dir.join(&thumb_filename);
+
+    // Skip if already exists
+    if thumb_path.exists() {
+        return Some(thumb_path.to_string_lossy().to_string());
+    }
+
+    // Ensure cache dir exists
+    let _ = std::fs::create_dir_all(cache_dir);
+
+    // FFmpeg: seek to 1s (to avoid black frames at start), extract 1 frame, 
+    // scale to max width 480, high quality (q:v 4).
+    let status = Command::new(&ffmpeg)
+        .args([
+            "-ss",
+            "1.0",
+            "-i",
+        ])
+        .arg(file_path.as_os_str())
+        .args([
+            "-vframes",
+            "1",
+            "-vf",
+            "scale=480:-1:force_original_aspect_ratio=decrease",
+            "-q:v",
+            "4",
+            "-y", // Overwrite just in case
+        ])
+        .arg(thumb_path.as_os_str())
+        .status();
+
+    match status {
+        Ok(s) if s.success() => Some(thumb_path.to_string_lossy().to_string()),
+        _ => {
+            // If 1s seek failed (short clip?), try 0s
+            let status_fallback = Command::new(&ffmpeg)
+                .args([
+                    "-i",
+                ])
+                .arg(file_path.as_os_str())
+                .args([
+                    "-vframes",
+                    "1",
+                    "-vf",
+                    "scale=480:-1:force_original_aspect_ratio=decrease",
+                    "-q:v",
+                    "4",
+                    "-y",
+                ])
+                .arg(thumb_path.as_os_str())
+                .status();
+                
+            match status_fallback {
+                Ok(s) if s.success() => Some(thumb_path.to_string_lossy().to_string()),
+                _ => None
+            }
+        }
+    }
+}
+
+/// Try to find ffmpeg in common locations
+pub fn find_ffmpeg() -> Option<String> {
+    // Try PATH first
+    if Command::new("ffmpeg").arg("-version").output().is_ok() {
+        return Some("ffmpeg".to_string());
+    }
+
+    // Common macOS locations
+    let common_paths = [
+        "/opt/homebrew/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "/usr/bin/ffmpeg",
+    ];
+
+    for path in common_paths {
+        if Path::new(path).exists() {
+            return Some(path.to_string());
+        }
+    }
+
+    None
 }
 
 /// Parse ffprobe's r_frame_rate fraction (e.g. "24000/1001") into a clean string
@@ -255,17 +365,17 @@ fn prettify_codec(codec: &str) -> String {
 }
 
 /// Probe the first video file in a directory (for reel-level metadata)
-pub fn probe_first_video(dir: &Path) -> MediaMetadata {
+pub fn probe_first_video(dir: &Path, cache_dir: Option<&Path>) -> MediaMetadata {
     if !dir.is_dir() {
         if is_video_file(dir) {
-            return probe_media_file(dir);
+            return probe_media_file(dir, cache_dir);
         }
         return MediaMetadata::default();
     }
 
     // Walk up to 3 levels deep to find the first video file
     if let Some(first) = find_first_video(dir, 3) {
-        probe_media_file(&first)
+        probe_media_file(&first, cache_dir)
     } else {
         MediaMetadata::default()
     }
@@ -363,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_probe_nonexistent_file() {
-        let m = probe_media_file(Path::new("/nonexistent/file.mov"));
+        let m = probe_media_file(Path::new("/nonexistent/file.mov"), None);
         // Should return default (ffprobe will fail gracefully)
         assert!(m.resolution.is_none() || m.resolution.is_some());
     }

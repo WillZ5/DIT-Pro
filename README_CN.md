@@ -29,7 +29,7 @@
 | 前端 | React + TypeScript |
 | 后端 | Rust |
 | 数据库 | SQLite（WAL 模式）|
-| 命令行工具 | `mhl-verify` -- 独立 MHL 链验证器 |
+| 桌面功能 | 应用内 MHL 链验证 |
 
 ## 系统要求
 
@@ -56,13 +56,14 @@ npx @tauri-apps/cli build
 ## 文档
 
 - 架构说明：[English](docs/ARCHITECTURE.md) | [中文](docs/ARCHITECTURE_CN.md)
+- 更新规划：[English](docs/ROADMAP.md) | [中文](docs/ROADMAP_CN.md)
 - 更新日志：[English](docs/CHANGELOG.md) | [中文](docs/CHANGELOG_CN.md)
 
 ## 项目结构
 
 ```
 src/                        # React 前端
-  views/                    # 5 个主视图：任务、卷宗、预设、报告、设置
+  views/                    # 主视图：任务、卷宗、预设、报告、素材日志、MHL 验证、设置
   i18n/                     # 国际化（中/英）
 src-tauri/                  # Rust 后端
   src/
@@ -70,7 +71,7 @@ src-tauri/                  # Rust 后端
       atomic_writer.rs      # 原子 .tmp -> 重命名，Drop 自动清理
     hash_engine/            # XXH64 / XXH3 / XXH128 / SHA-256 / MD5
     workflow/               # 拷卡编排器（扫描 -> 拷贝 -> 校验 -> MHL -> 通知）
-    mhl/                    # ASC MHL v2.0 清单生成
+    mhl/                    # ASC MHL v2.0 清单生成与链验证
     checkpoint/             # 崩溃恢复与断点续传
     volume/                 # 设备发现与空间监控
     io_scheduler/           # 按设备类型并发控制
@@ -84,8 +85,7 @@ src-tauri/                  # Rust 后端
     error_log.rs            # 错误日志持久化
     debug_bundle.rs         # 一键诊断包导出
     version.rs              # 语义化版本与发布通道
-    commands.rs             # 44 个 Tauri IPC 命令
-mhl-verify-cli/             # 独立 MHL 链验证命令行工具
+    commands.rs             # Tauri IPC 命令
 ```
 
 ## 许可证

@@ -12,9 +12,10 @@ DIT Pro is a Tauri 2.0 desktop application with a React/TypeScript frontend and 
 │  ┌────────────────────────────────┐  │
 │  │     React + TypeScript UI      │  │
 │  │   (Jobs, Volumes, Presets,     │  │
-│  │    Reports, Settings)          │  │
+│  │    Reports, Rushes Log,        │  │
+│  │    MHL Verify, Settings)       │  │
 │  └──────────┬─────────────────────┘  │
-│             │ Tauri IPC (44 commands) │
+│             │ Tauri IPC commands     │
 │  ┌──────────▼─────────────────────┐  │
 │  │        Rust Backend            │  │
 │  │  ┌─────────┐ ┌──────────────┐  │  │
@@ -44,7 +45,7 @@ DIT Pro is a Tauri 2.0 desktop application with a React/TypeScript frontend and 
 | `copy_engine/atomic_writer.rs` | file | Atomic .tmp write + rename, auto-cleanup via `Drop` |
 | `hash_engine/` | directory | XXH64, XXH3, XXH128, SHA-256, MD5 with `MultiHasher` |
 | `workflow/` | directory | Offload orchestrator: scan -> copy -> verify -> MHL -> notify |
-| `mhl/` | directory | ASC MHL v2.0 XML generation and chain management |
+| `mhl/` | directory | ASC MHL v2.0 XML generation, chain management, and chain verification |
 | `checkpoint/` | directory | Crash recovery, task state persistence, resume logic |
 | `volume/` | directory | Device discovery, type detection (HDD/SSD/NVMe/RAID), space monitoring |
 | `io_scheduler/` | directory | Per-device concurrency control and buffer sizing |
@@ -58,7 +59,7 @@ DIT Pro is a Tauri 2.0 desktop application with a React/TypeScript frontend and 
 | `error_log.rs` | file | Error log persistence to SQLite |
 | `debug_bundle.rs` | file | One-click diagnostic ZIP export |
 | `version.rs` | file | Semantic versioning, 5 release channels, build metadata |
-| `commands.rs` | file | 44 Tauri IPC command handlers |
+| `commands.rs` | file | Tauri IPC command handlers |
 
 ## Offload Pipeline
 

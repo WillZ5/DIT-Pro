@@ -29,7 +29,7 @@ Professional card offload engine for film production. Built with Tauri 2.0, Reac
 | Frontend | React + TypeScript |
 | Backend | Rust |
 | Database | SQLite (WAL mode) |
-| CLI | `mhl-verify` -- standalone MHL chain verifier |
+| Desktop feature | In-app MHL chain verification |
 
 ## Requirements
 
@@ -56,13 +56,14 @@ npx @tauri-apps/cli build
 ## Documentation
 
 - Architecture: [English](docs/ARCHITECTURE.md) | [中文](docs/ARCHITECTURE_CN.md)
+- Roadmap: [English](docs/ROADMAP.md) | [中文](docs/ROADMAP_CN.md)
 - Changelog: [English](docs/CHANGELOG.md) | [中文](docs/CHANGELOG_CN.md)
 
 ## Project Structure
 
 ```
 src/                        # React frontend
-  views/                    # 5 main views: Jobs, Volumes, Presets, Reports, Settings
+  views/                    # Main views: Jobs, Volumes, Presets, Reports, Rushes Log, MHL Verify, Settings
   i18n/                     # Internationalization (en/zh)
 src-tauri/                  # Rust backend
   src/
@@ -70,7 +71,7 @@ src-tauri/                  # Rust backend
       atomic_writer.rs      # Atomic .tmp -> final rename with Drop cleanup
     hash_engine/            # XXH64 / XXH3 / XXH128 / SHA-256 / MD5
     workflow/               # Offload orchestrator (scan -> copy -> verify -> MHL -> notify)
-    mhl/                    # ASC MHL v2.0 manifest generation
+    mhl/                    # ASC MHL v2.0 manifest generation and chain verification
     checkpoint/             # Crash recovery and resume
     volume/                 # Device discovery and space monitoring
     io_scheduler/           # Per-device concurrency control
@@ -84,8 +85,7 @@ src-tauri/                  # Rust backend
     error_log.rs            # Error log persistence
     debug_bundle.rs         # One-click diagnostic export
     version.rs              # Semantic versioning and release channels
-    commands.rs             # 44 Tauri IPC commands
-mhl-verify-cli/             # Standalone CLI for MHL chain verification
+    commands.rs             # Tauri IPC commands
 ```
 
 ## License

@@ -3,6 +3,7 @@ import { JobsView } from "./views/JobsView/JobsView";
 import { VolumeView } from "./views/VolumeView/VolumeView";
 import { ReportView } from "./views/ReportView/ReportView";
 import { RushesLogView } from "./views/RushesLogView/RushesLogView";
+import { MhlVerifyView } from "./views/MhlVerifyView/MhlVerifyView";
 import { PresetsView } from "./views/PresetsView/PresetsView";
 import { SettingsView } from "./views/SettingsView/SettingsView";
 import { safeInvoke, IS_DEMO, isTauri } from "./utils/tauriCompat";
@@ -62,6 +63,15 @@ function IconRushesLog({ active }: { active: boolean }) {
       <rect x="2" y="2" width="14" height="14" rx="2" stroke={active ? "#60a5fa" : "currentColor"} strokeWidth="1.5" />
       <path d="M5 6h8M5 9h6M5 12h4" stroke={active ? "#60a5fa" : "currentColor"} strokeWidth="1.5" strokeLinecap="round" />
       <circle cx="14" cy="12" r="2" fill={active ? "#60a5fa" : "currentColor"} />
+    </svg>
+  );
+}
+
+function IconMhlVerify({ active }: { active: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M9 2.5l5 1.8v4.1c0 3.2-1.9 5.7-5 7.1-3.1-1.4-5-3.9-5-7.1V4.3l5-1.8z" stroke={active ? "#60a5fa" : "currentColor"} strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M6.7 9.1l1.5 1.5 3.2-3.4" stroke={active ? "#60a5fa" : "currentColor"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -160,6 +170,7 @@ function App() {
     { id: "presets", label: t.nav.presets, Icon: IconPresets },
     { id: "reports", label: t.nav.reports, Icon: IconReports },
     { id: "rushesLog", label: t.nav.rushesLog, Icon: IconRushesLog },
+    { id: "mhlVerify", label: t.nav.mhlVerify, Icon: IconMhlVerify },
     { id: "settings", label: t.nav.settings, Icon: IconSettings },
   ];
 
@@ -314,6 +325,7 @@ function App() {
         {currentView === "presets" && <PresetsView />}
         {currentView === "reports" && <ReportView />}
         {currentView === "rushesLog" && <RushesLogView />}
+        {currentView === "mhlVerify" && <MhlVerifyView />}
         {currentView === "settings" && <SettingsView />}
       </main>
 

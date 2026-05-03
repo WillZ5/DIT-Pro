@@ -3460,12 +3460,18 @@ impl OffloadWorkflow {
             self.config.cloud_config.remote_path.trim_end_matches('/'),
             self.config.job_id
         );
+        let mut upload_failures = 0usize;
 
         // 1. Upload MHL manifests
         for path in mhl_paths {
             if let Some(name) = path.file_name() {
                 let remote_path = format!("{}/MHL/{}", remote_base, name.to_string_lossy());
-                let _ = client.upload_file(path, &remote_path).await;
+                if let Err(e) = client.upload_file(path, &remote_path).await {
+                    upload_failures += 1;
+                    let message = format!("Cloud sync upload failed for {}: {}", path.display(), e);
+                    log::warn!("{}", message);
+                    self.emit(OffloadEvent::Warning { message });
+                }
             }
         }
 
@@ -3486,7 +3492,12 @@ impl OffloadWorkflow {
             if path.exists() {
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
                 let remote_path = format!("{}/Thumbnails/{}", remote_base, name);
-                let _ = client.upload_file(path, &remote_path).await;
+                if let Err(e) = client.upload_file(path, &remote_path).await {
+                    upload_failures += 1;
+                    let message = format!("Cloud sync upload failed for {}: {}", path.display(), e);
+                    log::warn!("{}", message);
+                    self.emit(OffloadEvent::Warning { message });
+                }
             }
         }
 
@@ -3508,14 +3519,24 @@ impl OffloadWorkflow {
                 if path.exists() {
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
                     let remote_path = format!("{}/Proxies/{}", remote_base, name);
-                    let _ = client.upload_file(path, &remote_path).await;
+                    if let Err(e) = client.upload_file(path, &remote_path).await {
+                        upload_failures += 1;
+                        let message =
+                            format!("Cloud sync upload failed for {}: {}", path.display(), e);
+                        log::warn!("{}", message);
+                        self.emit(OffloadEvent::Warning { message });
+                    }
                 }
             }
         }
 
         self.emit(OffloadEvent::PhaseChanged {
             phase: OffloadPhase::CloudSync,
-            message: "Cloud synchronization completed".into(),
+            message: if upload_failures == 0 {
+                "Cloud synchronization completed".into()
+            } else {
+                format!("Cloud synchronization completed with {upload_failures} failed upload(s)")
+            },
             name: None,
         });
 

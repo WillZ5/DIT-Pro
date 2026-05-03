@@ -178,6 +178,34 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
       return ok("/tmp/rushes-log-demo.csv") as T;
     case "copy_rushes_log_clipboard":
       return ok("Reel\tCamera\tClips\tFirst Clip\tLast Clip\tSize\tDuration\tSpeed\tStatus\tMHL\tDestinations\nA001\tARRI ALEXA Mini\t42\tA001C001_240215_R1AB.mxf\tA001C042_240215_R1AB.mxf\t453.8 GB\t47m 27s\t171.1 MB/s\tVerified\t✓\tRAID_SHUTTLE_01, RAID_SHUTTLE_02") as T;
+    case "verify_mhl_path":
+      return ok({
+        summary: {
+          path: "/Volumes/RAID_SHUTTLE_01",
+          mode: "directory",
+          success: true,
+          chainOnly: false,
+          chainEntries: 1,
+          chainValid: 1,
+          chainInvalid: 0,
+          totalFiles: 42,
+          passed: 42,
+          failed: 0,
+          missing: 0,
+          errors: 0,
+          verifiedGenerations: [1],
+          durationSecs: 2.4,
+        },
+        chainResults: [{
+          generation: 1,
+          manifestPath: "/Volumes/RAID_SHUTTLE_01/ascmhl/0001_Demo_2026-03-28_120000Z.mhl",
+          expectedHash: "demo",
+          actualHash: "demo",
+          valid: true,
+          error: null,
+        }],
+        issues: [],
+      }) as T;
     default:
       return ok(null) as T;
   }

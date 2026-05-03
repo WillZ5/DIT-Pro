@@ -3,7 +3,7 @@
 //! Tests each AC (Acceptance Criterion) from Phase 1 spec:
 //!   AC-3: MHL format compliance (ASC MHL v2.0 standard)
 //!   AC-5: Report content completeness (file list + hash info)
-//!   AC-7: MHL CLI standalone operation
+//!   AC-7: MHL app-integrated verification
 //!
 //! Note: AC-1/2/4/6 are covered by stress_tests.rs
 //!
@@ -14,8 +14,9 @@ use app_lib::checkpoint;
 use app_lib::db;
 use app_lib::hash_engine::{HashAlgorithm, HashEngineConfig, HashResult};
 use app_lib::mhl::{
-    self, MhlConfig, MhlProcessType, ASCMHL_DIR_NAME, CHAIN_FILE_NAME, CHAIN_NAMESPACE,
-    MHL_NAMESPACE,
+    self,
+    verifier::{verify_mhl_path, MhlVerifyOptions},
+    MhlConfig, MhlProcessType, ASCMHL_DIR_NAME, CHAIN_FILE_NAME, CHAIN_NAMESPACE, MHL_NAMESPACE,
 };
 use app_lib::report;
 use app_lib::workflow::{OffloadConfig, OffloadEvent, OffloadWorkflow};
@@ -785,45 +786,29 @@ async fn ac5_report_from_offload_accurate() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// AC-7: MHL CLI Standalone Operation
+// AC-7: MHL App-Integrated Verification
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// AC-7.1: MHL CLI binary can be built
+/// AC-7.1: MHL verification request contract is available to the app
 #[test]
-fn ac7_cli_binary_builds() {
-    // Check that the mhl-verify-cli crate exists and has correct structure
-    let cli_cargo = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("mhl-verify-cli")
-        .join("Cargo.toml");
+fn ac7_app_verifier_request_contract() {
+    let options = MhlVerifyOptions {
+        chain_only: true,
+        verify_all_generations: false,
+        generation: Some(2),
+    };
+    let json = serde_json::to_value(options).unwrap();
 
-    assert!(cli_cargo.exists(), "mhl-verify-cli/Cargo.toml must exist");
+    assert_eq!(json["chainOnly"], true);
+    assert_eq!(json["verifyAllGenerations"], false);
+    assert_eq!(json["generation"], 2);
 
-    let cargo_content = std::fs::read_to_string(&cli_cargo).unwrap();
-    assert!(
-        cargo_content.contains("name = \"mhl-verify\""),
-        "CLI binary must be named 'mhl-verify'"
-    );
-    assert!(
-        cargo_content.contains("xxhash-rust"),
-        "CLI must include xxhash dependency"
-    );
-    assert!(
-        cargo_content.contains("sha2"),
-        "CLI must include SHA-256 dependency"
-    );
-    assert!(
-        cargo_content.contains("quick-xml"),
-        "CLI must include XML parsing dependency"
-    );
-
-    println!("[AC-7.1] PASS: MHL CLI crate structure is correct and buildable");
+    println!("[AC-7.1] PASS: MHL verifier request contract is app-compatible");
 }
 
-/// AC-7.2: MHL CLI can verify a programmatically created MHL directory
+/// AC-7.2: The app verifier can verify a programmatically created MHL directory
 #[tokio::test]
-async fn ac7_cli_verifies_mhl_directory() {
+async fn ac7_app_verifier_verifies_mhl_directory() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("VerifyTestMedia");
     let clips_dir = root.join("Clips");
@@ -874,7 +859,7 @@ async fn ac7_cli_verifies_mhl_directory() {
     .await
     .unwrap();
 
-    // Verify the MHL structure is correct for the CLI to parse
+    // Verify the MHL structure is correct for the app verifier to parse
     let ascmhl_dir = root.join(ASCMHL_DIR_NAME);
     assert!(ascmhl_dir.exists(), "ascmhl directory must exist");
     assert!(
@@ -882,7 +867,7 @@ async fn ac7_cli_verifies_mhl_directory() {
         "chain file must exist"
     );
 
-    // Verify chain integrity programmatically (same as CLI would do)
+    // Verify chain integrity programmatically
     let chain_results = mhl::verify_chain(&history).await.unwrap();
     assert_eq!(chain_results.len(), 1);
     assert!(chain_results[0].1, "Chain entry must be valid");
@@ -891,8 +876,7 @@ async fn ac7_cli_verifies_mhl_directory() {
     let manifest_path = ascmhl_dir.join(&history.chain[0].path);
     let xml = std::fs::read_to_string(&manifest_path).unwrap();
 
-    // The manifest must be parseable by the CLI's parser
-    // (verify the XML structure matches what the CLI expects)
+    // The manifest must be parseable by the app verifier.
     assert!(xml.contains("<hashlist version=\"2.0\""));
     assert!(xml.contains("<hashes>"));
     assert!(xml.contains("<hash>"));
@@ -908,7 +892,13 @@ async fn ac7_cli_verifies_mhl_directory() {
         );
     }
 
-    println!("[AC-7.2] PASS: MHL directory created by DIT Pro is verifiable");
+    let report = verify_mhl_path(&root, MhlVerifyOptions::default()).unwrap();
+    assert!(report.summary.success);
+    assert_eq!(report.summary.chain_valid, 1);
+    assert_eq!(report.summary.passed, files.len());
+    assert!(report.issues.is_empty());
+
+    println!("[AC-7.2] PASS: MHL directory created by DIT Pro is app-verifiable");
 }
 
 /// AC-7.3: MHL tamper detection works (chain integrity check)

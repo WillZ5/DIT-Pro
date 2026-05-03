@@ -14,6 +14,8 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+use crate::mhl::{ASCMHL_DIR_NAME, CHAIN_FILE_NAME};
+
 // ─── Data Types ──────────────────────────────────────────────────────────
 
 /// A single entry in the rushes log (one per job/reel)
@@ -185,16 +187,16 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
 
     // Get distinct destination root paths
     let mut dest_stmt =
-        conn.prepare("SELECT DISTINCT dest_path FROM copy_tasks WHERE job_id = ?1")?;
+        conn.prepare("SELECT source_path, dest_path FROM copy_tasks WHERE job_id = ?1")?;
     let dest_paths: Vec<String> = dest_stmt
         .query_map(rusqlite::params![job.id], |row| {
-            let full_path: String = row.get(0)?;
-            // Extract parent directory as dest root
-            Ok(Path::new(&full_path)
-                .parent()
-                .unwrap_or(Path::new(""))
-                .to_string_lossy()
-                .to_string())
+            let source_path: String = row.get(0)?;
+            let dest_path: String = row.get(1)?;
+            Ok(destination_root_from_task(
+                &job.source_path,
+                &source_path,
+                &dest_path,
+            ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
@@ -229,8 +231,12 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
         "Pending".to_string()
     };
 
-    // Check MHL verification status
-    let mhl_verified = job.status == "completed" && failed_files == 0;
+    // Check MHL verification status. A completed copy is not enough; every
+    // destination root must contain an ASC MHL chain file.
+    let mhl_verified = job.status == "completed"
+        && failed_files == 0
+        && total_files > 0
+        && all_destinations_have_mhl_chain(&unique_dests);
 
     // Query media metadata from the first video task (if available)
     let media_meta: (String, String, String, String, String, String) = conn
@@ -327,6 +333,38 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
         timecode_range,
         thumbnail_path,
     })
+}
+
+fn destination_root_from_task(job_source_root: &str, source_path: &str, dest_path: &str) -> String {
+    let source_root = Path::new(job_source_root);
+    let source = Path::new(source_path);
+    let dest = Path::new(dest_path);
+
+    if let Ok(rel_path) = source.strip_prefix(source_root) {
+        let depth = rel_path.components().count();
+        if depth > 0 {
+            let mut root = dest.to_path_buf();
+            for _ in 0..depth {
+                root.pop();
+            }
+            return root.to_string_lossy().to_string();
+        }
+    }
+
+    dest.parent()
+        .unwrap_or(Path::new(""))
+        .to_string_lossy()
+        .to_string()
+}
+
+fn all_destinations_have_mhl_chain(dest_roots: &[String]) -> bool {
+    !dest_roots.is_empty()
+        && dest_roots.iter().all(|dest| {
+            Path::new(dest)
+                .join(ASCMHL_DIR_NAME)
+                .join(CHAIN_FILE_NAME)
+                .is_file()
+        })
 }
 
 /// Calculate duration in seconds between two SQLite datetime strings.
@@ -574,6 +612,22 @@ mod tests {
         .unwrap();
     }
 
+    fn write_mhl_chain(dest_root: &Path) {
+        let ascmhl_dir = dest_root.join(ASCMHL_DIR_NAME);
+        std::fs::create_dir_all(&ascmhl_dir).unwrap();
+        std::fs::write(ascmhl_dir.join(CHAIN_FILE_NAME), "<ascmhldirectory/>").unwrap();
+    }
+
+    #[test]
+    fn test_destination_root_from_nested_task() {
+        let root = destination_root_from_task(
+            "/Volumes/CARD_A",
+            "/Volumes/CARD_A/Clips/A001.mov",
+            "/Volumes/SSD1/Clips/A001.mov",
+        );
+        assert_eq!(root, "/Volumes/SSD1");
+    }
+
     #[test]
     fn test_rushes_log_empty_date() {
         let conn = test_db();
@@ -586,14 +640,43 @@ mod tests {
     fn test_rushes_log_with_data() {
         let conn = test_db();
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let temp = tempfile::tempdir().unwrap();
+        let dst1 = temp.path().join("dst1");
+        let dst2 = temp.path().join("dst2");
+        write_mhl_chain(&dst1);
+        write_mhl_chain(&dst2);
 
         insert_job(&conn, "j1", "A-Cam Day1", "completed", "ARRI", "A001");
-        insert_task(&conn, "j1", "/dst1/clip.mov", 1_000_000, "completed");
-        insert_task(&conn, "j1", "/dst2/clip.mov", 1_000_000, "completed");
+        insert_task(
+            &conn,
+            "j1",
+            &dst1.join("clip.mov").to_string_lossy(),
+            1_000_000,
+            "completed",
+        );
+        insert_task(
+            &conn,
+            "j1",
+            &dst2.join("clip.mov").to_string_lossy(),
+            1_000_000,
+            "completed",
+        );
 
         insert_job(&conn, "j2", "B-Cam Day1", "completed", "RED", "B001");
-        insert_task(&conn, "j2", "/dst1/clip.r3d", 2_000_000, "completed");
-        insert_task(&conn, "j2", "/dst1/clip2.r3d", 500_000, "failed");
+        insert_task(
+            &conn,
+            "j2",
+            &dst1.join("clip.r3d").to_string_lossy(),
+            2_000_000,
+            "completed",
+        );
+        insert_task(
+            &conn,
+            "j2",
+            &dst1.join("clip2.r3d").to_string_lossy(),
+            500_000,
+            "failed",
+        );
 
         let report = get_rushes_log(&conn, &today).unwrap();
         assert_eq!(report.entries.len(), 2);

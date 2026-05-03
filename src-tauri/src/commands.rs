@@ -727,6 +727,27 @@ pub async fn verify_mhl_chain(
     Ok(CommandResult::ok(response))
 }
 
+/// Verify ASC MHL chain integrity and file hashes from inside the desktop app.
+#[tauri::command]
+pub async fn verify_mhl_path(
+    path: String,
+    options: Option<crate::mhl::verifier::MhlVerifyOptions>,
+) -> Result<CommandResult<crate::mhl::verifier::MhlVerifyReport>, String> {
+    let path_buf = PathBuf::from(path);
+    let verify_options = options.unwrap_or_default();
+
+    let result = tokio::task::spawn_blocking(move || {
+        crate::mhl::verifier::verify_mhl_path(&path_buf, verify_options)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match result {
+        Ok(report) => Ok(CommandResult::ok(report)),
+        Err(e) => Ok(CommandResult::err(e.to_string())),
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MhlChainVerifyResult {
@@ -1820,6 +1841,12 @@ pub fn save_smtp_password(
     // Store password in a separate file (not in settings.json)
     let path = state.app_data_dir.join(".smtp_credential");
     std::fs::write(&path, &password).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&path, permissions).map_err(|e| e.to_string())?;
+    }
 
     // Mark password as set in settings
     let mut settings = state.settings.lock().map_err(|e| e.to_string())?;

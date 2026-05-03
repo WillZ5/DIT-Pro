@@ -52,7 +52,7 @@ export interface VolumeInfo {
   isMounted: boolean;
 }
 
-export type ViewType = "jobs" | "volumes" | "presets" | "reports" | "rushesLog" | "settings";
+export type ViewType = "jobs" | "volumes" | "presets" | "reports" | "rushesLog" | "mhlVerify" | "settings";
 
 // ─── Rushes Log Types ────────────────────────────────────────────────────
 
@@ -99,6 +99,57 @@ export interface RushesLogReport {
   shootDate: string;
   entries: RushesLogEntry[];
   summary: RushesLogSummary;
+}
+
+// ─── MHL Verification Types ─────────────────────────────────────────────
+
+export interface MhlVerifyOptions {
+  chainOnly: boolean;
+  verifyAllGenerations: boolean;
+  generation?: number | null;
+}
+
+export interface MhlChainCheckResult {
+  generation: number;
+  manifestPath: string;
+  expectedHash: string;
+  actualHash: string | null;
+  valid: boolean;
+  error: string | null;
+}
+
+export interface MhlVerifyIssue {
+  kind: string;
+  message: string;
+  generation: number | null;
+  relPath: string | null;
+  manifestPath: string | null;
+  algorithm: HashAlgorithm | null;
+  expected: string | null;
+  actual: string | null;
+}
+
+export interface MhlVerifySummary {
+  path: string;
+  mode: string;
+  success: boolean;
+  chainOnly: boolean;
+  chainEntries: number;
+  chainValid: number;
+  chainInvalid: number;
+  totalFiles: number;
+  passed: number;
+  failed: number;
+  missing: number;
+  errors: number;
+  verifiedGenerations: number[];
+  durationSecs: number;
+}
+
+export interface MhlVerifyReport {
+  summary: MhlVerifySummary;
+  chainResults: MhlChainCheckResult[];
+  issues: MhlVerifyIssue[];
 }
 
 // ─── Backend Response Types ───────────────────────────────────────────────

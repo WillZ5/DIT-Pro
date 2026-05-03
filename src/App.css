@@ -249,6 +249,12 @@
   letter-spacing: -0.02em;
 }
 
+.view-subtitle {
+  margin: 6px 0 0;
+  color: #71717a;
+  font-size: 13px;
+}
+
 /* ─── Buttons ────────────────────────────────────────────────────────────── */
 
 .btn-primary {
@@ -1961,6 +1967,127 @@
 
 .path-selector input {
   flex: 1;
+}
+
+/* ─── MHL Verify ───────────────────────────────────────────────────────── */
+
+.mhl-verify-view .path-selector {
+  align-items: center;
+}
+
+.mhl-options-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) 160px;
+  gap: 12px;
+  margin-top: 18px;
+  align-items: stretch;
+}
+
+.mhl-options-grid .checkbox-label,
+.mhl-generation-input {
+  min-height: 64px;
+  padding: 12px;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  background: #18181b;
+}
+
+.mhl-options-grid .checkbox-label {
+  align-items: flex-start;
+}
+
+.mhl-options-grid .checkbox-label span,
+.mhl-generation-input span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #e4e4e7;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mhl-options-grid small {
+  color: #71717a;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.mhl-generation-input input {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.mhl-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mhl-result-card {
+  min-height: 92px;
+  padding: 14px;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  background: #18181b;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mhl-result-card span {
+  color: #71717a;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.mhl-result-card strong {
+  color: #f4f4f5;
+  font-size: 22px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.mhl-result-card small {
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+.mhl-result-card--pass {
+  border-color: #14532d;
+  background: #052e1a;
+}
+
+.mhl-result-card--fail {
+  border-color: #7f1d1d;
+  background: #2f1111;
+}
+
+.mhl-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-top: 14px;
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+.mhl-meta-row code,
+.mhl-verify-view .report-table code {
+  color: #e4e4e7;
+  overflow-wrap: anywhere;
+}
+
+.empty-state--compact {
+  min-height: 80px;
+  padding: 24px;
+}
+
+@media (max-width: 960px) {
+  .mhl-options-grid,
+  .mhl-summary-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Destination list */

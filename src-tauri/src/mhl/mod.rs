@@ -18,6 +18,7 @@
 //!     A001C001.mov
 //! ```
 
+pub mod verifier;
 pub mod xml_writer;
 
 use anyhow::{bail, Context, Result};

@@ -269,6 +269,7 @@ pub fn run() {
             // MHL
             commands::create_mhl_generation,
             commands::verify_mhl_chain,
+            commands::verify_mhl_path,
             // Conflict Detection
             commands::detect_conflicts,
             // Workflow

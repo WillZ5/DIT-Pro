@@ -57,6 +57,8 @@ npx @tauri-apps/cli build
 
 - Architecture: [English](docs/ARCHITECTURE.md) | [中文](docs/ARCHITECTURE_CN.md)
 - Roadmap: [English](docs/ROADMAP.md) | [中文](docs/ROADMAP_CN.md)
+- Milestones: [English](docs/MILESTONES.md) | [中文](docs/MILESTONES_CN.md)
+- Release guide: [English](docs/RELEASE_GUIDE.md) | [中文](docs/RELEASE_GUIDE_CN.md)
 - Changelog: [English](docs/CHANGELOG.md) | [中文](docs/CHANGELOG_CN.md)
 
 ## Project Structure

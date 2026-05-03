@@ -57,6 +57,8 @@ npx @tauri-apps/cli build
 
 - 架构说明：[English](docs/ARCHITECTURE.md) | [中文](docs/ARCHITECTURE_CN.md)
 - 更新规划：[English](docs/ROADMAP.md) | [中文](docs/ROADMAP_CN.md)
+- Milestone 流程：[English](docs/MILESTONES.md) | [中文](docs/MILESTONES_CN.md)
+- 发布规范：[English](docs/RELEASE_GUIDE.md) | [中文](docs/RELEASE_GUIDE_CN.md)
 - 更新日志：[English](docs/CHANGELOG.md) | [中文](docs/CHANGELOG_CN.md)
 
 ## 项目结构

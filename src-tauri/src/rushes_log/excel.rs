@@ -90,8 +90,8 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
 
     // Column widths (approximate)
     let col_widths: &[f64] = &[
-        12.0, 12.0, 12.0, 14.0, 6.0, 24.0, 24.0, 10.0, 10.0, 10.0, 10.0, 5.0, 12.0, 10.0, 14.0, 12.0,
-        14.0, 28.0, 30.0, 20.0, 20.0,
+        12.0, 12.0, 12.0, 14.0, 6.0, 24.0, 24.0, 10.0, 10.0, 10.0, 10.0, 5.0, 12.0, 10.0, 14.0,
+        12.0, 14.0, 28.0, 30.0, 20.0, 20.0,
     ];
 
     for (col, header) in headers.iter().enumerate() {
@@ -292,7 +292,8 @@ mod tests {
                 color_space: Some("bt709".to_string()),
                 timecode_range: Some("01:00:00:00".to_string()),
                 thumbnail_path: None,
-                }],            summary: RushesLogSummary {
+            }],
+            summary: RushesLogSummary {
                 total_reels: 1,
                 total_clips: 10,
                 total_size: 10_737_418_240,

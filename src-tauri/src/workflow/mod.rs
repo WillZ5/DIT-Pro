@@ -1101,14 +1101,18 @@ impl OffloadWorkflow {
                     let size: i64 = row.get(1)?;
                     let p = PathBuf::from(&source_path);
                     Ok(SourceFile {
-                        rel_path: p.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                        rel_path: p
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
                         abs_path: p,
                         size: size as u64,
                     })
                 })?;
                 let mut files = Vec::new();
-                for r in rows {
-                    if let Ok(f) = r { files.push(f); }
+                for f in rows.flatten() {
+                    files.push(f);
                 }
                 files
             };
@@ -1379,14 +1383,21 @@ impl OffloadWorkflow {
             }
         }
 
-        // Extract media metadata for video files sequentially to prevent database 
-        // lock contention from massive thread spawning. 
+        // Extract media metadata for video files sequentially to prevent database
+        // lock contention from massive thread spawning.
         if !source_task_map.is_empty() {
-            log::info!("Extracting media metadata for {} video files...", source_task_map.len());
+            log::info!(
+                "Extracting media metadata for {} video files...",
+                source_task_map.len()
+            );
             let thumb_cache = self.config.app_data_dir.join("thumbnails");
             for (source_path, task_ids) in &source_task_map {
-                let meta = crate::camera::metadata::probe_media_file(source_path, Some(&thumb_cache));
-                if meta.resolution.is_some() || meta.codec.is_some() || meta.thumbnail_path.is_some() {
+                let meta =
+                    crate::camera::metadata::probe_media_file(source_path, Some(&thumb_cache));
+                if meta.resolution.is_some()
+                    || meta.codec.is_some()
+                    || meta.thumbnail_path.is_some()
+                {
                     // Update DB (short-lived lock per file)
                     if let Ok(conn) = self.db.lock() {
                         for task_id in task_ids {
@@ -3349,7 +3360,10 @@ impl OffloadWorkflow {
 
         self.emit(OffloadEvent::PhaseChanged {
             phase: OffloadPhase::Transcoding,
-            message: format!("Generating proxies for {} video files...", video_files.len()),
+            message: format!(
+                "Generating proxies for {} video files...",
+                video_files.len()
+            ),
             name: None,
         });
 
@@ -3362,7 +3376,7 @@ impl OffloadWorkflow {
             if self.cancel.is_cancelled() {
                 break;
             }
-            
+
             self.emit(OffloadEvent::ProxyTranscodeStarted {
                 rel_path: file.rel_path.clone(),
                 file_index: idx,
@@ -3385,7 +3399,7 @@ impl OffloadWorkflow {
             // Use the file already copied to the primary destination as the source for transcoding
             // to avoid reading from the source card again.
             let source_on_primary = primary_dest.join(&file.rel_path);
-            
+
             match crate::camera::transcode::generate_proxy(
                 &source_on_primary,
                 &proxy_dir,
@@ -3441,7 +3455,11 @@ impl OffloadWorkflow {
             }
         };
 
-        let remote_base = format!("{}/{}", self.config.cloud_config.remote_path.trim_end_matches('/'), self.config.job_id);
+        let remote_base = format!(
+            "{}/{}",
+            self.config.cloud_config.remote_path.trim_end_matches('/'),
+            self.config.job_id
+        );
 
         // 1. Upload MHL manifests
         for path in mhl_paths {
@@ -3455,7 +3473,8 @@ impl OffloadWorkflow {
         let thumbnails: Vec<String> = {
             if let Ok(conn) = self.db.lock() {
                 let mut stmt = conn.prepare("SELECT DISTINCT thumbnail_path FROM copy_tasks WHERE job_id = ?1 AND thumbnail_path != ''")?;
-                let rows = stmt.query_map(rusqlite::params![self.config.job_id], |row| row.get(0))?;
+                let rows =
+                    stmt.query_map(rusqlite::params![self.config.job_id], |row| row.get(0))?;
                 rows.flatten().collect()
             } else {
                 Vec::new()
@@ -3476,7 +3495,8 @@ impl OffloadWorkflow {
             let proxies: Vec<String> = {
                 if let Ok(conn) = self.db.lock() {
                     let mut stmt = conn.prepare("SELECT DISTINCT proxy_path FROM copy_tasks WHERE job_id = ?1 AND proxy_path != ''")?;
-                    let rows = stmt.query_map(rusqlite::params![self.config.job_id], |row| row.get(0))?;
+                    let rows =
+                        stmt.query_map(rusqlite::params![self.config.job_id], |row| row.get(0))?;
                     rows.flatten().collect()
                 } else {
                     Vec::new()

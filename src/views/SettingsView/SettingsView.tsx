@@ -111,14 +111,26 @@ export function SettingsView() {
     });
   };
 
-  const updateCloudProvider = (key: string, value: string) => {
+  type CloudProviderField =
+    | "endpoint"
+    | "region"
+    | "bucket"
+    | "accessKey"
+    | "secretKey"
+    | "username"
+    | "password"
+    | "root";
+
+  const updateCloudProvider = (key: CloudProviderField, value: string) => {
     if (!settings) return;
     setSettings({
       ...settings,
       cloud: {
         ...settings.cloud,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        provider: { ...settings.cloud.provider, [key]: value } as any,
+        provider: {
+          ...settings.cloud.provider,
+          [key]: value,
+        } as AppSettings["cloud"]["provider"],
       },
     });
   };
@@ -769,9 +781,10 @@ export function SettingsView() {
                       value={settings.cloud.provider.type}
                       onChange={(e) => {
                         const type = e.target.value as "s3" | "webdav";
-                        const newProvider = (type === "s3" 
-                          ? { type: "s3", endpoint: "", region: "", bucket: "", accessKey: "", secretKey: "" }
-                          : { type: "webdav", endpoint: "", username: "", password: "", root: "/" }) as any;
+                        const newProvider: AppSettings["cloud"]["provider"] =
+                          type === "s3"
+                            ? { type: "s3", endpoint: "", region: "", bucket: "", accessKey: "", secretKey: "" }
+                            : { type: "webdav", endpoint: "", username: "", password: "", root: "/" };
                         updateCloud("provider", newProvider);
                       }}
                     >

@@ -240,14 +240,10 @@ pub fn extract_thumbnail(file_path: &Path, cache_dir: &Path) -> Option<String> {
     // Ensure cache dir exists
     let _ = std::fs::create_dir_all(cache_dir);
 
-    // FFmpeg: seek to 1s (to avoid black frames at start), extract 1 frame, 
+    // FFmpeg: seek to 1s (to avoid black frames at start), extract 1 frame,
     // scale to max width 480, high quality (q:v 4).
     let status = Command::new(&ffmpeg)
-        .args([
-            "-ss",
-            "1.0",
-            "-i",
-        ])
+        .args(["-ss", "1.0", "-i"])
         .arg(file_path.as_os_str())
         .args([
             "-vframes",
@@ -266,9 +262,7 @@ pub fn extract_thumbnail(file_path: &Path, cache_dir: &Path) -> Option<String> {
         _ => {
             // If 1s seek failed (short clip?), try 0s
             let status_fallback = Command::new(&ffmpeg)
-                .args([
-                    "-i",
-                ])
+                .args(["-i"])
                 .arg(file_path.as_os_str())
                 .args([
                     "-vframes",
@@ -281,10 +275,10 @@ pub fn extract_thumbnail(file_path: &Path, cache_dir: &Path) -> Option<String> {
                 ])
                 .arg(thumb_path.as_os_str())
                 .status();
-                
+
             match status_fallback {
                 Ok(s) if s.success() => Some(thumb_path.to_string_lossy().to_string()),
-                _ => None
+                _ => None,
             }
         }
     }

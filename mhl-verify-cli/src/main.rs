@@ -158,7 +158,7 @@ fn main() -> Result<()> {
     let start = Instant::now();
 
     // Determine if we're verifying a single file or a directory
-    if path.is_file() && path.extension().map_or(false, |e| e == "mhl") {
+    if path.is_file() && path.extension().is_some_and(|e| e == "mhl") {
         // Single MHL file verification
         verify_single_manifest(&path, &args)?;
     } else if path.is_dir() {
@@ -210,8 +210,10 @@ fn verify_directory(root: &Path, args: &Args) -> Result<()> {
         println!();
     }
 
-    let mut summary = VerifySummary::default();
-    summary.chain_entries = chain.len();
+    let mut summary = VerifySummary {
+        chain_entries: chain.len(),
+        ..Default::default()
+    };
 
     // Step 1: Verify chain integrity (SHA-256 of each manifest file)
     if !args.quiet {
@@ -297,7 +299,7 @@ fn verify_single_manifest(manifest_path: &Path, args: &Args) -> Result<()> {
     let root = manifest_path
         .parent()
         .and_then(|p| {
-            if p.file_name().map_or(false, |n| n == "ascmhl") {
+            if p.file_name().is_some_and(|n| n == "ascmhl") {
                 p.parent()
             } else {
                 Some(p)

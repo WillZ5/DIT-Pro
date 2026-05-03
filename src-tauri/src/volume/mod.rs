@@ -151,7 +151,7 @@ fn get_volume_space_statvfs(path: &Path) -> Result<VolumeSpaceInfo> {
 
     let stat = unsafe { stat.assume_init() };
 
-    // Use u128 for intermediate calculations to prevent overflow with 
+    // Use u128 for intermediate calculations to prevent overflow with
     // extremely large drives or weird block sizes.
     let block_size = stat.f_frsize as u128;
     if block_size == 0 {
@@ -161,10 +161,10 @@ fn get_volume_space_statvfs(path: &Path) -> Result<VolumeSpaceInfo> {
     let total_bytes = (stat.f_blocks as u128) * block_size;
     let free_bytes = (stat.f_bfree as u128) * block_size;
     let available_bytes = (stat.f_bavail as u128) * block_size;
-    
+
     // used_bytes is calculated from total minus free blocks.
     let used_bytes = total_bytes.saturating_sub(free_bytes);
-    
+
     let usage_percent = if total_bytes > 0 {
         (used_bytes as f64 / total_bytes as f64) * 100.0
     } else {

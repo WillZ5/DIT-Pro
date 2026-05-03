@@ -288,7 +288,8 @@ mod tests {
                 color_space: Some("bt709".to_string()),
                 timecode_range: Some("01:00:00:00".to_string()),
                 thumbnail_path: None,
-                }],            summary: RushesLogSummary {
+            }],
+            summary: RushesLogSummary {
                 total_reels: 1,
                 total_clips: 10,
                 total_size: 10_737_418_240,

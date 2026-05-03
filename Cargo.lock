@@ -1106,7 +1106,7 @@ dependencies = [
 
 [[package]]
 name = "dit-pro"
-version = "1.3.2"
+version = "1.4.0-beta"
 dependencies = [
  "anyhow",
  "chrono",

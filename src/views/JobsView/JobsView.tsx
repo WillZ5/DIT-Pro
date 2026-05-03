@@ -996,6 +996,24 @@ export function JobsView() {
               }
               break;
 
+            case "proxyTranscodeStarted":
+              updated.phase = "Transcoding";
+              updated.currentFile = `[PROXY] ${ev.relPath}`;
+              updated.completedFiles = ev.fileIndex;
+              updated.totalFiles = ev.totalFiles;
+              updated.phaseMessage = `Transcoding ${ev.fileIndex + 1}/${ev.totalFiles}`;
+              updated.currentSpeed = 0;
+              break;
+
+            case "proxyTranscodeCompleted":
+              updated.phase = "Transcoding";
+              updated.currentFile = `[PROXY OK] ${ev.relPath}`;
+              updated.completedFiles = ev.fileIndex + 1;
+              updated.totalFiles = ev.totalFiles;
+              updated.phaseMessage = `Transcoded ${ev.fileIndex + 1}/${ev.totalFiles}`;
+              updated.currentSpeed = 0;
+              break;
+
             case "jobProgress": {
               // If currently paused, ignore stale progress events
               if (updated.isPaused) break;

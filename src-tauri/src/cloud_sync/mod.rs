@@ -9,7 +9,11 @@ use std::path::Path;
 use tokio::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(
+    tag = "type",
+    rename_all = "lowercase",
+    rename_all_fields = "camelCase"
+)]
 pub enum CloudProvider {
     S3 {
         endpoint: String,
@@ -35,6 +39,59 @@ impl Default for CloudProvider {
             access_key: String::new(),
             secret_key: String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn s3_provider_accepts_frontend_camel_case_keys() {
+        let provider: CloudProvider = serde_json::from_value(serde_json::json!({
+            "type": "s3",
+            "endpoint": "https://s3.example.com",
+            "region": "us-east-1",
+            "bucket": "dit-pro",
+            "accessKey": "AKIA_TEST",
+            "secretKey": "SECRET_TEST"
+        }))
+        .expect("frontend S3 provider should deserialize");
+
+        let CloudProvider::S3 {
+            endpoint,
+            region,
+            bucket,
+            access_key,
+            secret_key,
+        } = provider
+        else {
+            panic!("expected S3 provider");
+        };
+
+        assert_eq!(endpoint, "https://s3.example.com");
+        assert_eq!(region, "us-east-1");
+        assert_eq!(bucket, "dit-pro");
+        assert_eq!(access_key, "AKIA_TEST");
+        assert_eq!(secret_key, "SECRET_TEST");
+    }
+
+    #[test]
+    fn s3_provider_serializes_frontend_camel_case_keys() {
+        let provider = CloudProvider::S3 {
+            endpoint: "https://s3.example.com".to_string(),
+            region: "us-east-1".to_string(),
+            bucket: "dit-pro".to_string(),
+            access_key: "AKIA_TEST".to_string(),
+            secret_key: "SECRET_TEST".to_string(),
+        };
+
+        let value = serde_json::to_value(provider).expect("S3 provider should serialize");
+        assert_eq!(value["type"], "s3");
+        assert_eq!(value["accessKey"], "AKIA_TEST");
+        assert_eq!(value["secretKey"], "SECRET_TEST");
+        assert!(value.get("access_key").is_none());
+        assert!(value.get("secret_key").is_none());
     }
 }
 

@@ -284,6 +284,19 @@ export type OffloadEvent =
       mismatchDetail: string | null;
     }
   | {
+      type: "proxyTranscodeStarted";
+      relPath: string;
+      fileIndex: number;
+      totalFiles: number;
+    }
+  | {
+      type: "proxyTranscodeCompleted";
+      relPath: string;
+      proxyPath: string;
+      fileIndex: number;
+      totalFiles: number;
+    }
+  | {
       type: "jobProgress";
       completedFiles: number;
       totalFiles: number;

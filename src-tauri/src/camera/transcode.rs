@@ -16,6 +16,7 @@ pub enum ProxyFormat {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProxyConfig {
     pub format: ProxyFormat,
     pub width: u32,
@@ -124,5 +125,26 @@ pub fn generate_proxy(
         Ok(dest_path)
     } else {
         anyhow::bail!("FFmpeg transcode failed for {:?}", source)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn proxy_config_accepts_frontend_camel_case() {
+        let config: ProxyConfig =
+            serde_json::from_str(r#"{"format":"H264","width":1280,"burnTimecode":false,"crf":26}"#)
+                .expect("frontend proxy config should deserialize");
+
+        assert!(matches!(config.format, ProxyFormat::H264));
+        assert_eq!(config.width, 1280);
+        assert!(!config.burn_timecode);
+        assert_eq!(config.crf, 26);
+
+        let value = serde_json::to_value(&config).expect("proxy config should serialize");
+        assert_eq!(value["burnTimecode"], false);
+        assert!(value.get("burn_timecode").is_none());
     }
 }

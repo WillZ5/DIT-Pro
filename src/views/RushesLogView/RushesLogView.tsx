@@ -1,6 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { safeInvoke, isTauri, convertPathToSrc } from "../../utils/tauriCompat";
 import { useI18n } from "../../i18n";
+import { pathBasename } from "../../utils/pathDisplay";
 import type { CommandResult, RushesLogReport } from "../../types";
 
 function formatBytes(bytes: number): string {
@@ -49,6 +50,10 @@ export function RushesLogView() {
       setLoading(false);
     }
   }, [selectedDate]);
+
+  useEffect(() => {
+    void loadLog();
+  }, [loadLog]);
 
   const handleExport = async (format: "csv" | "tsv" | "xlsx" | "pdf") => {
     if (!selectedDate) return;
@@ -118,6 +123,22 @@ export function RushesLogView() {
       case "Partial": return "rushes-status-partial";
       case "Failed": return "rushes-status-failed";
       default: return "rushes-status-pending";
+    }
+  };
+
+  const proxyStatusClass = (status: string) => {
+    switch (status) {
+      case "Generated": return "rushes-proxy-generated";
+      case "Partial": return "rushes-proxy-partial";
+      default: return "rushes-proxy-none";
+    }
+  };
+
+  const proxyStatusLabel = (status: string) => {
+    switch (status) {
+      case "Generated": return t.rushesLog.proxyGenerated;
+      case "Partial": return t.rushesLog.proxyPartial;
+      default: return t.rushesLog.proxyNone;
     }
   };
 
@@ -208,6 +229,7 @@ export function RushesLogView() {
                   <th>{t.rushesLog.speed}</th>
                   <th>{t.rushesLog.status}</th>
                   <th>{t.rushesLog.mhlVerified}</th>
+                  <th>{t.rushesLog.proxyStatus}</th>
                   <th>{t.rushesLog.resolution}</th>
                   <th>{t.rushesLog.frameRate}</th>
                   <th>{t.rushesLog.codec}</th>
@@ -247,11 +269,16 @@ export function RushesLogView() {
                         {entry.mhlVerified ? "✓" : "✗"}
                       </span>
                     </td>
+                    <td>
+                      <span className={`rushes-proxy-badge ${proxyStatusClass(entry.proxyStatus)}`}>
+                        {proxyStatusLabel(entry.proxyStatus)}
+                      </span>
+                    </td>
                     <td className="rushes-cell-meta">{entry.resolution || "—"}</td>
                     <td className="rushes-cell-meta">{entry.frameRate || "—"}</td>
                     <td className="rushes-cell-meta">{entry.codec || "—"}</td>
                     <td className="rushes-cell-dest" title={entry.destPaths.join("\n")}>
-                      {entry.destPaths.map((d) => d.split("/").pop()).join(", ")}
+                      {entry.destPaths.map(pathBasename).join(", ")}
                     </td>
                   </tr>
                 ))}

@@ -121,6 +121,7 @@ function App() {
     return sessionStorage.getItem("dit-beta-dismissed") !== "1";
   });
   const [updateInfo, setUpdateInfo] = useState<import("./types").UpdateCheckResult | null>(null);
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [activeJobCount, setActiveJobCountState] = useState(0);
   const { t } = useI18n();
 
@@ -178,6 +179,17 @@ function App() {
     safeInvoke<VersionInfo>("get_app_version").then(setVersionInfo).catch(console.error);
   }, []);
 
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | null = null;
+    const setup = async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen("show-about", () => setShowAbout(true));
+    };
+    setup();
+    return () => { unlisten?.(); };
+  }, []);
+
   // Check for updates on startup (non-blocking)
   useEffect(() => {
     const dismissed = sessionStorage.getItem("dit-update-dismissed");
@@ -185,6 +197,7 @@ function App() {
       .then((result) => {
         if (result && result.hasUpdate && result.latestVersion !== dismissed) {
           setUpdateInfo(result);
+          setShowUpdateDialog(true);
         }
       })
       .catch((err) => console.warn("Update check skipped:", err));
@@ -210,6 +223,7 @@ function App() {
     if (updateInfo) {
       sessionStorage.setItem("dit-update-dismissed", updateInfo.latestVersion);
     }
+    setShowUpdateDialog(false);
     setUpdateInfo(null);
   };
 
@@ -348,6 +362,33 @@ function App() {
                 }}
               >
                 {t.betaWarning.understand}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Update dialog */}
+      {showUpdateDialog && updateInfo && (
+        <div className="dialog-overlay" onClick={() => setShowUpdateDialog(false)}>
+          <div className="dialog dialog--sm" onClick={(e) => e.stopPropagation()}>
+            <div className="dialog-header">
+              <h3>{t.update.title}</h3>
+              <button className="dialog-close" onClick={() => setShowUpdateDialog(false)}>x</button>
+            </div>
+            <div className="dialog-body">
+              <p>
+                {t.update.message
+                  .replace("{latest}", updateInfo.latestVersion)
+                  .replace("{current}", updateInfo.currentVersion)}
+              </p>
+            </div>
+            <div className="dialog-footer">
+              <button className="btn-secondary" onClick={handleUpdateDismiss}>
+                {t.update.dismiss}
+              </button>
+              <button className="btn-primary" onClick={handleUpdateClick}>
+                {t.update.download}
               </button>
             </div>
           </div>

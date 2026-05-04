@@ -47,6 +47,10 @@ pub struct AppSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OffloadDefaults {
+    /// Hash algorithms selected by default for new offload jobs
+    #[serde(default = "default_algorithms")]
+    pub hash_algorithms: Vec<String>,
+
     /// Pre-hash the source before copying
     #[serde(default = "default_true")]
     pub source_verify: bool,
@@ -80,6 +84,7 @@ pub struct OffloadDefaults {
 impl Default for OffloadDefaults {
     fn default() -> Self {
         Self {
+            hash_algorithms: default_algorithms(),
             source_verify: true,
             post_verify: true,
             generate_mhl: true,
@@ -93,6 +98,10 @@ impl Default for OffloadDefaults {
 
 fn default_cascade_strategy() -> String {
     "speed".to_string()
+}
+
+fn default_algorithms() -> Vec<String> {
+    vec!["XXH64".to_string(), "SHA256".to_string()]
 }
 
 fn default_true() -> bool {
@@ -341,6 +350,7 @@ mod tests {
         assert!(settings.offload.source_verify);
         assert!(settings.offload.post_verify);
         assert!(settings.offload.generate_mhl);
+        assert_eq!(settings.offload.hash_algorithms, vec!["XXH64", "SHA256"]);
         assert_eq!(settings.offload.buffer_size, 4 * 1024 * 1024);
         assert_eq!(settings.io_scheduling.hdd.max_concurrent, 1);
         assert_eq!(settings.io_scheduling.ssd.max_concurrent, 8);
@@ -383,6 +393,7 @@ mod tests {
         assert!(!settings.offload.source_verify);
         // Defaults should fill in the rest
         assert!(settings.offload.post_verify);
+        assert_eq!(settings.offload.hash_algorithms, vec!["XXH64", "SHA256"]);
         assert_eq!(settings.io_scheduling.hdd.max_concurrent, 1);
     }
 

@@ -52,6 +52,10 @@ pub struct CheckpointRecord {
     pub retry_count: i32,
 }
 
+fn has_persisted_hash(record: &CheckpointRecord) -> bool {
+    record.hash_xxh64.is_some() || record.hash_sha256.is_some()
+}
+
 /// Create a new job in the database
 pub fn create_job(
     conn: &Connection,
@@ -96,10 +100,17 @@ pub fn insert_task(
 
 /// Update task status
 pub fn update_task_status(conn: &Connection, task_id: &str, status: &str) -> Result<()> {
-    conn.execute(
-        "UPDATE copy_tasks SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
-        params![status, task_id],
-    )?;
+    if status == STATUS_FAILED {
+        conn.execute(
+            "UPDATE copy_tasks SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![status, task_id],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE copy_tasks SET status = ?1, error_msg = NULL, updated_at = datetime('now') WHERE id = ?2",
+            params![status, task_id],
+        )?;
+    }
     Ok(())
 }
 
@@ -108,6 +119,7 @@ pub fn update_task_completed(conn: &Connection, task_id: &str, hashes: &TaskHash
     conn.execute(
         "UPDATE copy_tasks SET status = 'completed',
          hash_xxh64 = ?1, hash_sha256 = ?2, hash_md5 = ?3, hash_xxh128 = ?4, hash_xxh3 = ?5,
+         error_msg = NULL,
          updated_at = datetime('now') WHERE id = ?6",
         params![
             hashes.xxh64,
@@ -187,6 +199,7 @@ pub fn update_task_skipped(conn: &Connection, task_id: &str, hashes: &TaskHashes
     conn.execute(
         "UPDATE copy_tasks SET status = 'skipped',
          hash_xxh64 = ?1, hash_sha256 = ?2, hash_md5 = ?3, hash_xxh128 = ?4, hash_xxh3 = ?5,
+         error_msg = NULL,
          updated_at = datetime('now') WHERE id = ?6",
         params![
             hashes.xxh64,
@@ -257,6 +270,36 @@ pub fn get_pending_tasks(conn: &Connection, job_id: &str) -> Result<Vec<Checkpoi
     Ok(records)
 }
 
+/// Get all copy tasks for a job.
+pub fn get_all_tasks(conn: &Connection, job_id: &str) -> Result<Vec<CheckpointRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, job_id, source_path, dest_path, file_size, status,
+                hash_xxh64, hash_sha256, error_msg, retry_count
+         FROM copy_tasks WHERE job_id = ?1
+         ORDER BY rowid ASC",
+    )?;
+
+    let records = stmt
+        .query_map(params![job_id], |row| {
+            Ok(CheckpointRecord {
+                task_id: row.get(0)?,
+                job_id: row.get(1)?,
+                source_path: row.get(2)?,
+                dest_path: row.get(3)?,
+                file_size: row.get(4)?,
+                status: row.get(5)?,
+                hash_xxh64: row.get(6)?,
+                hash_sha256: row.get(7)?,
+                error_msg: row.get(8)?,
+                retry_count: row.get(9)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("Failed to read job task records")?;
+
+    Ok(records)
+}
+
 /// Get tasks that were interrupted or failed (recoverable tasks)
 pub fn get_interrupted_tasks(conn: &Connection, job_id: &str) -> Result<Vec<CheckpointRecord>> {
     let mut stmt = conn.prepare(
@@ -303,7 +346,13 @@ pub async fn recover_job(conn: &Connection, job_id: &str) -> Result<Vec<Checkpoi
             log::info!("Cleaned up orphaned tmp file: {:?}", tmp_path);
         }
 
-        // 3. Reset to pending
+        // 3. Reset interrupted copy/failure tasks to pending. A task interrupted
+        // during destination verification already has copy hashes, so it can be
+        // verified again without requiring the source card.
+        if task.status == STATUS_VERIFYING && has_persisted_hash(task) {
+            continue;
+        }
+
         update_task_status(conn, &task.task_id, STATUS_PENDING)?;
         log::info!(
             "Reset interrupted task {} ({} -> {})",
@@ -524,6 +573,55 @@ mod tests {
 
         let progress = get_job_progress(&conn, "job-1").unwrap();
         assert_eq!(progress.failed, 1);
+    }
+
+    #[test]
+    fn test_success_states_clear_stale_error_message() {
+        let conn = setup_test_db();
+        create_job(&conn, "job-1", "Test", "/src", None).unwrap();
+        insert_task(&conn, "t-1", "job-1", "/src/a.mov", "/dst/a.mov", 500).unwrap();
+        insert_task(&conn, "t-2", "job-1", "/src/b.mov", "/dst/b.mov", 500).unwrap();
+        insert_task(&conn, "t-3", "job-1", "/src/c.mov", "/dst/c.mov", 500).unwrap();
+
+        update_task_failed(&conn, "t-1", "Verify failed: old mismatch").unwrap();
+        update_task_completed(
+            &conn,
+            "t-1",
+            &TaskHashes {
+                xxh64: Some("abc123".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        update_task_failed(&conn, "t-2", "Copy failed: old temp rename").unwrap();
+        update_task_status(&conn, "t-2", STATUS_COMPLETED).unwrap();
+
+        update_task_failed(&conn, "t-3", "Skipped after old failure").unwrap();
+        update_task_skipped(&conn, "t-3", &TaskHashes::default()).unwrap();
+
+        for task_id in ["t-1", "t-2", "t-3"] {
+            let error_msg: Option<String> = conn
+                .query_row(
+                    "SELECT error_msg FROM copy_tasks WHERE id = ?1",
+                    params![task_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(error_msg, None);
+        }
+
+        let retry_note: Option<String> = conn
+            .query_row(
+                "SELECT retry_note FROM copy_tasks WHERE id = 't-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(retry_note
+            .as_deref()
+            .unwrap_or_default()
+            .contains("old mismatch"));
     }
 
     #[test]

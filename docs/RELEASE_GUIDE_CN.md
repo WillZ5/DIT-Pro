@@ -6,7 +6,7 @@
 
 ## 版本号规则
 
-DIT Pro 使用语义化版本：
+DIT Pro 对外发布版本使用语义化版本：
 
 ```text
 MAJOR.MINOR.PATCH[-prerelease]
@@ -14,15 +14,28 @@ MAJOR.MINOR.PATCH[-prerelease]
 
 示例：
 
-- `1.4.0-beta`
+- `1.4.0-beta.2`
 - `1.5.0-rc.1`
 - `1.5.0`
 
-发布或生成对外安装包前，必须同步更新三处：
+配置文件只写基础版本：`MAJOR.MINOR.PATCH`。预发布后缀通过构建环境变量 `DIT_PRE_RELEASE` 提供。
+
+示例：
+
+```text
+配置文件基础版本：1.4.0
+Beta 构建环境变量：DIT_PRE_RELEASE=beta.2
+展示/发布版本：1.4.0-beta.2
+```
+
+发布或生成对外安装包前，必须同步更新基础版本文件：
 
 - `package.json`
+- `package-lock.json`
 - `src-tauri/Cargo.toml`
 - `src-tauri/tauri.conf.json`
+
+不要把 `1.4.0-beta.2` 写进这些配置文件；后缀属于 `DIT_PRE_RELEASE` 和对外发布 tag/title。
 
 判定规则：
 
@@ -30,7 +43,7 @@ MAJOR.MINOR.PATCH[-prerelease]
 - `internal-only`：不改版本号，除非会进入对外安装包。
 - `bugfix`：对外发布时至少 patch bump。
 - `user-visible feature`：对外发布时 minor bump，beta/RC 可带 prerelease。
-- `distribution`：只要更新 DMG/EXE、GitHub Release、`latest*.json`，必须确认三处版本一致。
+- `distribution`：只要更新 DMG/EXE、GitHub Release、`latest*.json`，必须确认基础版本一致，并确认预发布后缀和对外 tag 一致。
 
 ## GitHub Release 格式
 
@@ -45,15 +58,15 @@ vX.Y.Z[-prerelease] - Short release title
 正确：
 
 ```text
-v1.5.0-beta - Cloud Upload Queue and Proxy Delivery
+v1.5.0-beta.2 - Cloud Upload Queue and Proxy Delivery
 ```
 
 禁止：
 
 ```text
-v1.5.0-beta [em dash] Cloud Upload Queue and Proxy Delivery
-v1.5.0-beta [en dash] Cloud Upload Queue and Proxy Delivery
-v1.5.0-beta - [emoji] Cloud Upload Queue
+v1.5.0-beta.2 [em dash] Cloud Upload Queue and Proxy Delivery
+v1.5.0-beta.2 [en dash] Cloud Upload Queue and Proxy Delivery
+v1.5.0-beta.2 - [emoji] Cloud Upload Queue
 ```
 
 ### Body
@@ -126,14 +139,14 @@ Vercel 官网兜底资源命名：
 
 - 当前工作属于哪个 milestone。
 - 是否用户可见。
-- 是否要修改版本号。
+- 是否要修改基础版本或 `DIT_PRE_RELEASE`。
 - 是否要更新 Changelog 或 release note。
 - 是否影响安装包、自动更新、官网下载或 `website/software/`。
 - 是否需要同步飞书内部文档。
 
 完成时必须汇报：
 
-- 版本号是否修改；未修改则说明原因。
+- 基础版本或预发布后缀是否修改；未修改则说明原因。
 - milestone 影响。
 - 运行过的验证命令。
 - 如涉及发布，Release title 是否符合 `vX.Y.Z - Title` 格式。

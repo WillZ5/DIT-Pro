@@ -4,6 +4,7 @@ import { setActiveJobCount } from "../../state/activeJobCount";
 import { useI18n, type TranslationKeys } from "../../i18n";
 import { playChime, DEFAULT_SOUND_SETTINGS, type SoundSettings } from "../../utils/audioChimes";
 import { sendDitNotification, DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "../../utils/notifications";
+import { isPathWithinMount, pathBasename, pathTail } from "../../utils/pathDisplay";
 import type {
   AppSettings,
   CommandResult,
@@ -60,6 +61,19 @@ function formatDuration(secs: number): string {
   return `${m}m ${s}s`;
 }
 
+const LIVE_METRIC_SAMPLE_MS = 2000;
+const SPEED_TIMELINE_MAX_POINTS = 240;
+
+function clearTransientFileWarnings(warnings: string[], relPath: string): string[] {
+  const prefixes = [
+    `Verify failed: ${relPath} -`,
+    `Copy failed for ${relPath}:`,
+    `Primary copy failed for ${relPath}:`,
+    `Cascade failed for ${relPath}:`,
+  ];
+  return warnings.filter((warning) => !prefixes.some((prefix) => warning.startsWith(prefix)));
+}
+
 /** Phase display configuration */
 function usePhaseInfo(): Record<OffloadPhase, { label: string; color: string }> {
   const { t } = useI18n();
@@ -95,6 +109,7 @@ interface ActiveOffload {
   mhlPaths: string[];
   durationSecs: number;
   startedAt: number;
+  phaseStartedElapsedSecs: number;
   lastBytesSnapshot: number;
   lastSnapshotTime: number;
   currentSpeed: number;
@@ -136,6 +151,7 @@ function createActiveOffload(jobId: string, name: string): ActiveOffload {
     mhlPaths: [],
     durationSecs: 0,
     startedAt: now,
+    phaseStartedElapsedSecs: 0,
     lastBytesSnapshot: 0,
     lastSnapshotTime: now,
     currentSpeed: 0,
@@ -298,7 +314,7 @@ function ConflictResolutionDialog({ conflicts, onResolve, onCancel }: ConflictRe
                 {conflicts.map((c) => {
                   const key = `${c.relPath}::${c.destPath}`;
                   const currentAction = actions.get(key) || "skip";
-                  const destName = c.destPath ? c.destPath.split("/").slice(-2).join("/") : "—";
+                  const destName = c.destPath ? pathTail(c.destPath, 2) : "—";
                   return (
                     <tr key={key} className={c.sameSize ? "" : "conflict-row--diff"}>
                       <td className="conflict-cell-file" title={c.relPath}>
@@ -400,6 +416,9 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
     // Load default offload options from settings
     safeInvoke<CommandResult<AppSettings>>("get_settings").then((result) => {
       if (result.success && result.data) {
+        if (result.data.offload.hashAlgorithms?.length) {
+          setHashAlgorithms(result.data.offload.hashAlgorithms);
+        }
         setSourceVerify(result.data.offload.sourceVerify);
         setPostVerify(result.data.offload.postVerify);
         setGenerateMhl(result.data.offload.generateMhl);
@@ -500,6 +519,12 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
     setPostVerify(preset.postVerify);
     setGenerateMhl(preset.generateMhl);
     setCascade(preset.cascade);
+    setGenerateProxies(preset.generateProxies);
+    if (preset.proxyConfig) {
+      setProxyFormat(preset.proxyConfig.format);
+      setProxyWidth(preset.proxyConfig.width);
+      setProxyBurnTC(preset.proxyConfig.burnTimecode);
+    }
     setPresetUnavailablePaths([]);
 
     if (preset.defaultDestPaths.length > 0) {
@@ -514,7 +539,7 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
       const available: string[] = [];
       const unavailable: string[] = [];
       for (const p of preset.defaultDestPaths) {
-        const isMounted = Array.from(mountedPaths).some((mp) => p === mp || p.startsWith(mp + "/") || p.startsWith(mp + "\\"));
+        const isMounted = Array.from(mountedPaths).some((mp) => isPathWithinMount(p, mp));
         if (isMounted) {
           available.push(p);
         } else {
@@ -749,7 +774,10 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
               <input
                 type="checkbox"
                 checked={generateProxies}
-                onChange={(e) => setGenerateProxies(e.target.checked)}
+                onChange={(e) => {
+                  setGenerateProxies(e.target.checked);
+                  setSelectedPresetId(null);
+                }}
               />
               {t.jobs.generateProxies}
             </label>
@@ -757,14 +785,20 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
               <div className="proxy-settings-grid">
                 <div className="proxy-setting-item">
                   <label>{t.jobs.proxyFormat}</label>
-                  <select value={proxyFormat} onChange={(e) => setProxyFormat(e.target.value as ProxyFormat)}>
+                  <select value={proxyFormat} onChange={(e) => {
+                    setProxyFormat(e.target.value as ProxyFormat);
+                    setSelectedPresetId(null);
+                  }}>
                     <option value="H264">H.264 (MP4)</option>
                     <option value="ProResProxy">ProRes Proxy (MOV)</option>
                   </select>
                 </div>
                 <div className="proxy-setting-item">
                   <label>{t.jobs.proxyWidth}</label>
-                  <select value={proxyWidth} onChange={(e) => setProxyWidth(Number(e.target.value))}>
+                  <select value={proxyWidth} onChange={(e) => {
+                    setProxyWidth(Number(e.target.value));
+                    setSelectedPresetId(null);
+                  }}>
                     <option value={1920}>1920 (1080p)</option>
                     <option value={1280}>1280 (720p)</option>
                     <option value={960}>960 (540p)</option>
@@ -775,7 +809,10 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
                     <input
                       type="checkbox"
                       checked={proxyBurnTC}
-                      onChange={(e) => setProxyBurnTC(e.target.checked)}
+                      onChange={(e) => {
+                        setProxyBurnTC(e.target.checked);
+                        setSelectedPresetId(null);
+                      }}
                     />
                     {t.jobs.proxyBurnTC}
                   </label>
@@ -807,7 +844,7 @@ function NewOffloadDialog({ onStart, onCancel, initialSourcePath }: NewOffloadDi
               className="info-banner"
               dangerouslySetInnerHTML={{
                 __html: t.jobs.cascadeInfo
-                  .replace("{dest}", destPaths[0]?.split("/").pop() || "")
+                  .replace("{dest}", pathBasename(destPaths[0] || ""))
                   .replace("{count}", String(destPaths.length - 1)),
               }}
             />
@@ -959,6 +996,7 @@ export function JobsView() {
                 updated.currentSpeed = 0;
                 updated.lastBytesSnapshot = 0;
                 updated.lastSnapshotTime = Date.now();
+                updated.phaseStartedElapsedSecs = updated.elapsedSecs;
               }
               updated.phase = ev.phase;
               updated.phaseMessage = ev.message;
@@ -977,22 +1015,26 @@ export function JobsView() {
 
             case "fileCopyStarted":
               updated.currentFile = ev.relPath;
+              updated.warnings = clearTransientFileWarnings(updated.warnings, ev.relPath);
               break;
 
             case "fileCopyCompleted": {
               updated.currentFile = `[COPIED] ${ev.relPath}`;
               updated.completedFiles = ev.fileIndex + 1;
               updated.totalFiles = ev.totalFiles;
+              updated.warnings = clearTransientFileWarnings(updated.warnings, ev.relPath);
               break;
             }
 
             case "fileVerified":
-              updated.currentFile = `${ev.verified ? "[OK]" : "[FAIL]"} ${ev.relPath}${ev.destPath ? ` → ${ev.destPath.split("/").pop() || ev.destPath}` : ""}`;
+              updated.currentFile = `${ev.verified ? "[OK]" : "[FAIL]"} ${ev.relPath}${ev.destPath ? ` → ${pathBasename(ev.destPath) || ev.destPath}` : ""}`;
               if (!ev.verified && ev.mismatchDetail) {
                 updated.warnings = [
-                  ...updated.warnings,
+                  ...clearTransientFileWarnings(updated.warnings, ev.relPath),
                   `Verify failed: ${ev.relPath} - ${ev.mismatchDetail}`,
                 ];
+              } else if (ev.verified) {
+                updated.warnings = clearTransientFileWarnings(updated.warnings, ev.relPath);
               }
               break;
 
@@ -1021,11 +1063,22 @@ export function JobsView() {
               // Detect phase change — reset speed baseline
               const phaseChanged = ev.phase !== updated.phase;
               if (phaseChanged) {
-                updated.lastBytesSnapshot = 0;
+                updated.lastBytesSnapshot = ev.completedBytes;
                 updated.lastSnapshotTime = now;
                 updated.currentSpeed = 0;
                 updated.phaseMessage = ev.message || "";
+                updated.phaseStartedElapsedSecs = ev.elapsedSecs;
               }
+
+              const shouldSample =
+                phaseChanged ||
+                now - updated.lastSnapshotTime >= LIVE_METRIC_SAMPLE_MS ||
+                (ev.totalBytes > 0 && ev.completedBytes >= ev.totalBytes);
+
+              if (!shouldSample) break;
+
+              const dt = Math.max((now - updated.lastSnapshotTime) / 1000, 0);
+              const db = ev.completedBytes - updated.lastBytesSnapshot;
 
               updated.completedFiles = ev.completedFiles;
               updated.totalFiles = ev.totalFiles;
@@ -1037,24 +1090,21 @@ export function JobsView() {
                 updated.phaseMessage = ev.message;
               }
 
-              // Calculate instantaneous speed on every event
-              if (!phaseChanged) {
-                const dt = (now - updated.lastSnapshotTime) / 1000;
-                if (dt >= 1.0) {
-                  // Sample once per second for both speed display and history
-                  const db = ev.completedBytes - updated.lastBytesSnapshot;
-                  const speed = Math.max(0, db / dt);
-                  updated.currentSpeed = speed;
-                  updated.lastBytesSnapshot = ev.completedBytes;
-                  updated.lastSnapshotTime = now;
-                  if (speed > 0) {
-                    const phase = updated.phase;
-                    // Append to chronological timeline (preserves phase ordering)
-                    const tl = [...updated.speedTimeline, { phase, speed }];
-                    updated.speedTimeline = tl.length > 240 ? tl.slice(-240) : tl;
-                  }
+              if (!phaseChanged && dt > 0) {
+                const speed = Math.max(0, db / dt);
+                updated.currentSpeed = speed;
+                if (speed > 0) {
+                  const phase = updated.phase;
+                  // Append to chronological timeline (preserves phase ordering)
+                  const tl = [...updated.speedTimeline, { phase, speed }];
+                  updated.speedTimeline =
+                    tl.length > SPEED_TIMELINE_MAX_POINTS
+                      ? tl.slice(-SPEED_TIMELINE_MAX_POINTS)
+                      : tl;
                 }
               }
+              updated.lastBytesSnapshot = ev.completedBytes;
+              updated.lastSnapshotTime = now;
               break;
             }
 
@@ -1068,8 +1118,7 @@ export function JobsView() {
               updated.sourceReleasedPath = ev.sourcePath;
 
               // Extract volume name from path (e.g. "/Volumes/ALEXA_A001" → "ALEXA_A001")
-              const parts = (ev.sourcePath || "").split(/[/\\]/);
-              const volName = parts.filter(Boolean).pop() || ev.sourcePath;
+              const volName = pathBasename(ev.sourcePath || "") || ev.sourcePath;
               setSourceReleasedVolumeName(volName);
               setShowSourceReleasedModal(true);
 
@@ -1780,15 +1829,14 @@ export function JobsView() {
                   : 0;
             const isRunning =
               offload.phase !== "Complete" && offload.phase !== "Failed" && offload.phase !== "Terminated";
-            // ETA based on overall average speed (completedBytes / elapsedSecs)
-            // to avoid jitter from instantaneous speed fluctuations
-            const overallSpeed =
-              offload.elapsedSecs > 0 && offload.completedBytes > 0
-                ? offload.completedBytes / offload.elapsedSecs
+            const phaseElapsedSecs = Math.max(0, offload.elapsedSecs - offload.phaseStartedElapsedSecs);
+            const phaseAverageSpeed =
+              phaseElapsedSecs > 0 && offload.completedBytes > 0
+                ? offload.completedBytes / phaseElapsedSecs
                 : 0;
             const eta =
-              isRunning && overallSpeed > 0
-                ? (offload.totalBytes - offload.completedBytes) / overallSpeed
+              isRunning && phaseAverageSpeed > 0
+                ? (offload.totalBytes - offload.completedBytes) / phaseAverageSpeed
                 : 0;
 
             const isExpanded = expandedJobId === offload.jobId;

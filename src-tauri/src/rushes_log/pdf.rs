@@ -136,8 +136,8 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
     doc.push(Break::new(0.5));
 
     // ── Data Table ──
-    // Column weights: Thumb(2), Reel(2), Camera(2), Clips(1), Size(1), Dur(1), Speed(1), Status(1), MHL(1), Res(1), Codec(1), FPS(1)
-    let mut table = TableLayout::new(vec![2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    // Column weights: Thumb, Reel, Camera, Clips, Size, Dur, Speed, Status, MHL, Proxy, Res, Codec, FPS
+    let mut table = TableLayout::new(vec![2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
 
     // Header row
     let header_style = Style::new().bold().with_font_size(8);
@@ -152,6 +152,7 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
         "Speed",
         "Status",
         "MHL",
+        "Proxy",
         "Resolution",
         "Codec",
         "FPS",
@@ -201,6 +202,7 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
         row.push_element(Paragraph::new(format!("{:.1} MB/s", entry.avg_speed_mbps)).styled(s));
         row.push_element(Paragraph::new(&entry.backup_status).styled(s));
         row.push_element(Paragraph::new(if entry.mhl_verified { "Yes" } else { "No" }).styled(s));
+        row.push_element(Paragraph::new(&entry.proxy_status).styled(s));
         row.push_element(Paragraph::new(entry.resolution.as_deref().unwrap_or("-")).styled(s));
         row.push_element(Paragraph::new(entry.codec.as_deref().unwrap_or("-")).styled(s));
         row.push_element(Paragraph::new(entry.frame_rate.as_deref().unwrap_or("-")).styled(s));
@@ -279,6 +281,7 @@ mod tests {
                 avg_speed_mbps: 34.1,
                 backup_status: "Verified".to_string(),
                 mhl_verified: true,
+                proxy_status: "None".to_string(),
                 dest_paths: vec!["/Volumes/SSD1".to_string()],
                 started_at: "2026-03-09 09:00:00".to_string(),
                 completed_at: "2026-03-09 09:05:00".to_string(),

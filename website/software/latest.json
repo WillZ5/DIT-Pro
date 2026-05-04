@@ -1,16 +1,20 @@
 {
-  "tag_name": "v1.3.1",
-  "name": "v1.3.1 — Rushes Log & Stability Fixes",
-  "body": "## DIT Pro v1.3.1 — Stable Release\n\n### New Features\n\n**A. Rushes Log (P0)**\n- Generate professional shooting day reports automatically.\n- Extract media metadata (resolution, codec, timecode) for video files.\n- Export to CSV, TSV, Excel (.xlsx), and PDF.\n\n**B. Stability & Performance (P0)**\n- **HDD Capacity Fix**: Fixed a critical overflow bug causing >16TB drives to show 0 bytes capacity.\n- **Performance Tuning**: Throttled IPC events to 500ms to prevent CPU overhead and copy slowdowns.\n- **Mutex Optimization**: Resolved database lock contention during task initialization.\n\n### Downloads\n| Platform | File |\n|----------|------|\n| macOS (Universal) | `stable-DIT.Pro_1.3.1_universal.dmg` |\n| Windows (x64) | `stable-DIT.Pro_1.3.1_x64-setup.exe` |",
-  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.3.1",
-  "published_at": "2026-03-28T12:00:00Z",
-  "download_url": "https://ditpro.negdims.com/software/stable-DIT.Pro_1.3.1_universal.dmg",
+  "tag_name": "v1.2.0",
+  "name": "v1.2.0 — Stable Release",
+  "body": "## DIT Pro v1.2.0 — Stable Release\n\nCurrent public stable build. v1.3.0 was skipped for personal development reasons; the active beta channel is v1.4.0-beta.7.",
+  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.2.0",
+  "published_at": "2026-03-10T10:00:00Z",
+  "download_url": "https://ditpro.negdims.com/software/stable-DIT.Pro_1.2.0_universal.dmg",
   "channel": "stable",
-  "name": "v1.3.1",
-  "windows_download_url": "https://ditpro.negdims.com/software/stable-DIT.Pro_1.3.1_x64-setup.exe",
-  "macos_asset_name": "stable-DIT.Pro_1.3.1_universal.dmg",
-  "windows_asset_name": "stable-DIT.Pro_1.3.1_x64-setup.exe",
-  "macos_source_asset_name": "DIT.Pro_1.3.1_universal.dmg",
-  "windows_source_asset_name": "DIT.Pro_1.3.1_x64-setup.exe"
+  "windows_download_url": "https://ditpro.negdims.com/software/stable-DIT.Pro_1.2.0_x64-setup.exe",
+  "macos_asset_name": "stable-DIT.Pro_1.2.0_universal.dmg",
+  "windows_asset_name": "stable-DIT.Pro_1.2.0_x64-setup.exe",
+  "macos_source_asset_name": "DIT.Pro_1.2.0_universal.dmg",
+  "windows_source_asset_name": "DIT.Pro_1.2.0_x64-setup.exe",
+  "skipped_versions": [
+    {
+      "version": "v1.3.0",
+      "reason": "Skipped for personal development reasons."
+    }
+  ]
 }
-

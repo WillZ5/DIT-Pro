@@ -77,6 +77,7 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
         "Speed (MB/s)",
         "Status",
         "MHL",
+        "Proxy",
         "Resolution",
         "Frame Rate",
         "Codec",
@@ -90,8 +91,8 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
 
     // Column widths (approximate)
     let col_widths: &[f64] = &[
-        12.0, 12.0, 12.0, 14.0, 6.0, 24.0, 24.0, 10.0, 10.0, 10.0, 10.0, 5.0, 12.0, 10.0, 14.0,
-        12.0, 14.0, 28.0, 30.0, 20.0, 20.0,
+        12.0, 12.0, 12.0, 14.0, 6.0, 24.0, 24.0, 10.0, 10.0, 10.0, 10.0, 5.0, 10.0, 12.0, 10.0,
+        14.0, 12.0, 14.0, 28.0, 30.0, 20.0, 20.0,
     ];
 
     for (col, header) in headers.iter().enumerate() {
@@ -164,40 +165,41 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
             if entry.mhl_verified { "Yes" } else { "No" },
             txt_fmt,
         )?;
+        worksheet.write_string_with_format(row, 12, &entry.proxy_status, txt_fmt)?;
         worksheet.write_string_with_format(
             row,
-            12,
+            13,
             entry.resolution.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            13,
+            14,
             entry.frame_rate.as_deref().unwrap_or(""),
             n_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            14,
+            15,
             entry.codec.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            15,
+            16,
             entry.color_space.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            16,
+            17,
             entry.timecode_range.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
-        worksheet.write_string_with_format(row, 17, &entry.source_path, txt_fmt)?;
-        worksheet.write_string_with_format(row, 18, entry.dest_paths.join("; "), txt_fmt)?;
-        worksheet.write_string_with_format(row, 19, &entry.started_at, txt_fmt)?;
-        worksheet.write_string_with_format(row, 20, &entry.completed_at, txt_fmt)?;
+        worksheet.write_string_with_format(row, 18, &entry.source_path, txt_fmt)?;
+        worksheet.write_string_with_format(row, 19, entry.dest_paths.join("; "), txt_fmt)?;
+        worksheet.write_string_with_format(row, 20, &entry.started_at, txt_fmt)?;
+        worksheet.write_string_with_format(row, 21, &entry.completed_at, txt_fmt)?;
     }
 
     // ── Summary Row ──
@@ -283,6 +285,7 @@ mod tests {
                 avg_speed_mbps: 34.1,
                 backup_status: "Verified".to_string(),
                 mhl_verified: true,
+                proxy_status: "None".to_string(),
                 dest_paths: vec!["/Volumes/SSD1".to_string()],
                 started_at: "2026-03-09 09:00:00".to_string(),
                 completed_at: "2026-03-09 09:05:00".to_string(),

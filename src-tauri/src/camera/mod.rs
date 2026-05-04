@@ -76,9 +76,21 @@ pub fn identify_camera(source_path: &Path) -> CameraInfo {
         ..Default::default()
     };
 
-    // Collect all media files (recursive, max depth 3)
+    // Collect all media files (recursive, max depth 3), using the same
+    // ignore rules as copy/MHL so sidecar files do not become clips.
+    let ignore_patterns: Vec<String> = crate::mhl::DEFAULT_IGNORE_PATTERNS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let mut media_files: Vec<(String, u64)> = Vec::new(); // (filename, size)
-    collect_media_files(source_path, 0, 3, &mut media_files);
+    collect_media_files(
+        source_path,
+        source_path,
+        0,
+        3,
+        &ignore_patterns,
+        &mut media_files,
+    );
 
     // Count clips and size
     info.clip_count = media_files.len() as u32;
@@ -105,9 +117,11 @@ pub fn identify_camera(source_path: &Path) -> CameraInfo {
 
 /// Recursively collect media files up to max_depth levels.
 fn collect_media_files(
+    root: &Path,
     dir: &Path,
     current_depth: u32,
     max_depth: u32,
+    ignore_patterns: &[String],
     result: &mut Vec<(String, u64)>,
 ) {
     if current_depth > max_depth {
@@ -121,12 +135,29 @@ fn collect_media_files(
 
     for entry in entries.flatten() {
         let path = entry.path();
+        let rel_path = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        if crate::mhl::should_ignore(&rel_path, ignore_patterns) {
+            continue;
+        }
+
         if path.is_dir() {
             // Skip hidden directories
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
             if !name_str.starts_with('.') {
-                collect_media_files(&path, current_depth + 1, max_depth, result);
+                collect_media_files(
+                    root,
+                    &path,
+                    current_depth + 1,
+                    max_depth,
+                    ignore_patterns,
+                    result,
+                );
             }
         } else if path.is_file() {
             if let Some(ext) = path.extension() {
@@ -214,10 +245,23 @@ fn has_subfolder(source_path: &Path, name: &str) -> bool {
 
 /// Check if any file in the top level has the given extension pattern.
 fn has_subfolder_pattern(source_path: &Path, ext: &str) -> bool {
+    let ignore_patterns: Vec<String> = crate::mhl::DEFAULT_IGNORE_PATTERNS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     if let Ok(entries) = std::fs::read_dir(source_path) {
         for entry in entries.flatten() {
-            if entry.path().is_file() {
-                if let Some(e) = entry.path().extension() {
+            let path = entry.path();
+            if path.is_file() {
+                let rel_path = path
+                    .strip_prefix(source_path)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if crate::mhl::should_ignore(&rel_path, &ignore_patterns) {
+                    continue;
+                }
+                if let Some(e) = path.extension() {
                     if e.to_string_lossy().to_lowercase() == ext.trim_start_matches('.') {
                         return true;
                     }
@@ -254,10 +298,23 @@ fn has_nested_path(source_path: &Path, parts: &[&str]) -> bool {
 
 /// Check if source directory has files with any of the given extensions.
 fn has_file_extension_in(source_path: &Path, exts: &[&str]) -> bool {
+    let ignore_patterns: Vec<String> = crate::mhl::DEFAULT_IGNORE_PATTERNS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     if let Ok(entries) = std::fs::read_dir(source_path) {
         for entry in entries.flatten() {
-            if entry.path().is_file() {
-                if let Some(e) = entry.path().extension() {
+            let path = entry.path();
+            if path.is_file() {
+                let rel_path = path
+                    .strip_prefix(source_path)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if crate::mhl::should_ignore(&rel_path, &ignore_patterns) {
+                    continue;
+                }
+                if let Some(e) = path.extension() {
                     let ext_lower = e.to_string_lossy().to_lowercase();
                     if exts.contains(&ext_lower.as_str()) {
                         return true;
@@ -410,6 +467,23 @@ mod tests {
         let info = identify_camera(tmp.path());
         assert_eq!(info.brand, "Generic");
         assert_eq!(info.clip_count, 3);
+    }
+
+    #[test]
+    fn test_identify_ignores_appledouble_sidecars() {
+        let tmp = create_test_dir(&[
+            "PS128822.MOV",
+            "PS128830.MOV",
+            "._PS128830.MOV",
+            "._PS128842.MOV",
+            ".DS_Store",
+            "ascmhl/0001_test.mhl",
+        ]);
+        let info = identify_camera(tmp.path());
+        assert_eq!(info.brand, "Generic");
+        assert_eq!(info.clip_count, 2);
+        assert_eq!(info.first_clip, "PS128822.MOV");
+        assert_eq!(info.last_clip, "PS128830.MOV");
     }
 
     #[test]

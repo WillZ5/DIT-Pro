@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { safeInvoke, isTauri } from "../../utils/tauriCompat";
 import { useI18n, type TranslationKeys } from "../../i18n";
+import { pathBasename } from "../../utils/pathDisplay";
 import type { CommandResult, DayReport, JobReport, AppSettings } from "../../types";
 
 /** Translate backend status string to localized display text */
@@ -415,10 +416,8 @@ export function ReportView() {
                       </thead>
                       <tbody>
                         {jobReport.tasks.map((task, i) => {
-                          const srcName =
-                            task.sourcePath?.split("/").pop() || task.sourcePath || "—";
-                          const destName =
-                            task.destPath?.split("/").pop() || task.destPath || "—";
+                          const srcName = task.sourcePath ? pathBasename(task.sourcePath) : "—";
+                          const destName = task.destPath ? pathBasename(task.destPath) : "—";
                           return (
                             <tr key={i}>
                               <td title={task.sourcePath || ""}>{srcName}</td>

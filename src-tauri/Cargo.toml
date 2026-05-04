@@ -1,6 +1,6 @@
 [package]
 name = "dit-pro"
-version = "1.4.0-beta"
+version = "1.4.0"
 description = "DIT Pro — Professional Card Offload Engine"
 authors = ["William Zhao"]
 license = "MIT"
@@ -18,7 +18,7 @@ chrono = "0.4"
 
 [dependencies]
 # Tauri framework
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"

@@ -559,6 +559,13 @@ pub async fn scan_source_size(
         }
     }
 
+    if total_files == 0 {
+        return Ok(CommandResult::err(format!(
+            "No files found in source directory: {}",
+            source_path
+        )));
+    }
+
     Ok(CommandResult::ok(SourceSizeInfo {
         total_files,
         total_bytes,
@@ -970,9 +977,14 @@ pub async fn start_offload(
     // Read saved settings as defaults
     let saved = state.settings.lock().map_err(|e| e.to_string())?.clone();
 
+    let default_algos = if saved.offload.hash_algorithms.is_empty() {
+        vec!["XXH64".to_string(), "SHA256".to_string()]
+    } else {
+        saved.offload.hash_algorithms.clone()
+    };
     let algos: Vec<HashAlgorithm> = request
         .hash_algorithms
-        .unwrap_or_else(|| vec!["XXH64".to_string(), "SHA256".to_string()])
+        .unwrap_or(default_algos)
         .iter()
         .filter_map(|s| parse_algorithm(s))
         .collect();
@@ -1111,6 +1123,9 @@ pub async fn start_offload(
                     }
                 } else {
                     log::error!("Offload {} failed: {}", job_id_for_task, e);
+                    wf.emit(workflow::OffloadEvent::Error {
+                        message: err_msg.clone(),
+                    });
 
                     // Log the error to error_log with structured DitError
                     if let Ok(conn) = db_for_status.lock() {
@@ -1122,6 +1137,12 @@ pub async fn start_offload(
                             Some(&job_id_for_task),
                             None,
                         );
+                        checkpoint::update_job_status(
+                            &conn,
+                            &job_id_for_task,
+                            checkpoint::STATUS_FAILED,
+                        )
+                        .ok();
                     }
 
                     // Send email notification on failure
@@ -1187,12 +1208,18 @@ pub async fn resume_offload(
     use crate::error::DitError;
 
     // Step 1: Read job info
-    let (job_name, source_path) = {
+    let (job_name, source_path, job_status) = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         match conn.query_row(
-            "SELECT name, source_path FROM jobs WHERE id = ?1",
+            "SELECT name, source_path, status FROM jobs WHERE id = ?1",
             rusqlite::params![job_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
         ) {
             Ok(result) => result,
             Err(_) => {
@@ -1215,6 +1242,11 @@ pub async fn resume_offload(
             checkpoint::get_interrupted_tasks(&conn, &job_id).map_err(|e| e.to_string())?;
         let paths: Vec<String> = interrupted.iter().map(|t| t.dest_path.clone()).collect();
         for task in &interrupted {
+            let is_resumable_verify = task.status == checkpoint::STATUS_VERIFYING
+                && (task.hash_xxh64.is_some() || task.hash_sha256.is_some());
+            if is_resumable_verify {
+                continue;
+            }
             checkpoint::update_task_status(&conn, &task.task_id, checkpoint::STATUS_PENDING)
                 .map_err(|e| e.to_string())?;
         }
@@ -1235,23 +1267,33 @@ pub async fn resume_offload(
         checkpoint::get_pending_tasks(&conn, &job_id).map_err(|e| e.to_string())?
     };
 
-    if pending_tasks.is_empty() {
+    let (tasks_for_roots, verify_only_resume) = if pending_tasks.is_empty() {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        return Ok(CommandResult::err_and_log(
-            &conn,
-            DitError::DbNotFound {
-                desc: format!("No pending tasks for job {}", job_id),
-            },
-            "commands::resume_offload",
-            Some(&job_id),
-        ));
-    }
+        let all_tasks = checkpoint::get_all_tasks(&conn, &job_id).map_err(|e| e.to_string())?;
+        let has_verifiable_tasks = all_tasks
+            .iter()
+            .any(|task| matches!(task.status.as_str(), "completed" | "skipped" | "verifying"));
+        if matches!(job_status.as_str(), "verifying" | "terminated") && has_verifiable_tasks {
+            (all_tasks, true)
+        } else {
+            return Ok(CommandResult::err_and_log(
+                &conn,
+                DitError::DbNotFound {
+                    desc: format!("No pending tasks for job {}", job_id),
+                },
+                "commands::resume_offload",
+                Some(&job_id),
+            ));
+        }
+    } else {
+        (pending_tasks, false)
+    };
 
     // Derive unique destination root paths from task dest_paths relative to source paths
     let dest_roots: Vec<PathBuf> = {
         let mut roots = std::collections::HashSet::new();
         let source_root = PathBuf::from(&source_path);
-        for task in &pending_tasks {
+        for task in &tasks_for_roots {
             let source_file = PathBuf::from(&task.source_path);
             let dest_file = PathBuf::from(&task.dest_path);
             // dest_root = dest_file without the relative part from source
@@ -1283,7 +1325,7 @@ pub async fn resume_offload(
 
     // Step 3.5: Validate source and destination paths exist before resuming
     let source_root = Path::new(&source_path);
-    if !source_root.exists() {
+    if !verify_only_resume && !source_root.exists() {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         return Ok(CommandResult::err_and_log(
             &conn,
@@ -1341,12 +1383,18 @@ pub async fn resume_offload(
         cloud_config: saved.cloud,
     };
 
-    // Step 5: Mark job as copying
+    // Step 5: Mark job as active for resume. Preserve verify-only resumes so the
+    // workflow can re-enter post-copy verification when there are no pending tasks.
     {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let resume_status = if verify_only_resume {
+            "verifying"
+        } else {
+            "copying"
+        };
         conn.execute(
-            "UPDATE jobs SET status = 'copying', updated_at = datetime('now') WHERE id = ?1",
-            rusqlite::params![job_id],
+            "UPDATE jobs SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![resume_status, job_id],
         )
         .map_err(|e| e.to_string())?;
     }
@@ -1549,6 +1597,23 @@ pub fn save_settings(
     Ok(CommandResult::ok(true))
 }
 
+/// Reset application settings to built-in defaults and clear stored SMTP credential.
+#[tauri::command]
+pub fn reset_settings(state: State<'_, AppState>) -> Result<CommandResult<AppSettings>, String> {
+    let settings = AppSettings::default();
+    let credential_path = state.app_data_dir.join(".smtp_credential");
+    if credential_path.exists() {
+        let _ = std::fs::remove_file(&credential_path);
+    }
+
+    config::save_settings(&state.app_data_dir, &settings).map_err(|e| e.to_string())?;
+
+    let mut current = state.settings.lock().map_err(|e| e.to_string())?;
+    *current = settings.clone();
+
+    Ok(CommandResult::ok(settings))
+}
+
 // ─── Preset Commands ──────────────────────────────────────────────────────
 
 /// List all workflow presets (user + builtin)
@@ -1636,6 +1701,9 @@ pub fn save_job_as_preset(
             .iter()
             .map(|a| format!("{:?}", a))
             .collect(),
+        generate_proxies: config.generate_proxies,
+        proxy_config: config.proxy_config,
+        auto_export_report: false,
         source_verify: config.source_verify,
         post_verify: config.post_verify,
         generate_mhl: config.generate_mhl,
@@ -2380,6 +2448,21 @@ pub async fn export_debug_bundle(
 mod tests {
     use super::*;
     use crate::workflow::{OffloadEvent, OffloadPhase};
+
+    #[tokio::test]
+    async fn test_scan_source_size_empty_source_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let result = scan_source_size(tmp.path().to_string_lossy().to_string())
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("No files found"));
+    }
 
     #[test]
     fn test_envelope_serialization_job_progress() {

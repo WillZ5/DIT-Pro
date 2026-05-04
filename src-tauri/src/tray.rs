@@ -14,7 +14,12 @@ use tauri::{
 
 /// Initialize the system tray icon and menu.
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let version = env!("CARGO_PKG_VERSION");
+    let version = crate::version::VersionInfo::current()
+        .full_string
+        .split('+')
+        .next()
+        .unwrap_or("unknown")
+        .to_string();
 
     // Build context menu items
     let title_item = MenuItemBuilder::new(format!("DIT Pro v{}", version))

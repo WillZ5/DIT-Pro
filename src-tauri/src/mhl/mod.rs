@@ -85,7 +85,7 @@ impl Default for MhlConfig {
         Self {
             creator_info: MhlCreatorInfo {
                 tool_name: "DIT Pro".to_string(),
-                tool_version: env!("CARGO_PKG_VERSION").to_string(),
+                tool_version: crate::version::VersionInfo::current().full_string,
                 hostname: get_hostname(),
                 location: None,
                 comment: None,

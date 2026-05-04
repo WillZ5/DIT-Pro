@@ -14,6 +14,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as Sha2Digest, Sha256};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::AsyncReadExt;
 
 /// Supported hash algorithms
@@ -53,6 +54,23 @@ pub struct HashEngineConfig {
     pub algorithms: Vec<HashAlgorithm>,
     /// Buffer size for reading (default: 4MB)
     pub buffer_size: usize,
+}
+
+/// Runtime control for pause/cancel and progress reporting during hashing.
+pub struct HashControl<'a> {
+    pub cancel_flag: Option<&'a AtomicBool>,
+    pub pause_flag: Option<&'a AtomicBool>,
+    pub on_progress: Option<&'a (dyn Fn(u64, u64) + Send + Sync)>,
+}
+
+impl<'a> HashControl<'a> {
+    pub fn none() -> Self {
+        Self {
+            cancel_flag: None,
+            pause_flag: None,
+            on_progress: None,
+        }
+    }
 }
 
 impl Default for HashEngineConfig {
@@ -194,6 +212,41 @@ pub async fn hash_file_with_progress(
     config: &HashEngineConfig,
     on_progress: Option<&(dyn Fn(u64, u64) + Send + Sync)>,
 ) -> Result<Vec<HashResult>> {
+    let control = HashControl {
+        cancel_flag: None,
+        pause_flag: None,
+        on_progress,
+    };
+    hash_file_with_control(path, config, &control).await
+}
+
+async fn check_cancel_pause(control: &HashControl<'_>) -> Result<()> {
+    if let Some(cancel) = control.cancel_flag {
+        if cancel.load(Ordering::SeqCst) {
+            anyhow::bail!("Offload cancelled by user");
+        }
+    }
+
+    if let Some(pause) = control.pause_flag {
+        while pause.load(Ordering::SeqCst) {
+            if let Some(cancel) = control.cancel_flag {
+                if cancel.load(Ordering::SeqCst) {
+                    anyhow::bail!("Offload cancelled by user");
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }
+
+    Ok(())
+}
+
+/// Hash a file with pause/cancel control and optional progress callback.
+pub async fn hash_file_with_control(
+    path: &Path,
+    config: &HashEngineConfig,
+    control: &HashControl<'_>,
+) -> Result<Vec<HashResult>> {
     let metadata = tokio::fs::metadata(path).await?;
     let total_bytes = metadata.len();
     let mut file = tokio::fs::File::open(path).await?;
@@ -201,12 +254,13 @@ pub async fn hash_file_with_progress(
     let mut buffer = vec![0u8; config.buffer_size];
 
     loop {
+        check_cancel_pause(control).await?;
         let bytes_read = file.read(&mut buffer).await?;
         if bytes_read == 0 {
             break;
         }
         hasher.update(&buffer[..bytes_read]);
-        if let Some(cb) = &on_progress {
+        if let Some(cb) = control.on_progress {
             cb(hasher.bytes_processed(), total_bytes);
         }
     }
@@ -351,5 +405,115 @@ mod tests {
         let sync_results = hash_file_sync(&file_path, &config).unwrap();
         assert_eq!(results[0].hex_digest, sync_results[0].hex_digest);
         assert_eq!(results[1].hex_digest, sync_results[1].hex_digest);
+    }
+
+    #[tokio::test]
+    async fn test_hash_pause_resume_continues_current_file() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("pause_hash.bin");
+        let data = vec![0xA5u8; 512 * 1024];
+        std::fs::write(&file_path, &data).unwrap();
+
+        let pause = AtomicBool::new(false);
+        let pause_triggered = AtomicBool::new(false);
+        let progress = Arc::new(AtomicU64::new(0));
+        let progress_for_cb = progress.clone();
+        let pause_for_cb = &pause;
+        let pause_triggered_for_cb = &pause_triggered;
+
+        let config = HashEngineConfig {
+            algorithms: vec![HashAlgorithm::XXH64, HashAlgorithm::SHA256],
+            buffer_size: 4096,
+        };
+        let progress_callback = move |hashed: u64, _total: u64| {
+            progress_for_cb.store(hashed, Ordering::SeqCst);
+            if hashed >= 16 * 1024 && !pause_triggered_for_cb.swap(true, Ordering::SeqCst) {
+                pause_for_cb.store(true, Ordering::SeqCst);
+            }
+        };
+        let control = HashControl {
+            cancel_flag: None,
+            pause_flag: Some(&pause),
+            on_progress: Some(&progress_callback),
+        };
+
+        let hash_future = hash_file_with_control(&file_path, &config, &control);
+        tokio::pin!(hash_future);
+
+        loop {
+            tokio::select! {
+                result = &mut hash_future => {
+                    panic!("hash finished before pause was observed: {:?}", result);
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(20)) => {
+                    if pause.load(Ordering::SeqCst) && progress.load(Ordering::SeqCst) >= 16 * 1024 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let paused_at = progress.load(Ordering::SeqCst);
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        assert_eq!(
+            progress.load(Ordering::SeqCst),
+            paused_at,
+            "paused hash should not advance within the current file"
+        );
+
+        pause.store(false, Ordering::SeqCst);
+        let results = tokio::time::timeout(std::time::Duration::from_secs(5), &mut hash_future)
+            .await
+            .unwrap()
+            .unwrap();
+        let sync_results = hash_file_sync(&file_path, &config).unwrap();
+        assert_eq!(results.len(), sync_results.len());
+        for (actual, expected) in results.iter().zip(sync_results.iter()) {
+            assert_eq!(actual.algorithm, expected.algorithm);
+            assert_eq!(actual.hex_digest, expected.hex_digest);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_hash_cancel_stops_current_file() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("cancel_hash.bin");
+        let data = vec![0x5Au8; 512 * 1024];
+        std::fs::write(&file_path, &data).unwrap();
+
+        let cancel = AtomicBool::new(false);
+        let progress = Arc::new(AtomicU64::new(0));
+        let progress_for_cb = progress.clone();
+        let cancel_for_cb = &cancel;
+
+        let config = HashEngineConfig {
+            algorithms: vec![HashAlgorithm::XXH64],
+            buffer_size: 4096,
+        };
+        let progress_callback = move |hashed: u64, _total: u64| {
+            progress_for_cb.store(hashed, Ordering::SeqCst);
+            if hashed >= 16 * 1024 {
+                cancel_for_cb.store(true, Ordering::SeqCst);
+            }
+        };
+        let control = HashControl {
+            cancel_flag: Some(&cancel),
+            pause_flag: None,
+            on_progress: Some(&progress_callback),
+        };
+
+        let result = hash_file_with_control(&file_path, &config, &control).await;
+        assert!(result.is_err());
+        assert!(progress.load(Ordering::SeqCst) >= 16 * 1024);
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("cancelled by user"));
     }
 }

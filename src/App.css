@@ -3089,6 +3089,32 @@
   font-weight: 700;
 }
 
+.rushes-proxy-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.rushes-proxy-generated {
+  background: #22c55e18;
+  color: #22c55e;
+}
+
+.rushes-proxy-partial {
+  background: #f59e0b18;
+  color: #f59e0b;
+}
+
+.rushes-proxy-none {
+  background: #71717a18;
+  color: #a1a1aa;
+}
+
 .rushes-log-actions {
   display: flex;
   gap: 10px;

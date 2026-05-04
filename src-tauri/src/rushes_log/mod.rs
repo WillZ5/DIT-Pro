@@ -44,6 +44,7 @@ pub struct RushesLogEntry {
     pub avg_speed_mbps: f64,
     pub backup_status: String, // "Verified" | "Partial" | "Failed" | "Pending"
     pub mhl_verified: bool,
+    pub proxy_status: String, // "Generated" | "Partial" | "None"
 
     // Destinations
     pub dest_paths: Vec<String>,
@@ -172,18 +173,44 @@ struct JobRow {
 
 /// Build a single RushesLogEntry from a job row + aggregated copy_tasks.
 fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
-    // Aggregate copy task stats
-    let (total_files, completed_files, failed_files, total_size): (u32, u32, u32, u64) = conn
-        .query_row(
+    // Aggregate by source file so multi-destination jobs do not double-count
+    // files or material size.
+    let (total_files_i, completed_files_i, failed_files_i, total_size_i): (i64, i64, i64, i64) =
+        conn.query_row(
             "SELECT
                 COUNT(*),
-                SUM(CASE WHEN status IN ('completed','skipped') THEN 1 ELSE 0 END),
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN failed_count = 0 AND active_count = 0 THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN failed_count > 0 THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(file_size), 0)
-             FROM copy_tasks WHERE job_id = ?1",
+             FROM (
+                SELECT source_path,
+                       MAX(file_size) AS file_size,
+                       SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+                       SUM(CASE WHEN status NOT IN ('completed','skipped','failed') THEN 1 ELSE 0 END) AS active_count
+                FROM copy_tasks
+                WHERE job_id = ?1
+                GROUP BY source_path
+             )",
             rusqlite::params![job.id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )?;
+    let total_files = total_files_i as u32;
+    let completed_files = completed_files_i as u32;
+    let failed_files = failed_files_i as u32;
+    let total_size = total_size_i.max(0) as u64;
+
+    let mut source_stmt =
+        conn.prepare("SELECT source_path FROM copy_tasks WHERE job_id = ?1 GROUP BY source_path ORDER BY source_path ASC")?;
+    let source_names: Vec<String> = source_stmt
+        .query_map(rusqlite::params![job.id], |row| {
+            let source_path: String = row.get(0)?;
+            Ok(Path::new(&source_path)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string())
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
 
     // Get distinct destination root paths
     let mut dest_stmt =
@@ -296,6 +323,33 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
         Some(media_meta.5)
     };
 
+    let video_proxy_sources = query_video_proxy_sources(conn, &job.id).unwrap_or_default();
+    let video_files_i = video_proxy_sources.len() as i64;
+    let proxy_files_i = video_proxy_sources
+        .iter()
+        .filter(|(source_path, proxy_path)| {
+            !proxy_path.is_empty() || proxy_exists_in_destinations(source_path, &unique_dests)
+        })
+        .count() as i64;
+    let proxy_status = if proxy_files_i == 0 {
+        "None".to_string()
+    } else if video_files_i == 0 || proxy_files_i >= video_files_i {
+        "Generated".to_string()
+    } else {
+        "Partial".to_string()
+    };
+    let derived_clip_count = source_names.len() as u32;
+    let first_clip = source_names
+        .first()
+        .cloned()
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| job.first_clip.clone());
+    let last_clip = source_names
+        .last()
+        .cloned()
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| job.last_clip.clone());
+
     Ok(RushesLogEntry {
         job_id: job.id.clone(),
         job_name: job.name.clone(),
@@ -311,9 +365,13 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
         },
         camera_brand: job.camera_brand.clone(),
         camera_model: job.camera_model.clone(),
-        clip_count: job.clip_count,
-        first_clip: job.first_clip.clone(),
-        last_clip: job.last_clip.clone(),
+        clip_count: if derived_clip_count > 0 {
+            derived_clip_count
+        } else {
+            job.clip_count
+        },
+        first_clip,
+        last_clip,
         source_path: job.source_path.clone(),
         total_size,
         total_files,
@@ -323,6 +381,7 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
         avg_speed_mbps,
         backup_status,
         mhl_verified,
+        proxy_status,
         dest_paths: unique_dests,
         started_at: job.created_at.clone(),
         completed_at: job.updated_at.clone(),
@@ -332,6 +391,59 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
         color_space,
         timecode_range,
         thumbnail_path,
+    })
+}
+
+fn query_video_proxy_sources(conn: &Connection, job_id: &str) -> Result<Vec<(String, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT source_path, COALESCE(MAX(NULLIF(proxy_path, '')), '') as proxy_path
+         FROM copy_tasks
+         WHERE job_id = ?1
+           AND COALESCE(resolution, '') != ''
+         GROUP BY source_path
+         ORDER BY source_path ASC",
+    )?;
+    let rows = stmt.query_map(rusqlite::params![job_id], |row| {
+        Ok((row.get(0)?, row.get(1)?))
+    })?;
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .context("Failed to query video proxy sources")
+}
+
+fn proxy_exists_in_destinations(source_path: &str, dest_roots: &[String]) -> bool {
+    let source_stem = match Path::new(source_path).file_stem() {
+        Some(stem) => stem.to_string_lossy().to_string(),
+        None => return false,
+    };
+    if source_stem.is_empty() {
+        return false;
+    }
+
+    dest_roots.iter().any(|dest_root| {
+        let proxy_dir = Path::new(dest_root).join("Proxies");
+        proxy_dir_contains_source_proxy(&proxy_dir, &source_stem)
+    })
+}
+
+fn proxy_dir_contains_source_proxy(proxy_dir: &Path, source_stem: &str) -> bool {
+    let expected_stem = format!("{source_stem}_proxy");
+    let Ok(entries) = std::fs::read_dir(proxy_dir) else {
+        return false;
+    };
+
+    entries.filter_map(std::result::Result::ok).any(|entry| {
+        let path = entry.path();
+        if !path.is_file() {
+            return false;
+        }
+        if path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("._"))
+        {
+            return false;
+        }
+        path.file_stem()
+            .is_some_and(|stem| stem.to_string_lossy() == expected_stem)
     })
 }
 
@@ -405,6 +517,7 @@ const EXPORT_HEADERS: &[&str] = &[
     "Speed (MB/s)",
     "Status",
     "MHL Verified",
+    "Proxy Status",
     "Resolution",
     "Frame Rate",
     "Codec",
@@ -449,6 +562,7 @@ pub fn export_to_string(report: &RushesLogReport, format: &ExportFormat) -> Stri
             speed_str,
             escape_field(&entry.backup_status, format),
             mhl_str.to_string(),
+            escape_field(&entry.proxy_status, format),
             escape_field(entry.resolution.as_deref().unwrap_or(""), format),
             escape_field(entry.frame_rate.as_deref().unwrap_or(""), format),
             escape_field(entry.codec.as_deref().unwrap_or(""), format),
@@ -585,6 +699,8 @@ mod tests {
                 bit_depth INTEGER DEFAULT 0,
                 timecode_start TEXT DEFAULT '',
                 media_duration REAL DEFAULT 0,
+                thumbnail_path TEXT DEFAULT '',
+                proxy_path TEXT DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );",
@@ -604,10 +720,32 @@ mod tests {
 
     fn insert_task(conn: &Connection, job_id: &str, dest: &str, size: u64, status: &str) {
         let tid = uuid::Uuid::new_v4().to_string();
+        let source_name = Path::new(dest)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let source_path = format!("/Volumes/CARD_A/{}", source_name);
         conn.execute(
             "INSERT INTO copy_tasks (id, job_id, source_path, dest_path, file_size, status)
-             VALUES (?1, ?2, '/src/clip.mov', ?3, ?4, ?5)",
-            rusqlite::params![tid, job_id, dest, size, status],
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![tid, job_id, source_path, dest, size, status],
+        )
+        .unwrap();
+    }
+
+    fn insert_video_task_with_proxy(
+        conn: &Connection,
+        job_id: &str,
+        source: &str,
+        dest: &str,
+        proxy: &str,
+    ) {
+        let tid = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO copy_tasks
+                (id, job_id, source_path, dest_path, file_size, status, resolution, proxy_path)
+             VALUES (?1, ?2, ?3, ?4, 1000, 'completed', '1920x1080', ?5)",
+            rusqlite::params![tid, job_id, source, dest, proxy],
         )
         .unwrap();
     }
@@ -686,10 +824,108 @@ mod tests {
         // First job: all completed → Verified
         assert_eq!(report.entries[0].backup_status, "Verified");
         assert!(report.entries[0].mhl_verified);
+        assert_eq!(report.entries[0].proxy_status, "None");
 
         // Second job: has failures → Partial
         assert_eq!(report.entries[1].backup_status, "Partial");
         assert!(!report.entries[1].mhl_verified);
+    }
+
+    #[test]
+    fn test_rushes_log_proxy_status() {
+        let conn = test_db();
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        insert_job(&conn, "j1", "Proxy Job", "completed", "Generic", "A001");
+
+        insert_video_task_with_proxy(
+            &conn,
+            "j1",
+            "/Volumes/CARD_A/A001.mov",
+            "/Volumes/SSD1/A001.mov",
+            "/Volumes/SSD1/Proxies/A001_proxy.mp4",
+        );
+        insert_video_task_with_proxy(
+            &conn,
+            "j1",
+            "/Volumes/CARD_A/A002.mov",
+            "/Volumes/SSD1/A002.mov",
+            "",
+        );
+
+        let report = get_rushes_log(&conn, &today).unwrap();
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].proxy_status, "Partial");
+    }
+
+    #[test]
+    fn test_rushes_log_detects_existing_proxy_files_without_proxy_path() {
+        let conn = test_db();
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let temp = tempfile::tempdir().unwrap();
+        let dest_root = temp.path().join("Test002");
+        let proxy_dir = dest_root.join("Proxies");
+        std::fs::create_dir_all(&proxy_dir).unwrap();
+        std::fs::write(proxy_dir.join("PS129012_proxy.mp4"), b"proxy").unwrap();
+        std::fs::write(proxy_dir.join("._PS129012_proxy.mp4"), b"appledouble").unwrap();
+
+        insert_job(&conn, "j1", "Proxy Job", "completed", "Generic", "A001");
+        conn.execute(
+            "INSERT INTO copy_tasks
+                (id, job_id, source_path, dest_path, file_size, status, resolution, proxy_path)
+             VALUES
+                (?1, 'j1', '/Volumes/CARD_A/PS129012.MOV', ?2, 1000, 'completed', '3840x2160', '')",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                dest_root.join("PS129012.MOV").to_string_lossy()
+            ],
+        )
+        .unwrap();
+
+        let report = get_rushes_log(&conn, &today).unwrap();
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].proxy_status, "Generated");
+    }
+
+    #[test]
+    fn test_rushes_log_prefers_task_sources_over_stale_camera_metadata() {
+        let conn = test_db();
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        conn.execute(
+            "INSERT INTO jobs
+                (id, name, status, source_path, camera_brand, reel_name, clip_count, first_clip, last_clip)
+             VALUES
+                ('j1', 'LUMIX Test', 'completed', '/Volumes/LUMIX/TestSource', 'Panasonic', 'TestSource', 10, '._PS128842.MOV', 'PS129015.MOV')",
+            [],
+        )
+        .unwrap();
+
+        for clip in [
+            "PS128822.MOV",
+            "PS128842.MOV",
+            "PS128843.MOV",
+            "PS128844.MOV",
+            "PS128845.MOV",
+            "PS129011.MOV",
+            "PS129012.MOV",
+            "PS129013.MOV",
+            "PS129015.MOV",
+        ] {
+            let tid = uuid::Uuid::new_v4().to_string();
+            let source = format!("/Volumes/LUMIX/TestSource/{clip}");
+            let dest = format!("/Volumes/T7S/TestFolder/Test007/{clip}");
+            conn.execute(
+                "INSERT INTO copy_tasks (id, job_id, source_path, dest_path, file_size, status)
+                 VALUES (?1, 'j1', ?2, ?3, 1000, 'completed')",
+                rusqlite::params![tid, source, dest],
+            )
+            .unwrap();
+        }
+
+        let report = get_rushes_log(&conn, &today).unwrap();
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].clip_count, 9);
+        assert_eq!(report.entries[0].first_clip, "PS128822.MOV");
+        assert_eq!(report.entries[0].last_clip, "PS129015.MOV");
     }
 
     #[test]
@@ -715,6 +951,7 @@ mod tests {
                 avg_speed_mbps: 85.3,
                 backup_status: "Verified".to_string(),
                 mhl_verified: true,
+                proxy_status: "None".to_string(),
                 dest_paths: vec!["/Volumes/SSD1".to_string()],
                 started_at: "2026-03-09 09:00:00".to_string(),
                 completed_at: "2026-03-09 09:02:00".to_string(),

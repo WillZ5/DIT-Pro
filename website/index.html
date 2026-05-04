@@ -22,7 +22,7 @@
 <meta name="twitter:image" content="https://willz5.github.io/DIT-Pro/app-screenshot.png">
 <meta name="twitter:image:alt" content="DIT Pro application interface">
 <meta name="theme-color" content="#0085ff">
-<meta name="ditpro-stable-version" content="v1.3.1">
+<meta name="ditpro-stable-version" content="v1.2.0">
 <link rel="icon" type="image/svg+xml" href="./dit-pro-negative.svg">
 <link rel="shortcut icon" href="./dit-pro-negative.svg">
 <link rel="apple-touch-icon" href="./dit-pro-negative.svg">
@@ -1408,11 +1408,13 @@
         titleHtml: "<span class=\"hero-typing-line\"><span class=\"hero-typing-prefix accent\"></span></span><br><span class=\"hero-typing-suffix\"></span>",
         sub: "Professional-grade, open-source data integrity with a clear GUI for production teams. No gimmicks. No guesswork. Just bulletproof backup.",
         stable: "Download stable",
-        stableMacosFallbackUrl: "./software/stable-DIT.Pro_1.3.1_universal.dmg",
-        stableWindowsFallbackUrl: "./software/stable-DIT.Pro_1.3.1_x64-setup.exe",
+        stableGithubTag: "v1.2.0",
+        stableMacosFallbackUrl: "./software/stable-DIT.Pro_1.2.0_universal.dmg",
+        stableWindowsFallbackUrl: "./software/stable-DIT.Pro_1.2.0_x64-setup.exe",
         beta: "Download beta",
-        betaMacosFallbackUrl: "./software/beta-DIT.Pro_1.3.1_universal.dmg",
-        betaWindowsFallbackUrl: "./software/beta-DIT.Pro_1.3.1_x64-setup.exe",
+        betaGithubTag: "v1.4.0-beta.7",
+        betaMacosFallbackUrl: "./software/beta-DIT.Pro_1.4.0-beta.7_universal.dmg",
+        betaWindowsFallbackUrl: "",
         downloadLabel: "// download",
         stablePickerTitle: "Choose your stable build",
         stablePickerDesc: "Pick macOS or Windows for the latest stable release.",
@@ -1528,11 +1530,13 @@
         titleHtml: "<span class=\"hero-typing-line\"><span class=\"hero-typing-prefix accent\"></span></span><br><span class=\"hero-typing-suffix\"></span>",
         sub: "面向专业拍摄现场的开源数据完整性保障，配备清晰直观的图形操作界面。没有花哨功能，没有猜测操作，只有可靠的硬核备份。",
         stable: "下载稳定版",
-        stableMacosFallbackUrl: "./software/stable-DIT.Pro_1.3.1_universal.dmg",
-        stableWindowsFallbackUrl: "./software/stable-DIT.Pro_1.3.1_x64-setup.exe",
+        stableGithubTag: "v1.2.0",
+        stableMacosFallbackUrl: "./software/stable-DIT.Pro_1.2.0_universal.dmg",
+        stableWindowsFallbackUrl: "./software/stable-DIT.Pro_1.2.0_x64-setup.exe",
         beta: "下载测试版",
-        betaMacosFallbackUrl: "./software/beta-DIT.Pro_1.3.1_universal.dmg",
-        betaWindowsFallbackUrl: "./software/beta-DIT.Pro_1.3.1_x64-setup.exe",
+        betaGithubTag: "v1.4.0-beta.7",
+        betaMacosFallbackUrl: "./software/beta-DIT.Pro_1.4.0-beta.7_universal.dmg",
+        betaWindowsFallbackUrl: "",
         downloadLabel: "// 下载",
         stablePickerTitle: "选择稳定版平台",
         stablePickerDesc: "请选择 macOS 或 Windows，以下载最新稳定版。",
@@ -1923,6 +1927,22 @@
     return preferred.browser_download_url || null;
   };
 
+  const findConfiguredRelease = (releases, channel) => {
+    const heroConfig = i18n[currentLanguage] && i18n[currentLanguage].hero;
+    const tag = heroConfig && (channel === "stable" ? heroConfig.stableGithubTag : heroConfig.betaGithubTag);
+    if (tag) {
+      return releases.find((release) =>
+        release && !release.draft && release.tag_name === tag
+      ) || null;
+    }
+    return releases.find((release) =>
+      release &&
+      !release.draft &&
+      (channel === "stable" ? !release.prerelease : release.prerelease) &&
+      (pickMacosAssetUrl(release) || pickWindowsAssetUrl(release))
+    ) || null;
+  };
+
   const resolveLatestGithubDmgs = async () => {
     if (typeof fetch !== "function") return;
     const controller = new AbortController();
@@ -1938,12 +1958,8 @@
       if (!response.ok) throw new Error(`GitHub API ${response.status}`);
       const releases = await response.json();
       if (!Array.isArray(releases)) throw new Error("Invalid GitHub releases payload");
-      const stableRelease = releases.find((release) =>
-        release && !release.draft && !release.prerelease && (pickMacosAssetUrl(release) || pickWindowsAssetUrl(release))
-      );
-      const betaRelease = releases.find((release) =>
-        release && !release.draft && release.prerelease && (pickMacosAssetUrl(release) || pickWindowsAssetUrl(release))
-      );
+      const stableRelease = findConfiguredRelease(releases, "stable");
+      const betaRelease = findConfiguredRelease(releases, "beta");
       resolvedDownloadUrls.stable.macos = stableRelease ? pickMacosAssetUrl(stableRelease) : null;
       resolvedDownloadUrls.stable.windows = stableRelease ? pickWindowsAssetUrl(stableRelease) : null;
       resolvedDownloadUrls.beta.macos = betaRelease ? pickMacosAssetUrl(betaRelease) : null;

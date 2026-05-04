@@ -1,26 +1,20 @@
 {
   "channel": "beta",
-  "tag_name": "v1.4.0-beta",
-  "name": "v1.4.0-beta — Proxy Generation & Cloud Sync",
-  "body": "## DIT Pro v1.4.0-beta\n\n### New Features\n\n**A. Proxy Generation (FFmpeg)**\n- Generate low-bitrate editing proxies (H.264 / ProRes) during offload.\n- Auto-burn source timecode into video.\n\n**B. Cloud Sync (OOM-Safe)**\n- Stream reports, thumbnails, and proxies to the cloud (WebDAV / S3).\n- Automatically supports Baidu/Aliyun via AList.\n\n**C. UI & Visuals**\n- Rushes Log now displays video thumbnails.",
-  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.3.1-beta",
-  "published_at": "2026-03-28T10:00:00Z",
-  "download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0_universal.dmg",
-  "windows_download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0_x64-setup.exe",
+  "tag_name": "v1.4.0-beta.7",
+  "name": "v1.4.0-beta.7 — Internal Verification Build",
+  "body": "## DIT Pro v1.4.0-beta.7\n\n### Focus\n\n- In-app MHL verification, card offload reliability, pause/resume recovery, Rushes Log fixes, settings/preset coverage, and update detection.\n- Current stable remains v1.2.0. v1.3.0 was skipped for personal development reasons.\n\n### Known Issues\n\n- TC011: Apple Developer ID signing/notarization is still pending before stable.\n- TC207: Windows installer path/release packaging is pending before stable.\n- TC209: Windows real-device validation is pending before stable.",
+  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.4.0-beta.7",
+  "published_at": "2026-05-05T00:40:00+08:00",
+  "download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.7_universal.dmg",
+  "windows_download_url": null,
   "assets": {
     "macos": {
-      "name": "beta-DIT.Pro_1.4.0_universal.dmg",
-      "source_asset_name": "DIT.Pro_1.4.0_universal.dmg",
-      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-beta/DIT.Pro_1.4.0_universal.dmg",
-      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0_universal.dmg",
-      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0_universal.dmg"
+      "name": "beta-DIT.Pro_1.4.0-beta.7_universal.dmg",
+      "source_asset_name": "DIT.Pro_1.4.0-beta.7_universal.dmg",
+      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-beta.7/DIT.Pro_1.4.0-beta.7_universal.dmg",
+      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0-beta.7_universal.dmg",
+      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.7_universal.dmg"
     },
-    "windows": {
-      "name": "beta-DIT.Pro_1.4.0_x64-setup.exe",
-      "source_asset_name": "DIT.Pro_1.4.0_x64-setup.exe",
-      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-beta/DIT.Pro_1.4.0_x64-setup.exe",
-      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0_x64-setup.exe",
-      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0_x64-setup.exe"
-    }
+    "windows": null
   }
 }

@@ -243,6 +243,12 @@ const en = {
     postVerifyFlag: "PostVerify",
     defaultDestinations: "Default Destinations",
     addDestination: "Add Destination",
+    generateProxies: "Generate Proxies",
+    autoExportReport: "Auto Export Report",
+    proxyFormat: "Proxy Format",
+    proxyWidth: "Proxy Width",
+    proxyBurnTC: "Burn Timecode",
+    proxyBadge: "Proxy",
   },
 
   // ─── Reports View ──────────────────────────────────────────────────
@@ -277,6 +283,9 @@ const en = {
   settings: {
     title: "Settings",
     saveSettings: "Save Settings",
+    resetSettings: "Reset Defaults",
+    resetConfirm: "Reset all settings to defaults? Stored SMTP password will be cleared.",
+    resetFailed: "Failed to reset settings",
     loadingSettings: "Loading settings...",
     // Offload defaults section
     offloadDefaultsTitle: "Offload Defaults",
@@ -289,6 +298,8 @@ const en = {
     generateAscMhl: "Generate ASC MHL",
     generateMhlDesc:
       "Create chain-of-custody manifest after successful copy",
+    defaultHashAlgorithms: "Default Hash Algorithms",
+    defaultHashAlgorithmsDesc: "Algorithms pre-selected for new offload jobs",
     cascadingCopy: "Cascading Copy",
     cascadeDesc:
       "Copy to fastest destination first, then cascade to slower targets",
@@ -317,6 +328,10 @@ const en = {
     port: "Port",
     tls: "TLS",
     username: "Username",
+    smtpPassword: "SMTP Password",
+    smtpPasswordPlaceholder: "Enter SMTP password or app password",
+    smtpPasswordSet: "Password already saved. Enter a new one to replace it.",
+    smtpPasswordSaveFailed: "Failed to save SMTP password",
     fromAddress: "From Address",
     toAddress: "To Address",
     // Language section
@@ -434,6 +449,8 @@ const en = {
     close: "Close",
   },
   update: {
+    title: "Update Available",
+    message: "DIT Pro {latest} is available. Current version: {current}.",
     newVersion: "Update",
     download: "Download latest version",
     dismiss: "Dismiss",
@@ -463,6 +480,10 @@ const en = {
     speed: "Speed",
     status: "Status",
     mhlVerified: "MHL",
+    proxyStatus: "Proxy",
+    proxyGenerated: "Generated",
+    proxyPartial: "Partial",
+    proxyNone: "None",
     resolution: "Resolution",
     frameRate: "FPS",
     codec: "Codec",

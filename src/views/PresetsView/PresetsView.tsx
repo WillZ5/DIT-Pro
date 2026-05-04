@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { safeInvoke } from "../../utils/tauriCompat";
 import { useI18n } from "../../i18n";
-import type { CommandResult, WorkflowPreset } from "../../types";
+import type { CommandResult, ProxyFormat, WorkflowPreset } from "../../types";
 
 const ALGO_OPTIONS = [
   { id: "XXH64", label: "XXH64" },
@@ -25,6 +25,9 @@ function emptyPreset(): WorkflowPreset {
     name: "",
     description: "",
     hashAlgorithms: ["XXH64", "SHA256"],
+    generateProxies: false,
+    proxyConfig: { format: "H264", width: 1920, burnTimecode: true, crf: 24 },
+    autoExportReport: false,
     sourceVerify: true,
     postVerify: true,
     generateMhl: true,
@@ -67,7 +70,11 @@ export function PresetsView() {
   };
 
   const handleEdit = (preset: WorkflowPreset) => {
-    setEditing({ ...preset });
+    setEditing({
+      ...emptyPreset(),
+      ...preset,
+      proxyConfig: preset.proxyConfig || emptyPreset().proxyConfig,
+    });
     setIsNew(false);
     setError(null);
   };
@@ -126,9 +133,11 @@ export function PresetsView() {
 
   const handleDuplicate = (preset: WorkflowPreset) => {
     setEditing({
+      ...emptyPreset(),
       ...preset,
       id: "",
       name: `${preset.name} (Copy)`,
+      proxyConfig: preset.proxyConfig || emptyPreset().proxyConfig,
       createdAt: "",
       updatedAt: "",
     });
@@ -152,6 +161,23 @@ export function PresetsView() {
   ) => {
     if (!editing) return;
     setEditing({ ...editing, [key]: value });
+  };
+
+  const updateProxyField = <K extends keyof WorkflowPreset["proxyConfig"]>(
+    key: K,
+    value: WorkflowPreset["proxyConfig"][K]
+  ) => {
+    if (!editing) return;
+    const proxyConfig = editing.proxyConfig || {
+      format: "H264" as ProxyFormat,
+      width: 1920,
+      burnTimecode: true,
+      crf: 24,
+    };
+    setEditing({
+      ...editing,
+      proxyConfig: { ...proxyConfig, [key]: value },
+    });
   };
 
   return (
@@ -196,6 +222,9 @@ export function PresetsView() {
                     )}
                     {p.generateMhl && (
                       <span className="preset-badge preset-badge--mhl">MHL</span>
+                    )}
+                    {p.generateProxies && (
+                      <span className="preset-badge preset-badge--mhl">{t.presets.proxyBadge}</span>
                     )}
                   </div>
                 </div>
@@ -330,7 +359,63 @@ export function PresetsView() {
                 />
                 <span className="toggle-switch" />
               </label>
+
+              <label className="toggle-row">
+                <span className="toggle-label">{t.presets.generateProxies}</span>
+                <input
+                  type="checkbox"
+                  className="toggle-input"
+                  checked={editing.generateProxies}
+                  onChange={(e) => updateField("generateProxies", e.target.checked)}
+                />
+                <span className="toggle-switch" />
+              </label>
+
+              <label className="toggle-row">
+                <span className="toggle-label">{t.presets.autoExportReport}</span>
+                <input
+                  type="checkbox"
+                  className="toggle-input"
+                  checked={editing.autoExportReport}
+                  onChange={(e) => updateField("autoExportReport", e.target.checked)}
+                />
+                <span className="toggle-switch" />
+              </label>
             </div>
+
+            {editing.generateProxies && (
+              <div className="proxy-settings-grid" style={{ marginBottom: 16 }}>
+                <div className="proxy-setting-item">
+                  <label>{t.presets.proxyFormat}</label>
+                  <select
+                    value={editing.proxyConfig.format}
+                    onChange={(e) => updateProxyField("format", e.target.value as ProxyFormat)}
+                  >
+                    <option value="H264">H.264 (MP4)</option>
+                    <option value="ProResProxy">ProRes Proxy (MOV)</option>
+                  </select>
+                </div>
+                <div className="proxy-setting-item">
+                  <label>{t.presets.proxyWidth}</label>
+                  <select
+                    value={editing.proxyConfig.width}
+                    onChange={(e) => updateProxyField("width", Number(e.target.value))}
+                  >
+                    <option value={1920}>1920</option>
+                    <option value={1280}>1280</option>
+                    <option value={960}>960</option>
+                  </select>
+                </div>
+                <label className="checkbox-label" style={{ marginTop: 24 }}>
+                  <input
+                    type="checkbox"
+                    checked={editing.proxyConfig.burnTimecode}
+                    onChange={(e) => updateProxyField("burnTimecode", e.target.checked)}
+                  />
+                  {t.presets.proxyBurnTC}
+                </label>
+              </div>
+            )}
 
             <div className="field-row-inline">
               <div className="field-row">

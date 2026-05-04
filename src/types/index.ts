@@ -74,6 +74,7 @@ export interface RushesLogEntry {
   avgSpeedMbps: number;
   backupStatus: string;
   mhlVerified: boolean;
+  proxyStatus: string;
   destPaths: string[];
   startedAt: string;
   completedAt: string;
@@ -84,7 +85,7 @@ export interface RushesLogEntry {
   color_space: string | null;
   timecodeRange: string | null;
   thumbnailPath: string | null;
-  }
+}
 
 export interface RushesLogSummary {
   totalReels: number;
@@ -434,6 +435,7 @@ export interface IoSchedulingSettings {
 }
 
 export interface OffloadDefaults {
+  hashAlgorithms: string[];
   sourceVerify: boolean;
   postVerify: boolean;
   generateMhl: boolean;
@@ -505,6 +507,9 @@ export interface WorkflowPreset {
   name: string;
   description: string;
   hashAlgorithms: string[];
+  generateProxies: boolean;
+  proxyConfig: ProxyConfig;
+  autoExportReport: boolean;
   sourceVerify: boolean;
   postVerify: boolean;
   generateMhl: boolean;

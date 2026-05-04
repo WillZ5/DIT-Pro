@@ -1,4 +1,5 @@
 // Tauri compatibility layer — provides mock data in browser preview mode
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { AppSettings, CommandResult, WorkflowPreset } from "../types";
 import {
   MOCK_JOBS,
@@ -38,6 +39,7 @@ interface MockInvokeArgs {
   presetId?: string;
   jobId?: string;
   jobIds?: string[];
+  password?: string;
 }
 
 /** Mock command handler */
@@ -45,11 +47,11 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
   switch (cmd) {
     case "get_app_version":
       return {
-        version: "1.3.0",
-        preRelease: "beta",
+        version: "1.4.0",
+        preRelease: "beta.7",
         buildMeta: null,
         channel: "beta",
-        fullString: "1.3.0-beta",
+        fullString: "1.4.0-beta.7",
         gitHash: null,
         buildTime: null,
       } as T;
@@ -63,6 +65,18 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
       return ok(demoStore.settings) as T;
     case "save_settings":
       if (args?.settings) demoStore.settings = args.settings;
+      return ok(true) as T;
+    case "reset_settings":
+      demoStore.settings = { ...MOCK_SETTINGS };
+      return ok(demoStore.settings) as T;
+    case "save_smtp_password":
+      demoStore.settings = {
+        ...demoStore.settings,
+        email: {
+          ...demoStore.settings.email,
+          smtpPasswordSet: Boolean(args?.password),
+        },
+      };
       return ok(true) as T;
     case "get_report_dates":
       return ok([MOCK_DAY_REPORT.date]) as T;
@@ -138,10 +152,10 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
     case "check_for_update":
       return {
         hasUpdate: false,
-        latestVersion: "1.4.0-beta",
-        currentVersion: "1.4.0-beta",
+        latestVersion: "1.4.0-beta.7",
+        currentVersion: "1.4.0-beta.7",
         releaseNotes: "Rushes Log with camera card ID, ffprobe metadata, CSV/TSV/Excel/PDF export.",
-        releaseUrl: "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.3.0-beta",
+        releaseUrl: "https://ditpro.negdims.com/",
         downloadUrl: null,
         publishedAt: "2026-03-09T00:00:00Z",
       } as T;
@@ -155,6 +169,9 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
         name: (args as { presetName?: string })?.presetName || "Saved Preset",
         description: "",
         hashAlgorithms: ["XXH64", "SHA256"],
+        generateProxies: false,
+        proxyConfig: { format: "H264", width: 1920, burnTimecode: true, crf: 24 },
+        autoExportReport: false,
         sourceVerify: true,
         postVerify: true,
         generateMhl: true,
@@ -164,7 +181,7 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
         defaultDestPaths: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      };
+      } satisfies WorkflowPreset;
       demoStore.presets.push(preset);
       return ok(preset) as T;
     }
@@ -231,10 +248,7 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
  */
 export function convertPathToSrc(path: string): string {
   if (isTauri()) {
-    // Note: convertFileSrc is synchronous, but we can't top-level import it in web mode.
-    // As a workaround, we assume the window.__TAURI__ or tauri asset protocol is available
-    // For Tauri v2, the protocol is usually asset://localhost/
-    return `asset://localhost/${encodeURIComponent(path)}`;
+    return convertFileSrc(path);
   }
   // Mock image for demo mode
   return "https://via.placeholder.com/480x270?text=Thumbnail";

@@ -871,6 +871,131 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_pause_resume_continues_inflight_temp_file() {
+        use std::sync::atomic::AtomicU64;
+        use std::sync::Arc;
+
+        let dir = tempfile::tempdir().unwrap();
+        let data = vec![0xCDu8; 512 * 1024];
+        let source = dir.path().join("pause_source.mov");
+        std::fs::write(&source, &data).unwrap();
+        let dest = dir.path().join("pause_dest.mov");
+        let tmp = AtomicWriter::temp_path_for(&dest);
+
+        let pause = AtomicBool::new(false);
+        let pause_triggered = AtomicBool::new(false);
+        let progress = Arc::new(AtomicU64::new(0));
+        let progress_for_cb = progress.clone();
+        let pause_for_cb = &pause;
+        let pause_triggered_for_cb = &pause_triggered;
+
+        let config = CopyEngineConfig {
+            buffer_size: 4096,
+            ..Default::default()
+        };
+        let control = CopyControl {
+            cancel_flag: None,
+            pause_flag: Some(&pause),
+            on_progress: Some(Box::new(move |written, _total| {
+                progress_for_cb.store(written, Ordering::SeqCst);
+                if written >= 16 * 1024 && !pause_triggered_for_cb.swap(true, Ordering::SeqCst) {
+                    pause_for_cb.store(true, Ordering::SeqCst);
+                }
+            })),
+        };
+
+        let copy_future = copy_file_single(&source, &dest, &config, &control);
+        tokio::pin!(copy_future);
+
+        loop {
+            tokio::select! {
+                result = &mut copy_future => {
+                    panic!("copy finished before pause was observed: {:?}", result);
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(20)) => {
+                    if pause.load(Ordering::SeqCst) && progress.load(Ordering::SeqCst) >= 16 * 1024 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        assert!(
+            tmp.exists(),
+            "paused copy should keep the in-flight temp file"
+        );
+        assert!(
+            !dest.exists(),
+            "final file must not appear before atomic finalize"
+        );
+
+        pause.store(false, Ordering::SeqCst);
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), &mut copy_future)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.bytes_copied, data.len() as u64);
+        assert_eq!(std::fs::read(&dest).unwrap(), data);
+        assert!(!tmp.exists());
+    }
+
+    #[tokio::test]
+    async fn test_cancelled_partial_copy_restarts_from_zero_on_next_copy() {
+        use std::sync::atomic::AtomicU64;
+        use std::sync::Arc;
+
+        let dir = tempfile::tempdir().unwrap();
+        let data = vec![0xEFu8; 512 * 1024];
+        let source = dir.path().join("cancel_source.mov");
+        std::fs::write(&source, &data).unwrap();
+        let dest = dir.path().join("cancel_dest.mov");
+        let tmp = AtomicWriter::temp_path_for(&dest);
+
+        let cancel = AtomicBool::new(false);
+        let progress = Arc::new(AtomicU64::new(0));
+        let progress_for_cb = progress.clone();
+        let cancel_for_cb = &cancel;
+
+        let config = CopyEngineConfig {
+            buffer_size: 4096,
+            ..Default::default()
+        };
+        let control = CopyControl {
+            cancel_flag: Some(&cancel),
+            pause_flag: None,
+            on_progress: Some(Box::new(move |written, _total| {
+                progress_for_cb.store(written, Ordering::SeqCst);
+                if written >= 16 * 1024 {
+                    cancel_for_cb.store(true, Ordering::SeqCst);
+                }
+            })),
+        };
+
+        let result = copy_file_single(&source, &dest, &config, &control).await;
+        assert!(result.is_err());
+        assert!(progress.load(Ordering::SeqCst) >= 16 * 1024);
+        assert!(
+            !tmp.exists(),
+            "cancel cleanup should remove the partial temp file"
+        );
+        assert!(
+            !dest.exists(),
+            "cancelled copy should not leave a final partial file"
+        );
+
+        let resumed = copy_file_single(&source, &dest, &config, &CopyControl::none())
+            .await
+            .unwrap();
+        assert!(resumed.success);
+        assert!(!resumed.skipped);
+        assert_eq!(resumed.bytes_copied, data.len() as u64);
+        assert_eq!(std::fs::read(&dest).unwrap(), data);
+    }
+
+    #[tokio::test]
     async fn test_progress_callback() {
         use std::sync::atomic::AtomicU64;
         use std::sync::Arc;

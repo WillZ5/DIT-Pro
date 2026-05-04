@@ -13,6 +13,45 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
+#[cfg(windows)]
+fn replace_file_sync(temp_path: &Path, final_path: &Path) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let temp_wide: Vec<u16> = temp_path.as_os_str().encode_wide().chain([0]).collect();
+    let final_wide: Vec<u16> = final_path.as_os_str().encode_wide().chain([0]).collect();
+
+    unsafe {
+        MoveFileExW(
+            PCWSTR(temp_wide.as_ptr()),
+            PCWSTR(final_wide.as_ptr()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+        .with_context(|| format!("Failed to replace {:?} with {:?}", final_path, temp_path))?;
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+async fn replace_file(temp_path: &Path, final_path: &Path) -> Result<()> {
+    let temp_path = temp_path.to_path_buf();
+    let final_path = final_path.to_path_buf();
+    tokio::task::spawn_blocking(move || replace_file_sync(&temp_path, &final_path))
+        .await
+        .context("Failed to join Windows file replace task")?
+}
+
+#[cfg(not(windows))]
+async fn replace_file(temp_path: &Path, final_path: &Path) -> Result<()> {
+    fs::rename(temp_path, final_path)
+        .await
+        .with_context(|| format!("Failed to rename {:?} -> {:?}", temp_path, final_path))
+}
+
 /// An atomic file writer that writes to .tmp then renames on completion.
 /// Implements Drop to automatically clean up temp files on cancellation.
 pub struct AtomicWriter {
@@ -76,15 +115,7 @@ impl AtomicWriter {
             drop(file);
         }
 
-        // Atomic rename
-        fs::rename(&self.temp_path, &self.final_path)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to rename {:?} -> {:?}",
-                    self.temp_path, self.final_path
-                )
-            })?;
+        replace_file(&self.temp_path, &self.final_path).await?;
 
         self.finalized = true;
         Ok(())
@@ -226,5 +257,20 @@ mod tests {
         assert!(!dir.path().join("file1.mov.tmp").exists());
         assert!(!dir.path().join("file2.r3d.tmp").exists());
         assert!(dir.path().join("real_file.mov").exists());
+    }
+
+    #[tokio::test]
+    async fn test_atomic_write_replaces_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let final_path = dir.path().join("existing.mov");
+        tokio::fs::write(&final_path, b"old").await.unwrap();
+
+        let mut writer = AtomicWriter::new(&final_path).await.unwrap();
+        writer.write(b"new complete data").await.unwrap();
+        writer.finalize().await.unwrap();
+
+        let content = tokio::fs::read(&final_path).await.unwrap();
+        assert_eq!(content, b"new complete data");
+        assert!(!AtomicWriter::temp_path_for(&final_path).exists());
     }
 }

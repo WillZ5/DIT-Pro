@@ -244,6 +244,12 @@ const zh: TranslationKeys = {
     postVerifyFlag: "拷后校验",
     defaultDestinations: "默认目标路径",
     addDestination: "添加目标路径",
+    generateProxies: "生成代理文件",
+    autoExportReport: "自动导出报告",
+    proxyFormat: "代理格式",
+    proxyWidth: "代理宽度",
+    proxyBurnTC: "烧录时码",
+    proxyBadge: "Proxy",
   },
 
   // ─── Reports View ──────────────────────────────────────────────────
@@ -278,6 +284,9 @@ const zh: TranslationKeys = {
   settings: {
     title: "设置",
     saveSettings: "保存设置",
+    resetSettings: "恢复默认",
+    resetConfirm: "确定要恢复全部默认设置吗？已保存的 SMTP 密码也会被清除。",
+    resetFailed: "恢复默认设置失败",
     loadingSettings: "加载设置中...",
     // Offload defaults section
     offloadDefaultsTitle: "拷卡默认设置",
@@ -288,6 +297,8 @@ const zh: TranslationKeys = {
     postVerifyDesc: "重新读取目标文件并验证哈希值是否一致",
     generateAscMhl: "生成 ASC MHL",
     generateMhlDesc: "拷贝成功后创建监管链清单文件",
+    defaultHashAlgorithms: "默认哈希算法",
+    defaultHashAlgorithmsDesc: "新建拷卡任务时预先选择的哈希算法",
     cascadingCopy: "级联拷贝",
     cascadeDesc: "先拷贝至最快目标，再级联至较慢目标",
     bufferSize: "缓冲区大小",
@@ -315,6 +326,10 @@ const zh: TranslationKeys = {
     port: "端口",
     tls: "TLS",
     username: "用户名",
+    smtpPassword: "SMTP 密码",
+    smtpPasswordPlaceholder: "输入 SMTP 密码或应用专用密码",
+    smtpPasswordSet: "已保存密码。输入新密码即可替换。",
+    smtpPasswordSaveFailed: "SMTP 密码保存失败",
     fromAddress: "发件地址",
     toAddress: "收件地址",
     // Language section
@@ -431,6 +446,8 @@ const zh: TranslationKeys = {
     close: "关闭",
   },
   update: {
+    title: "发现新版本",
+    message: "DIT Pro {latest} 已发布。当前版本：{current}。",
     newVersion: "\u65b0\u7248\u672c",
     download: "\u4e0b\u8f7d\u6700\u65b0\u7248\u672c",
     dismiss: "\u5ffd\u7565",
@@ -460,6 +477,10 @@ const zh: TranslationKeys = {
     speed: "速度",
     status: "状态",
     mhlVerified: "MHL",
+    proxyStatus: "Proxy",
+    proxyGenerated: "已生成",
+    proxyPartial: "部分",
+    proxyNone: "无",
     resolution: "分辨率",
     frameRate: "帧率",
     codec: "编码",

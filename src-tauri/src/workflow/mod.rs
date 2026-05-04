@@ -18,11 +18,11 @@
 //! - **ASC MHL sealing**: Chain-of-custody manifests generated after successful copy
 //! - **Event-driven progress**: Real-time events for frontend display
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{bail, Context, Result};
 use rusqlite::Connection;
@@ -36,6 +36,8 @@ use crate::mhl::{self, MhlConfig, MhlProcessType};
 use crate::volume;
 
 // ─── Configuration ───────────────────────────────────────────────────────
+
+const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_secs(2);
 
 /// User's decision for a conflicting file
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,6 +273,42 @@ struct SourceFile {
     rel_path: String,
     abs_path: PathBuf,
     size: u64,
+    snapshot: Option<FileSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FileSnapshot {
+    size: u64,
+    modified: Option<SystemTime>,
+}
+
+impl FileSnapshot {
+    fn read(path: &Path) -> Result<Self> {
+        let metadata =
+            std::fs::metadata(path).with_context(|| format!("Cannot stat file: {:?}", path))?;
+        if !metadata.is_file() {
+            bail!("Expected regular file: {:?}", path);
+        }
+        Ok(Self {
+            size: metadata.len(),
+            modified: metadata.modified().ok(),
+        })
+    }
+
+    fn mismatch_detail(&self, current: &Self) -> Option<String> {
+        if self.size != current.size {
+            return Some(format!(
+                "size changed from {} to {}",
+                self.size, current.size
+            ));
+        }
+        match (self.modified, current.modified) {
+            (Some(expected), Some(actual)) if expected != actual => {
+                Some("modification time changed".to_string())
+            }
+            _ => None,
+        }
+    }
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────
@@ -522,6 +560,19 @@ impl OffloadWorkflow {
         }
         self.create_db_records(&source_files)?;
 
+        let mut source_tree_valid = true;
+        if let Err(e) = self
+            .validate_source_tree_snapshot(&source_files, "preflight")
+            .await
+        {
+            let msg = e.to_string();
+            self.emit(OffloadEvent::Warning {
+                message: msg.clone(),
+            });
+            errors.push(msg);
+            source_tree_valid = false;
+        }
+
         // Mark job as actively copying
         {
             let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -534,19 +585,44 @@ impl OffloadWorkflow {
         // ── Phase 2: Source Verification (optional) ─────────────────
         let mut source_hashes: HashMap<String, Vec<HashResult>> = HashMap::new();
 
-        if self.config.source_verify {
+        if self.config.source_verify && source_tree_valid {
             self.emit(OffloadEvent::PhaseChanged {
                 phase: OffloadPhase::SourceVerify,
                 message: format!("Hashing {} source files...", total_files),
                 name: None,
             });
-            source_hashes = self.hash_source_files(&source_files).await?;
+            source_hashes = self.hash_source_files(&source_files, &start).await?;
+            if let Err(e) = self
+                .validate_source_tree_snapshot(&source_files, "source verification")
+                .await
+            {
+                let msg = e.to_string();
+                self.emit(OffloadEvent::Warning {
+                    message: msg.clone(),
+                });
+                errors.push(msg);
+                source_tree_valid = false;
+            }
         }
 
         // ── Phase 3: Copy ───────────────────────────────────────────
         let use_cascade = self.config.cascade && self.config.dest_paths.len() >= 2;
 
-        if use_cascade {
+        if source_tree_valid {
+            if let Err(e) = self
+                .validate_source_tree_snapshot(&source_files, "copy")
+                .await
+            {
+                let msg = e.to_string();
+                self.emit(OffloadEvent::Warning {
+                    message: msg.clone(),
+                });
+                errors.push(msg);
+                source_tree_valid = false;
+            }
+        }
+
+        if use_cascade && source_tree_valid {
             // Phase 3a: Source → Primary (fast) destination only
             self.emit(OffloadEvent::PhaseChanged {
                 phase: OffloadPhase::Copying,
@@ -580,6 +656,7 @@ impl OffloadWorkflow {
                         &source_files,
                         &source_hashes,
                         &self.config.dest_paths[0].clone(),
+                        &start,
                     )
                     .await?;
 
@@ -618,6 +695,7 @@ impl OffloadWorkflow {
                                 &retry_files,
                                 &source_hashes,
                                 &self.config.dest_paths[0].clone(),
+                                &start,
                             )
                             .await?;
                         if reverify_failures > 0 {
@@ -655,7 +733,7 @@ impl OffloadWorkflow {
             let _cascade_failed = self
                 .cascade_from_primary(&source_files, &start, total_bytes)
                 .await?;
-        } else {
+        } else if source_tree_valid {
             // Standard: read source once → write all destinations simultaneously
             self.emit(OffloadEvent::PhaseChanged {
                 phase: OffloadPhase::Copying,
@@ -679,7 +757,7 @@ impl OffloadWorkflow {
         // ── Phase 4: Post-Copy Verification (optional) ──────────────
         // In cascade mode, primary dest was already verified before SourceReleased.
         // Here we only verify secondary destinations (or all dests in non-cascade mode).
-        if self.config.post_verify {
+        if self.config.post_verify && source_tree_valid {
             // Determine which destinations still need verification
             let dests_to_verify: Vec<PathBuf> = if use_cascade {
                 // Primary already verified — only verify secondary dests
@@ -709,7 +787,7 @@ impl OffloadWorkflow {
                 let mut total_verify_failures = 0;
                 for dest in &dests_to_verify {
                     let failures = self
-                        .verify_single_dest(&source_files, &source_hashes, dest)
+                        .verify_single_dest(&source_files, &source_hashes, dest, &start)
                         .await?;
                     total_verify_failures += failures;
                 }
@@ -763,7 +841,7 @@ impl OffloadWorkflow {
                             let mut reverify_failures = 0;
                             for dest in &dests_to_verify {
                                 let failures = self
-                                    .verify_single_dest(&retry_files, &source_hashes, dest)
+                                    .verify_single_dest(&retry_files, &source_hashes, dest, &start)
                                     .await?;
                                 reverify_failures += failures;
                             }
@@ -813,6 +891,7 @@ impl OffloadWorkflow {
                                     &retry_files,
                                     &merged_hashes,
                                     &mut retry_errors,
+                                    &start,
                                 )
                                 .await?;
                             errors.extend(retry_errors);
@@ -834,7 +913,15 @@ impl OffloadWorkflow {
         }
 
         // Count actual remaining failures from DB (authoritative source)
-        let failed_count = self.count_failed_tasks()?;
+        let mut failed_count = self.count_failed_tasks()?;
+        if self.config.post_verify && failed_count == 0 {
+            let final_failures = self
+                .run_final_destination_guard(&source_files, &source_hashes, &mut errors, &start)
+                .await?;
+            if final_failures > 0 {
+                failed_count = self.count_failed_tasks()?;
+            }
+        }
 
         // ── Phase 5: Transcoding (optional) ─────────────────────────
         // Generate proxy files for video clips if enabled and no critical failures
@@ -850,6 +937,14 @@ impl OffloadWorkflow {
                 name: None,
             });
             mhl_paths = self.seal_mhl(&source_files, &source_hashes).await?;
+        }
+
+        let cleaned_sidecars = self.cleanup_appledouble_sidecars_in_destinations();
+        if cleaned_sidecars > 0 {
+            log::info!(
+                "Cleaned {} AppleDouble sidecar file(s) from destination(s)",
+                cleaned_sidecars
+            );
         }
 
         // ── Phase 7: Cloud Synchronization (optional) ───────────────
@@ -940,14 +1035,33 @@ impl OffloadWorkflow {
             checkpoint::get_pending_tasks(&conn, &self.config.job_id)?
         };
 
-        if pending_tasks.is_empty() {
-            bail!("No pending tasks to resume for job {}", self.config.job_id);
-        }
+        let (tasks_to_process, verify_only_resume) = if pending_tasks.is_empty() {
+            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+            let job_status: String = conn
+                .query_row(
+                    "SELECT status FROM jobs WHERE id = ?1",
+                    rusqlite::params![self.config.job_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or_default();
+            let all_tasks = checkpoint::get_all_tasks(&conn, &self.config.job_id)?;
+            let has_verifiable_tasks = all_tasks
+                .iter()
+                .any(|task| matches!(task.status.as_str(), "completed" | "skipped" | "verifying"));
+
+            if matches!(job_status.as_str(), "verifying" | "terminated") && has_verifiable_tasks {
+                (all_tasks, true)
+            } else {
+                bail!("No pending tasks to resume for job {}", self.config.job_id);
+            }
+        } else {
+            (pending_tasks, false)
+        };
 
         // Build source file list from pending tasks (deduplicate by source_path)
         let mut seen = std::collections::HashSet::new();
         let mut source_files: Vec<SourceFile> = Vec::new();
-        for task in &pending_tasks {
+        for task in &tasks_to_process {
             if seen.insert(task.source_path.clone()) {
                 let abs_path = PathBuf::from(&task.source_path);
                 let rel_path = match abs_path.strip_prefix(&self.config.source_path) {
@@ -984,6 +1098,7 @@ impl OffloadWorkflow {
                     rel_path,
                     abs_path,
                     size: task.file_size as u64,
+                    snapshot: FileSnapshot::read(Path::new(&task.source_path)).ok(),
                 });
             }
         }
@@ -991,17 +1106,22 @@ impl OffloadWorkflow {
         let total_bytes: u64 = source_files.iter().map(|f| f.size).sum();
         let total_files = source_files.len();
 
-        // Emit resume start
-        self.emit(OffloadEvent::PhaseChanged {
-            phase: OffloadPhase::Copying,
-            message: format!("Resuming: {} files remaining...", total_files),
-            name: Some(self.config.job_name.clone()),
-        });
+        let copy_hashes = if verify_only_resume {
+            HashMap::new()
+        } else {
+            // Emit resume start
+            self.emit(OffloadEvent::PhaseChanged {
+                phase: OffloadPhase::Copying,
+                message: format!("Resuming: {} files remaining...", total_files),
+                name: Some(self.config.job_name.clone()),
+            });
 
-        // Copy pending files (SkipIfVerified: hash-verifies existing files, overwrites corrupt ones)
-        let (copy_hashes, _copy_failed) = self
-            .copy_all_files(&source_files, &start, total_bytes, false)
-            .await?;
+            // Copy pending files (SkipIfVerified: hash-verifies existing files, overwrites corrupt ones)
+            let (copy_hashes, _copy_failed) = self
+                .copy_all_files(&source_files, &start, total_bytes, false)
+                .await?;
+            copy_hashes
+        };
 
         // Post-copy verification — always run on resume (files may have been skipped
         // by SkipIfVerified; verify_destinations will compute hashes as needed)
@@ -1018,8 +1138,9 @@ impl OffloadWorkflow {
                 message: "Re-reading destination files for verification...".into(),
                 name: None,
             });
+            let mut verify_errors: Vec<String> = Vec::new();
             let verify_failures = self
-                .verify_destinations(&source_files, &copy_hashes, &mut errors)
+                .verify_destinations(&source_files, &copy_hashes, &mut verify_errors, &start)
                 .await?;
 
             // Auto-retry failed files
@@ -1066,14 +1187,19 @@ impl OffloadWorkflow {
 
                     let mut retry_errors: Vec<String> = Vec::new();
                     let reverify_failures = self
-                        .verify_destinations(&retry_files, &merged_hashes2, &mut retry_errors)
+                        .verify_destinations(
+                            &retry_files,
+                            &merged_hashes2,
+                            &mut retry_errors,
+                            &start,
+                        )
                         .await?;
-                    errors.extend(retry_errors);
-
                     // Mark tasks that passed re-verification with a success note
                     self.mark_retry_successes(&retry_files)?;
 
                     if reverify_failures > 0 {
+                        errors.extend(verify_errors);
+                        errors.extend(retry_errors);
                         self.emit(OffloadEvent::Warning {
                             message: format!(
                                 "{} file(s) still failed after retry verification",
@@ -1081,12 +1207,24 @@ impl OffloadWorkflow {
                             ),
                         });
                     }
+                } else {
+                    errors.extend(verify_errors);
                 }
+            } else {
+                errors.extend(verify_errors);
             }
         }
 
         // Count actual remaining failures from DB
-        let failed_count = self.count_failed_tasks()?;
+        let mut failed_count = self.count_failed_tasks()?;
+        if self.config.post_verify && failed_count == 0 && !source_files.is_empty() {
+            let final_failures = self
+                .run_final_destination_guard(&source_files, &copy_hashes, &mut errors, &start)
+                .await?;
+            if final_failures > 0 {
+                failed_count = self.count_failed_tasks()?;
+            }
+        }
 
         // ── Transcoding (optional) ──
         if self.config.generate_proxies && failed_count == 0 {
@@ -1102,12 +1240,17 @@ impl OffloadWorkflow {
                     let p = PathBuf::from(&source_path);
                     Ok(SourceFile {
                         rel_path: p
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string(),
+                            .strip_prefix(&self.config.source_path)
+                            .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+                            .unwrap_or_else(|_| {
+                                p.file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string()
+                            }),
                         abs_path: p,
                         size: size as u64,
+                        snapshot: FileSnapshot::read(Path::new(&source_path)).ok(),
                     })
                 })?;
                 let mut files = Vec::new();
@@ -1160,6 +1303,7 @@ impl OffloadWorkflow {
                             rel_path: rel_path.clone(),
                             abs_path,
                             size: file_size as u64,
+                            snapshot: FileSnapshot::read(Path::new(&source_path)).ok(),
                         });
                     }
                     if let std::collections::hash_map::Entry::Vacant(e) = hashes.entry(rel_path) {
@@ -1186,6 +1330,14 @@ impl OffloadWorkflow {
                 (files, hashes)
             };
             mhl_paths = self.seal_mhl(&all_files, &all_hashes).await?;
+        }
+
+        let cleaned_sidecars = self.cleanup_appledouble_sidecars_in_destinations();
+        if cleaned_sidecars > 0 {
+            log::info!(
+                "Cleaned {} AppleDouble sidecar file(s) from destination(s)",
+                cleaned_sidecars
+            );
         }
 
         // ── Cloud Synchronization (optional) ──
@@ -1312,6 +1464,10 @@ impl OffloadWorkflow {
                         rel_path,
                         abs_path: path,
                         size: metadata.len(),
+                        snapshot: Some(FileSnapshot {
+                            size: metadata.len(),
+                            modified: metadata.modified().ok(),
+                        }),
                     });
                 }
             }
@@ -1319,6 +1475,62 @@ impl OffloadWorkflow {
 
         files.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
         Ok(files)
+    }
+
+    fn cleanup_appledouble_sidecars_in_destinations(&self) -> usize {
+        self.config
+            .dest_paths
+            .iter()
+            .map(|root| Self::cleanup_appledouble_sidecars(root))
+            .sum()
+    }
+
+    fn cleanup_appledouble_sidecars(root: &Path) -> usize {
+        if !root.exists() {
+            return 0;
+        }
+
+        let mut removed = 0usize;
+        let mut stack = vec![root.to_path_buf()];
+
+        while let Some(dir) = stack.pop() {
+            let entries = match std::fs::read_dir(&dir) {
+                Ok(entries) => entries,
+                Err(e) => {
+                    log::warn!("Cannot scan {:?} for AppleDouble cleanup: {}", dir, e);
+                    continue;
+                }
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let file_name = entry.file_name();
+                let file_name = file_name.to_string_lossy();
+
+                let file_type = match entry.file_type() {
+                    Ok(file_type) => file_type,
+                    Err(e) => {
+                        log::warn!(
+                            "Cannot inspect {:?} during AppleDouble cleanup: {}",
+                            path,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+                if file_type.is_dir() {
+                    stack.push(path);
+                } else if file_type.is_file() && file_name.starts_with("._") {
+                    match std::fs::remove_file(&path) {
+                        Ok(()) => removed += 1,
+                        Err(e) => log::warn!("Cannot remove AppleDouble sidecar {:?}: {}", path, e),
+                    }
+                }
+            }
+        }
+
+        removed
     }
 
     /// Check all destinations have enough space.
@@ -1347,39 +1559,59 @@ impl OffloadWorkflow {
 
     /// Create job + copy_task records in SQLite.
     fn create_db_records(&self, files: &[SourceFile]) -> Result<()> {
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-
-        // Serialize offload config for re-run support
-        let config_json = serde_json::to_string(&self.config).ok();
-
-        checkpoint::create_job(
-            &conn,
-            &self.config.job_id,
-            &self.config.job_name,
-            self.config.source_path.to_string_lossy().as_ref(),
-            config_json.as_deref(),
-        )?;
-
-        // Track task IDs per source file for metadata update
         let mut source_task_map: Vec<(std::path::PathBuf, Vec<String>)> = Vec::new();
 
-        for file in files {
-            let mut task_ids_for_file = Vec::new();
-            for dest_root in &self.config.dest_paths {
-                let dest_file = dest_root.join(&file.rel_path);
-                let task_id = uuid::Uuid::new_v4().to_string();
-                checkpoint::insert_task(
-                    &conn,
-                    &task_id,
-                    &self.config.job_id,
-                    file.abs_path.to_string_lossy().as_ref(),
-                    dest_file.to_string_lossy().as_ref(),
-                    file.size,
-                )?;
-                task_ids_for_file.push(task_id);
+        {
+            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+
+            // Serialize offload config for re-run support
+            let config_json = serde_json::to_string(&self.config).ok();
+
+            checkpoint::create_job(
+                &conn,
+                &self.config.job_id,
+                &self.config.job_name,
+                self.config.source_path.to_string_lossy().as_ref(),
+                config_json.as_deref(),
+            )?;
+
+            let camera_info = crate::camera::identify_camera(&self.config.source_path);
+            if let Err(e) = conn.execute(
+                "UPDATE jobs SET camera_brand = ?1, camera_model = ?2, reel_name = ?3,
+                 clip_count = ?4, first_clip = ?5, last_clip = ?6
+                 WHERE id = ?7",
+                rusqlite::params![
+                    camera_info.brand,
+                    camera_info.model,
+                    camera_info.reel_name,
+                    camera_info.clip_count,
+                    camera_info.first_clip,
+                    camera_info.last_clip,
+                    self.config.job_id,
+                ],
+            ) {
+                log::warn!("Could not persist camera metadata for rushes log: {}", e);
             }
-            if crate::camera::metadata::is_video_file(&file.abs_path) {
-                source_task_map.push((file.abs_path.clone(), task_ids_for_file));
+
+            // Track task IDs per source file for metadata update.
+            for file in files {
+                let mut task_ids_for_file = Vec::new();
+                for dest_root in &self.config.dest_paths {
+                    let dest_file = dest_root.join(&file.rel_path);
+                    let task_id = uuid::Uuid::new_v4().to_string();
+                    checkpoint::insert_task(
+                        &conn,
+                        &task_id,
+                        &self.config.job_id,
+                        file.abs_path.to_string_lossy().as_ref(),
+                        dest_file.to_string_lossy().as_ref(),
+                        file.size,
+                    )?;
+                    task_ids_for_file.push(task_id);
+                }
+                if crate::camera::metadata::is_video_file(&file.abs_path) {
+                    source_task_map.push((file.abs_path.clone(), task_ids_for_file));
+                }
             }
         }
 
@@ -1411,6 +1643,110 @@ impl OffloadWorkflow {
         Ok(())
     }
 
+    fn validate_source_snapshot(&self, file: &SourceFile, stage: &str) -> Result<()> {
+        let Some(expected) = &file.snapshot else {
+            return Ok(());
+        };
+
+        let current = match FileSnapshot::read(&file.abs_path) {
+            Ok(snapshot) => snapshot,
+            Err(e) => {
+                let msg = format!(
+                    "Source changed during {}: {} is no longer accessible ({})",
+                    stage, file.rel_path, e
+                );
+                self.mark_tasks_failed_for_source(file, &msg)?;
+                bail!(msg);
+            }
+        };
+
+        if let Some(detail) = expected.mismatch_detail(&current) {
+            let msg = format!(
+                "Source changed during {}: {} ({})",
+                stage, file.rel_path, detail
+            );
+            self.mark_tasks_failed_for_source(file, &msg)?;
+            bail!(msg);
+        }
+
+        Ok(())
+    }
+
+    async fn validate_source_tree_snapshot(&self, files: &[SourceFile], stage: &str) -> Result<()> {
+        let expected = Self::source_tree_index(files);
+        let current_files = self
+            .scan_source()
+            .await
+            .with_context(|| format!("Cannot re-scan source during {}", stage))?;
+        let current = Self::source_tree_index(&current_files);
+
+        let mut differences = Vec::new();
+
+        for (rel_path, expected_snapshot) in &expected {
+            match current.get(rel_path) {
+                Some(current_snapshot) => {
+                    if let Some(detail) = expected_snapshot.mismatch_detail(current_snapshot) {
+                        differences.push(format!("{} {}", rel_path, detail));
+                    }
+                }
+                None => differences.push(format!("{} missing", rel_path)),
+            }
+        }
+
+        for rel_path in current.keys() {
+            if !expected.contains_key(rel_path) {
+                differences.push(format!("{} appeared", rel_path));
+            }
+        }
+
+        if differences.is_empty() {
+            return Ok(());
+        }
+
+        differences.sort();
+        let shown = differences
+            .iter()
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("; ");
+        let suffix = if differences.len() > 5 {
+            format!("; plus {} more change(s)", differences.len() - 5)
+        } else {
+            String::new()
+        };
+        let msg = format!("Source changed during {}: {}{}", stage, shown, suffix);
+
+        for file in files {
+            self.mark_tasks_failed_for_source(file, &msg)?;
+        }
+
+        bail!(msg)
+    }
+
+    fn source_tree_index(files: &[SourceFile]) -> BTreeMap<String, FileSnapshot> {
+        files
+            .iter()
+            .filter_map(|file| {
+                file.snapshot
+                    .clone()
+                    .map(|snapshot| (file.rel_path.clone(), snapshot))
+            })
+            .collect()
+    }
+
+    fn all_tasks_failed_for_source(&self, file: &SourceFile) -> Result<bool> {
+        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+        let (total, failed): (i64, i64) = conn.query_row(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0)
+             FROM copy_tasks WHERE job_id = ?1 AND source_path = ?2 AND status != 'skipped'",
+            rusqlite::params![self.config.job_id, file.abs_path.to_string_lossy().as_ref()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok(total > 0 && failed == total)
+    }
+
     // ── Internal: Source Verify ───────────────────────────────────────
 
     /// Hash every source file. Returns map: rel_path → hashes.
@@ -1418,6 +1754,7 @@ impl OffloadWorkflow {
     async fn hash_source_files(
         &self,
         files: &[SourceFile],
+        workflow_start: &Instant,
     ) -> Result<HashMap<String, Vec<HashResult>>> {
         let mut map = HashMap::new();
         let cfg = HashEngineConfig {
@@ -1427,7 +1764,6 @@ impl OffloadWorkflow {
         let total_files = files.len();
         let total_bytes: u64 = files.iter().map(|f| f.size).sum();
         let mut completed_bytes: u64 = 0;
-        let hash_start = Instant::now();
 
         for (i, file) in files.iter().enumerate() {
             // Check pause/cancel between files
@@ -1435,19 +1771,25 @@ impl OffloadWorkflow {
             self.check_paused().await?;
 
             let file_msg = format!("Hashing ({}/{}) {}...", i + 1, total_files, file.rel_path);
+            if let Err(e) = self.validate_source_snapshot(file, "source verification") {
+                self.emit(OffloadEvent::Warning {
+                    message: e.to_string(),
+                });
+                completed_bytes += file.size;
+                continue;
+            }
 
-            // Set up intra-file progress reporting (throttled to 100ms for responsive speed chart)
+            // Set up intra-file progress reporting for live UI metrics.
             let event_tx = self.event_tx.clone();
             let file_completed_bytes = completed_bytes;
             let progress_total_files = total_files;
             let progress_file_index = i;
-            let progress_start = hash_start;
+            let progress_start = *workflow_start;
             let progress_msg = file_msg.clone();
-            let last_progress_emit =
-                std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
+            let last_progress_emit = std::sync::Mutex::new(Instant::now() - PROGRESS_EMIT_INTERVAL);
             let progress_callback = move |file_bytes_hashed: u64, _file_total: u64| {
                 let mut last = last_progress_emit.lock().unwrap_or_else(|e| e.into_inner());
-                if last.elapsed() >= std::time::Duration::from_millis(100) {
+                if last.elapsed() >= PROGRESS_EMIT_INTERVAL {
                     let current_total = file_completed_bytes + file_bytes_hashed;
                     event_tx
                         .send(OffloadEvent::JobProgress {
@@ -1464,13 +1806,37 @@ impl OffloadWorkflow {
                 }
             };
 
-            let hashes = hash_engine::hash_file_with_progress(
+            let hash_control = hash_engine::HashControl {
+                cancel_flag: Some(self.cancel.as_atomic()),
+                pause_flag: Some(self.pause.as_atomic()),
+                on_progress: Some(&progress_callback),
+            };
+            let hashes = match hash_engine::hash_file_with_control(
                 &file.abs_path,
                 &cfg,
-                Some(&progress_callback),
+                &hash_control,
             )
             .await
-            .with_context(|| format!("Failed to hash source: {:?}", file.abs_path))?;
+            {
+                Ok(hashes) => hashes,
+                Err(e) => {
+                    if e.to_string().contains("cancelled by user") {
+                        return Err(e);
+                    }
+                    let msg = format!("Failed to hash source {}: {}", file.rel_path, e);
+                    self.mark_tasks_failed_for_source(file, &msg)?;
+                    self.emit(OffloadEvent::Warning { message: msg });
+                    completed_bytes += file.size;
+                    continue;
+                }
+            };
+            if let Err(e) = self.validate_source_snapshot(file, "source verification") {
+                self.emit(OffloadEvent::Warning {
+                    message: e.to_string(),
+                });
+                completed_bytes += file.size;
+                continue;
+            }
 
             completed_bytes += file.size;
 
@@ -1488,7 +1854,7 @@ impl OffloadWorkflow {
                 completed_bytes,
                 total_bytes,
                 phase: OffloadPhase::SourceVerify,
-                elapsed_secs: hash_start.elapsed().as_secs_f64(),
+                elapsed_secs: workflow_start.elapsed().as_secs_f64(),
                 message: Some(file_msg),
             });
 
@@ -1592,6 +1958,35 @@ impl OffloadWorkflow {
         Ok(())
     }
 
+    async fn run_final_destination_guard(
+        &self,
+        files: &[SourceFile],
+        source_hashes: &HashMap<String, Vec<HashResult>>,
+        errors: &mut Vec<String>,
+        workflow_start: &Instant,
+    ) -> Result<usize> {
+        self.emit(OffloadEvent::PhaseChanged {
+            phase: OffloadPhase::Verifying,
+            message: "Final destination consistency check...".into(),
+            name: None,
+        });
+
+        let mut final_errors = Vec::new();
+        let failures = self
+            .verify_destinations(files, source_hashes, &mut final_errors, workflow_start)
+            .await?;
+        if failures > 0 {
+            errors.extend(final_errors);
+            self.emit(OffloadEvent::Warning {
+                message: format!(
+                    "{} destination file(s) failed final consistency check",
+                    failures
+                ),
+            });
+        }
+        Ok(failures)
+    }
+
     // ── Internal: Copy ───────────────────────────────────────────────
 
     /// Copy every source file to all destinations. Returns (inline hashes, failed task count).
@@ -1625,6 +2020,20 @@ impl OffloadWorkflow {
         };
 
         for (i, file) in files.iter().enumerate() {
+            if self.all_tasks_failed_for_source(file)? {
+                completed_bytes += file.size * dest_count;
+                continue;
+            }
+
+            if let Err(e) = self.validate_source_snapshot(file, "copy") {
+                self.emit(OffloadEvent::Warning {
+                    message: e.to_string(),
+                });
+                copy_failed_count += self.config.dest_paths.len();
+                completed_bytes += file.size * dest_count;
+                continue;
+            }
+
             // Apply conflict resolutions to destination paths
             let mut dest_files: Vec<PathBuf> = Vec::new();
             let mut has_overwrite = false;
@@ -1785,7 +2194,7 @@ impl OffloadWorkflow {
             let skipped_dests = dest_count - file_dest_count;
             completed_bytes += file.size * skipped_dests;
 
-            // Set up intra-file progress reporting (throttled to 100ms for responsive speed chart)
+            // Set up intra-file progress reporting for live UI metrics.
             let event_tx = self.event_tx.clone();
             let file_completed_bytes = completed_bytes;
             let progress_total_files = total_files;
@@ -1793,11 +2202,10 @@ impl OffloadWorkflow {
             let progress_start = *start;
             let progress_msg = file_msg.clone();
             let progress_effective_total = effective_total;
-            let last_progress_emit =
-                std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
+            let last_progress_emit = std::sync::Mutex::new(Instant::now() - PROGRESS_EMIT_INTERVAL);
             let progress_callback = move |file_bytes_written: u64, _file_total: u64| {
                 let mut last = last_progress_emit.lock().unwrap_or_else(|e| e.into_inner());
-                if last.elapsed() >= std::time::Duration::from_millis(100) {
+                if last.elapsed() >= PROGRESS_EMIT_INTERVAL {
                     // Scale by destination count to reflect actual write throughput
                     let current_total = file_completed_bytes + file_bytes_written * file_dest_count;
                     event_tx
@@ -2076,6 +2484,21 @@ impl OffloadWorkflow {
         };
 
         for (i, file) in files.iter().enumerate() {
+            if self.all_tasks_failed_for_source(file)? {
+                completed_bytes += file.size;
+                continue;
+            }
+
+            if let Err(e) = self.validate_source_snapshot(file, "primary copy") {
+                self.emit(OffloadEvent::Warning {
+                    message: e.to_string(),
+                });
+                copy_failed_count += 1;
+                consecutive_failures += 1;
+                completed_bytes += file.size;
+                continue;
+            }
+
             // Apply conflict resolution for primary destination
             let raw_dest = primary_dest.join(&file.rel_path);
             let key = format!("{}::{}", file.rel_path, raw_dest.to_string_lossy());
@@ -2189,11 +2612,10 @@ impl OffloadWorkflow {
             let total_files_for_progress = total_files;
             let fi_for_progress = i;
             let total_bytes_for_progress = total_bytes;
-            let last_emit_time =
-                std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
+            let last_emit_time = std::sync::Mutex::new(Instant::now() - PROGRESS_EMIT_INTERVAL);
             let progress_cb = move |bytes_copied: u64, _file_total: u64| {
                 let mut last = last_emit_time.lock().unwrap_or_else(|e| e.into_inner());
-                if last.elapsed() >= std::time::Duration::from_millis(200) {
+                if last.elapsed() >= PROGRESS_EMIT_INTERVAL {
                     event_tx
                         .send(OffloadEvent::JobProgress {
                             completed_files: fi_for_progress,
@@ -2638,12 +3060,28 @@ impl OffloadWorkflow {
 
     // ── Internal: Verify ─────────────────────────────────────────────
 
+    async fn hash_file_stable_for_verify(
+        &self,
+        path: &Path,
+        cfg: &HashEngineConfig,
+        control: &hash_engine::HashControl<'_>,
+    ) -> Result<Vec<HashResult>> {
+        let before = FileSnapshot::read(path)?;
+        let hashes = hash_engine::hash_file_with_control(path, cfg, control).await?;
+        let after = FileSnapshot::read(path)?;
+        if let Some(detail) = before.mismatch_detail(&after) {
+            bail!("File changed during verification: {}", detail);
+        }
+        Ok(hashes)
+    }
+
     /// Verify files on a single destination. Returns the number of failures.
     async fn verify_single_dest(
         &self,
         files: &[SourceFile],
         source_hashes: &HashMap<String, Vec<HashResult>>,
         dest_root: &Path,
+        workflow_start: &Instant,
     ) -> Result<usize> {
         let cfg = HashEngineConfig {
             algorithms: self.config.hash_algorithms.clone(),
@@ -2653,7 +3091,6 @@ impl OffloadWorkflow {
         let total_files = files.len();
         let total_bytes: u64 = files.iter().map(|f| f.size).sum();
         let mut completed_bytes: u64 = 0;
-        let verify_start = Instant::now();
 
         for (fi, file) in files.iter().enumerate() {
             self.check_paused().await?;
@@ -2662,40 +3099,53 @@ impl OffloadWorkflow {
             let expected = match source_hashes.get(&file.rel_path) {
                 Some(h) => h,
                 None => {
-                    // Try to compute from source if still available
-                    if file.abs_path.exists() {
-                        match hash_engine::hash_file(&file.abs_path, &cfg).await {
+                    // Prefer persisted copy hashes on resume; fall back to source hashing.
+                    if let Some(h) = self.load_hash_from_db(file)? {
+                        fallback_hashes = h;
+                        &fallback_hashes
+                    } else if file.abs_path.exists() {
+                        let hash_control = hash_engine::HashControl {
+                            cancel_flag: Some(self.cancel.as_atomic()),
+                            pause_flag: Some(self.pause.as_atomic()),
+                            on_progress: None,
+                        };
+                        match hash_engine::hash_file_with_control(
+                            &file.abs_path,
+                            &cfg,
+                            &hash_control,
+                        )
+                        .await
+                        {
                             Ok(hashes) => {
                                 fallback_hashes = hashes;
                                 &fallback_hashes
                             }
                             Err(e) => {
+                                if e.to_string().contains("cancelled by user") {
+                                    return Err(e);
+                                }
                                 failed += 1;
                                 log::warn!("Cannot hash source {}: {}", file.rel_path, e);
                                 continue;
                             }
                         }
                     } else {
-                        // Source ejected — look up hash from DB
-                        let db_hash = self.load_hash_from_db(file)?;
-                        if let Some(h) = db_hash {
-                            fallback_hashes = h;
-                            &fallback_hashes
-                        } else {
-                            failed += 1;
-                            log::warn!("No hash available for {} (source ejected)", file.rel_path);
-                            continue;
-                        }
+                        failed += 1;
+                        let msg =
+                            format!("No hash available for {} (source ejected)", file.rel_path);
+                        self.mark_tasks_failed_for_source(file, &msg)?;
+                        log::warn!("{}", msg);
+                        continue;
                     }
                 }
             };
 
             // Look up task status from DB
-            let (dest_file, task_status) = {
+            let (dest_file, task_id, task_status) = {
                 let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                let row: Option<(String, String)> = conn
+                let row: Option<(String, String, String)> = conn
                     .query_row(
-                        "SELECT dest_path, status FROM copy_tasks
+                        "SELECT dest_path, id, status FROM copy_tasks
                          WHERE job_id = ?1 AND source_path = ?2
                          AND dest_path LIKE ?3
                          LIMIT 1",
@@ -2708,12 +3158,12 @@ impl OffloadWorkflow {
                                 std::path::MAIN_SEPARATOR
                             ),
                         ],
-                        |row| Ok((row.get(0)?, row.get(1)?)),
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                     )
                     .ok();
                 match row {
-                    Some((path, status)) => (PathBuf::from(path), status),
-                    None => (dest_root.join(&file.rel_path), String::new()),
+                    Some((path, id, status)) => (PathBuf::from(path), Some(id), status),
+                    None => (dest_root.join(&file.rel_path), None, String::new()),
                 }
             };
 
@@ -2725,24 +3175,11 @@ impl OffloadWorkflow {
             if !dest_file.exists() {
                 failed += 1;
                 {
-                    let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                    let task_id: Option<String> = conn
-                        .query_row(
-                            "SELECT id FROM copy_tasks
-                             WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3
-                             AND status != 'failed'",
-                            rusqlite::params![
-                                self.config.job_id,
-                                file.abs_path.to_string_lossy().as_ref(),
-                                dest_file.to_string_lossy().as_ref(),
-                            ],
-                            |row| row.get::<_, String>(0),
-                        )
-                        .ok();
                     if let Some(tid) = task_id {
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                         checkpoint::update_task_failed(
                             &conn,
-                            &tid,
+                            tid.as_str(),
                             "Verify failed: file not found after copy",
                         )?;
                     }
@@ -2760,16 +3197,15 @@ impl OffloadWorkflow {
             // Hash the destination file with intra-file progress so UI doesn't appear stuck
             let event_tx_verify = self.event_tx.clone();
             let base_completed_verify = completed_bytes;
-            let verify_start_clone = verify_start;
+            let workflow_start_clone = *workflow_start;
             let total_files_verify = total_files;
             let fi_verify = fi;
             let total_bytes_verify = total_bytes;
             let rel_path_verify = file.rel_path.clone();
-            let last_verify_emit =
-                std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
+            let last_verify_emit = std::sync::Mutex::new(Instant::now() - PROGRESS_EMIT_INTERVAL);
             let verify_progress_cb = move |bytes_hashed: u64, _file_total: u64| {
                 let mut last = last_verify_emit.lock().unwrap_or_else(|e| e.into_inner());
-                if last.elapsed() >= std::time::Duration::from_millis(500) {
+                if last.elapsed() >= PROGRESS_EMIT_INTERVAL {
                     event_tx_verify
                         .send(OffloadEvent::JobProgress {
                             completed_files: fi_verify,
@@ -2777,7 +3213,7 @@ impl OffloadWorkflow {
                             completed_bytes: base_completed_verify + bytes_hashed,
                             total_bytes: total_bytes_verify,
                             phase: OffloadPhase::Verifying,
-                            elapsed_secs: verify_start_clone.elapsed().as_secs_f64(),
+                            elapsed_secs: workflow_start_clone.elapsed().as_secs_f64(),
                             message: Some(format!(
                                 "Verifying ({}/{}) {}...",
                                 fi_verify + 1,
@@ -2789,7 +3225,17 @@ impl OffloadWorkflow {
                     *last = Instant::now();
                 }
             };
-            match hash_engine::hash_file_with_progress(&dest_file, &cfg, Some(&verify_progress_cb))
+            if let Some(tid) = &task_id {
+                let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                checkpoint::update_task_status(&conn, tid, checkpoint::STATUS_VERIFYING)?;
+            }
+            let hash_control = hash_engine::HashControl {
+                cancel_flag: Some(self.cancel.as_atomic()),
+                pause_flag: Some(self.pause.as_atomic()),
+                on_progress: Some(&verify_progress_cb),
+            };
+            match self
+                .hash_file_stable_for_verify(&dest_file, &cfg, &hash_control)
                 .await
             {
                 Ok(actual) => {
@@ -2811,26 +3257,17 @@ impl OffloadWorkflow {
                     if !ok {
                         failed += 1;
                         // Mark task as failed in DB
-                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                        let task_id: Option<String> = conn
-                            .query_row(
-                                "SELECT id FROM copy_tasks
-                                 WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
-                                rusqlite::params![
-                                    self.config.job_id,
-                                    file.abs_path.to_string_lossy().as_ref(),
-                                    dest_file.to_string_lossy().as_ref(),
-                                ],
-                                |row| row.get::<_, String>(0),
-                            )
-                            .ok();
-                        if let Some(tid) = task_id {
+                        if let Some(tid) = &task_id {
+                            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
                             checkpoint::update_task_failed(
                                 &conn,
-                                &tid,
+                                tid,
                                 &format!("Verify mismatch: {}", detail),
                             )?;
                         }
+                    } else if let Some(tid) = &task_id {
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        checkpoint::update_task_status(&conn, tid, checkpoint::STATUS_COMPLETED)?;
                     }
 
                     self.emit(OffloadEvent::FileVerified {
@@ -2841,7 +3278,15 @@ impl OffloadWorkflow {
                     });
                 }
                 Err(e) => {
+                    let err_msg = e.to_string();
+                    if err_msg.contains("cancelled by user") {
+                        return Err(e);
+                    }
                     failed += 1;
+                    if let Some(tid) = &task_id {
+                        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                        checkpoint::update_task_failed(&conn, tid, &format!("Hash error: {}", e))?;
+                    }
                     self.emit(OffloadEvent::FileVerified {
                         rel_path: file.rel_path.clone(),
                         dest_path: dest_file.to_string_lossy().into(),
@@ -2858,7 +3303,7 @@ impl OffloadWorkflow {
                 completed_bytes,
                 total_bytes,
                 phase: OffloadPhase::Verifying,
-                elapsed_secs: verify_start.elapsed().as_secs_f64(),
+                elapsed_secs: workflow_start.elapsed().as_secs_f64(),
                 message: Some(format!(
                     "Verifying ({}/{}) {}...",
                     fi + 1,
@@ -2869,6 +3314,27 @@ impl OffloadWorkflow {
         }
 
         Ok(failed)
+    }
+
+    fn mark_tasks_failed_for_source(&self, file: &SourceFile, reason: &str) -> Result<()> {
+        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id FROM copy_tasks
+             WHERE job_id = ?1 AND source_path = ?2 AND status != 'skipped'",
+        )?;
+        let task_ids: Vec<String> = stmt
+            .query_map(
+                rusqlite::params![self.config.job_id, file.abs_path.to_string_lossy().as_ref()],
+                |row| row.get(0),
+            )?
+            .filter_map(|row| row.ok())
+            .collect();
+
+        for task_id in task_ids {
+            checkpoint::update_task_failed(&conn, &task_id, reason)?;
+        }
+
+        Ok(())
     }
 
     /// Load hash from DB for a file (used when source is no longer available).
@@ -2974,7 +3440,7 @@ impl OffloadWorkflow {
             if is_failed {
                 // Reset task status to pending for retry
                 conn.execute(
-                    "UPDATE copy_tasks SET status = 'pending', error_message = NULL,
+                    "UPDATE copy_tasks SET status = 'pending', error_msg = NULL,
                      updated_at = datetime('now')
                      WHERE job_id = ?1 AND source_path = ?2
                      AND dest_path LIKE ?3 AND status = 'failed'",
@@ -3000,6 +3466,7 @@ impl OffloadWorkflow {
         files: &[SourceFile],
         source_hashes: &HashMap<String, Vec<HashResult>>,
         errors: &mut Vec<String>,
+        workflow_start: &Instant,
     ) -> Result<usize> {
         let cfg = HashEngineConfig {
             algorithms: self.config.hash_algorithms.clone(),
@@ -3013,7 +3480,6 @@ impl OffloadWorkflow {
         let total_verify_ops = total_files * self.config.dest_paths.len();
         let mut completed_ops: usize = 0;
         let mut completed_bytes: u64 = 0;
-        let verify_start = Instant::now();
 
         for (fi, file) in files.iter().enumerate() {
             // Check pause/cancel between files
@@ -3023,116 +3489,52 @@ impl OffloadWorkflow {
             let expected = match source_hashes.get(&file.rel_path) {
                 Some(h) => h,
                 None => {
-                    // Source hash missing (e.g. file was skipped during copy).
-                    // Compute source hash on the spot — never skip verification.
-                    self.emit(OffloadEvent::Warning {
-                        message: format!(
-                            "No cached hash for {}, computing from source...",
-                            file.rel_path
-                        ),
-                    });
-                    if file.abs_path.exists() {
-                        match hash_engine::hash_file(&file.abs_path, &cfg).await {
+                    // Source hash missing in this process. Prefer persisted copy hashes
+                    // on resume, then fall back to hashing the source if still present.
+                    if let Some(hashes) = self.load_hash_from_db(file)? {
+                        fallback_hashes = hashes;
+                        &fallback_hashes
+                    } else if file.abs_path.exists() {
+                        self.emit(OffloadEvent::Warning {
+                            message: format!(
+                                "No cached hash for {}, computing from source...",
+                                file.rel_path
+                            ),
+                        });
+                        let hash_control = hash_engine::HashControl {
+                            cancel_flag: Some(self.cancel.as_atomic()),
+                            pause_flag: Some(self.pause.as_atomic()),
+                            on_progress: None,
+                        };
+                        match hash_engine::hash_file_with_control(
+                            &file.abs_path,
+                            &cfg,
+                            &hash_control,
+                        )
+                        .await
+                        {
                             Ok(hashes) => {
                                 fallback_hashes = hashes;
                                 &fallback_hashes
                             }
                             Err(e) => {
+                                if e.to_string().contains("cancelled by user") {
+                                    return Err(e);
+                                }
                                 failed += self.config.dest_paths.len(); // all dests fail for this file
                                 errors.push(format!("Cannot hash source {}: {}", file.rel_path, e));
                                 continue;
                             }
                         }
                     } else {
-                        // Source file no longer available (e.g. card ejected)
-                        // Try to load hash from DB (previous completed tasks)
-                        #[allow(clippy::type_complexity)]
-                        let db_hashes: Option<(
-                            Option<String>,
-                            Option<String>,
-                            Option<String>,
-                            Option<String>,
-                            Option<String>,
-                        )> = {
-                            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                            conn.query_row(
-                                "SELECT hash_xxh64, hash_sha256, hash_md5, hash_xxh128, hash_xxh3
-                                     FROM copy_tasks
-                                     WHERE job_id = ?1 AND source_path = ?2
-                                     AND (hash_xxh64 IS NOT NULL OR hash_sha256 IS NOT NULL OR hash_md5 IS NOT NULL OR hash_xxh128 IS NOT NULL OR hash_xxh3 IS NOT NULL)
-                                     LIMIT 1",
-                                rusqlite::params![
-                                    self.config.job_id,
-                                    file.abs_path.to_string_lossy().as_ref(),
-                                ],
-                                |row| {
-                                    Ok((
-                                        row.get(0)?,
-                                        row.get(1)?,
-                                        row.get(2)?,
-                                        row.get(3)?,
-                                        row.get(4)?,
-                                    ))
-                                },
-                            )
-                            .ok()
-                        };
-                        if let Some((xxh64, sha256, md5, xxh128, xxh3)) = db_hashes {
-                            let mut h = Vec::new();
-                            if let Some(v) = xxh64 {
-                                h.push(HashResult {
-                                    algorithm: HashAlgorithm::XXH64,
-                                    hex_digest: v,
-                                });
-                            }
-                            if let Some(v) = sha256 {
-                                h.push(HashResult {
-                                    algorithm: HashAlgorithm::SHA256,
-                                    hex_digest: v,
-                                });
-                            }
-                            if let Some(v) = md5 {
-                                h.push(HashResult {
-                                    algorithm: HashAlgorithm::MD5,
-                                    hex_digest: v,
-                                });
-                            }
-                            if let Some(v) = xxh128 {
-                                h.push(HashResult {
-                                    algorithm: HashAlgorithm::XXH128,
-                                    hex_digest: v,
-                                });
-                            }
-                            if let Some(v) = xxh3 {
-                                h.push(HashResult {
-                                    algorithm: HashAlgorithm::XXH3,
-                                    hex_digest: v,
-                                });
-                            }
-                            if !h.is_empty() {
-                                log::info!(
-                                    "Using cached DB hash for {} (source ejected, {} hash(es) from DB)",
-                                    file.rel_path,
-                                    h.len()
-                                );
-                                fallback_hashes = h;
-                                &fallback_hashes
-                            } else {
-                                failed += self.config.dest_paths.len();
-                                errors.push(format!(
-                                    "No hash available for {} (source ejected, no DB hash)",
-                                    file.rel_path
-                                ));
-                                continue;
-                            }
-                        } else {
-                            failed += self.config.dest_paths.len();
-                            errors.push(format!(
-                                "No hash available for {} (source ejected, no DB hash)",
-                                file.rel_path
-                            ));
-                            continue;
-                        }
+                        failed += self.config.dest_paths.len();
+                        let msg = format!(
+                            "No hash available for {} (source ejected, no DB hash)",
+                            file.rel_path
+                        );
+                        self.mark_tasks_failed_for_source(file, &msg)?;
+                        errors.push(msg);
+                        continue;
                     }
                 }
             };
@@ -3144,11 +3546,11 @@ impl OffloadWorkflow {
                 // Skipped tasks (user-Skip or SkipIfVerified) must NOT be verified:
                 // user-Skip files are the OLD file (not a copy), verification would
                 // mismatch → retry → delete → data loss.
-                let (dest_file, task_status) = {
+                let (dest_file, task_id, task_status) = {
                     let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                    let row: Option<(String, String)> = conn
+                    let row: Option<(String, String, String)> = conn
                         .query_row(
-                            "SELECT dest_path, status FROM copy_tasks
+                            "SELECT dest_path, id, status FROM copy_tasks
                              WHERE job_id = ?1 AND source_path = ?2
                              AND dest_path LIKE ?3
                              LIMIT 1",
@@ -3161,12 +3563,12 @@ impl OffloadWorkflow {
                                     std::path::MAIN_SEPARATOR
                                 ),
                             ],
-                            |row| Ok((row.get(0)?, row.get(1)?)),
+                            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                         )
                         .ok();
                     match row {
-                        Some((path, status)) => (PathBuf::from(path), status),
-                        None => (dest_root.join(&file.rel_path), String::new()),
+                        Some((path, id, status)) => (PathBuf::from(path), Some(id), status),
+                        None => (dest_root.join(&file.rel_path), None, String::new()),
                     }
                 };
 
@@ -3189,28 +3591,14 @@ impl OffloadWorkflow {
                     errors.push(format!("Missing: {:?}", dest_file));
                     // Mark task as failed in DB so retry can pick it up
                     // (skip if already marked failed by copy phase to avoid double-counting)
-                    {
+                    if let Some(tid) = &task_id {
                         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                        let task_row: Option<(String, String)> = conn
-                            .query_row(
-                                "SELECT id, status FROM copy_tasks
-                                 WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
-                                rusqlite::params![
-                                    self.config.job_id,
-                                    file.abs_path.to_string_lossy().as_ref(),
-                                    dest_file.to_string_lossy().as_ref(),
-                                ],
-                                |row| Ok((row.get(0)?, row.get(1)?)),
-                            )
-                            .ok();
-                        if let Some((tid, status)) = task_row {
-                            if status != "failed" {
-                                checkpoint::update_task_failed(
-                                    &conn,
-                                    &tid,
-                                    "Verify failed: file not found after copy",
-                                )?;
-                            }
+                        if task_status != "failed" {
+                            checkpoint::update_task_failed(
+                                &conn,
+                                tid,
+                                "Verify failed: file not found after copy",
+                            )?;
                         }
                     }
                     self.emit(OffloadEvent::FileVerified {
@@ -3226,16 +3614,15 @@ impl OffloadWorkflow {
                 // Progress callback for intra-file verify progress
                 let event_tx = self.event_tx.clone();
                 let base_completed_bytes = completed_bytes;
-                let verify_start_clone = verify_start;
+                let workflow_start_clone = *workflow_start;
                 let total_files_for_progress = total_files;
                 let fi_for_progress = fi;
                 let progress_msg = verify_msg.clone();
                 let progress_verify_total = effective_verify_total;
-                let last_emit =
-                    std::sync::Mutex::new(Instant::now() - std::time::Duration::from_secs(1));
+                let last_emit = std::sync::Mutex::new(Instant::now() - PROGRESS_EMIT_INTERVAL);
                 let verify_progress = move |bytes_hashed: u64, _file_total: u64| {
                     let mut last = last_emit.lock().unwrap_or_else(|e| e.into_inner());
-                    if last.elapsed() >= std::time::Duration::from_millis(100) {
+                    if last.elapsed() >= PROGRESS_EMIT_INTERVAL {
                         event_tx
                             .send(OffloadEvent::JobProgress {
                                 completed_files: fi_for_progress,
@@ -3243,7 +3630,7 @@ impl OffloadWorkflow {
                                 completed_bytes: base_completed_bytes + bytes_hashed,
                                 total_bytes: progress_verify_total,
                                 phase: OffloadPhase::Verifying,
-                                elapsed_secs: verify_start_clone.elapsed().as_secs_f64(),
+                                elapsed_secs: workflow_start_clone.elapsed().as_secs_f64(),
                                 message: Some(progress_msg.clone()),
                             })
                             .ok();
@@ -3251,10 +3638,42 @@ impl OffloadWorkflow {
                     }
                 };
 
-                let actual =
-                    hash_engine::hash_file_with_progress(&dest_file, &cfg, Some(&verify_progress))
-                        .await
-                        .with_context(|| format!("Verify read failed: {:?}", dest_file))?;
+                if let Some(tid) = &task_id {
+                    let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                    checkpoint::update_task_status(&conn, tid, checkpoint::STATUS_VERIFYING)?;
+                }
+                let hash_control = hash_engine::HashControl {
+                    cancel_flag: Some(self.cancel.as_atomic()),
+                    pause_flag: Some(self.pause.as_atomic()),
+                    on_progress: Some(&verify_progress),
+                };
+                let actual = match self
+                    .hash_file_stable_for_verify(&dest_file, &cfg, &hash_control)
+                    .await
+                {
+                    Ok(hashes) => hashes,
+                    Err(e) => {
+                        if e.to_string().contains("cancelled by user") {
+                            return Err(e);
+                        }
+                        failed += 1;
+                        completed_ops += 1;
+                        let err_detail = format!("Verify read failed: {}", e);
+                        errors.push(format!("{}: {:?}", err_detail, dest_file));
+                        if let Some(tid) = &task_id {
+                            let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                            checkpoint::update_task_failed(&conn, tid, &err_detail)?;
+                        }
+                        self.emit(OffloadEvent::FileVerified {
+                            rel_path: file.rel_path.clone(),
+                            dest_path: dest_file.to_string_lossy().into(),
+                            verified: false,
+                            mismatch_detail: Some(err_detail),
+                        });
+                        completed_bytes += file.size;
+                        continue;
+                    }
+                };
 
                 completed_ops += 1;
 
@@ -3283,30 +3702,17 @@ impl OffloadWorkflow {
                     ));
                     // Mark task as failed in DB so retry can pick it up
                     // (skip if already marked failed to avoid double-counting)
-                    {
+                    if let Some(tid) = &task_id {
                         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
-                        let task_row: Option<(String, String)> = conn
-                            .query_row(
-                                "SELECT id, status FROM copy_tasks
-                                 WHERE job_id = ?1 AND source_path = ?2 AND dest_path = ?3",
-                                rusqlite::params![
-                                    self.config.job_id,
-                                    file.abs_path.to_string_lossy().as_ref(),
-                                    dest_file.to_string_lossy().as_ref(),
-                                ],
-                                |row| Ok((row.get(0)?, row.get(1)?)),
-                            )
-                            .ok();
-                        if let Some((tid, status)) = task_row {
-                            if status != "failed" {
-                                checkpoint::update_task_failed(
-                                    &conn,
-                                    &tid,
-                                    &format!("Verify failed: {}", err_detail),
-                                )?;
-                            }
-                        }
+                        checkpoint::update_task_failed(
+                            &conn,
+                            tid,
+                            &format!("Verify failed: {}", err_detail),
+                        )?;
                     }
+                } else if let Some(tid) = &task_id {
+                    let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{}", e))?;
+                    checkpoint::update_task_status(&conn, tid, checkpoint::STATUS_COMPLETED)?;
                 }
 
                 self.emit(OffloadEvent::FileVerified {
@@ -3327,7 +3733,7 @@ impl OffloadWorkflow {
                 completed_bytes,
                 total_bytes: effective_verify_total,
                 phase: OffloadPhase::Verifying,
-                elapsed_secs: verify_start.elapsed().as_secs_f64(),
+                elapsed_secs: workflow_start.elapsed().as_secs_f64(),
                 message: None,
             });
         }
@@ -3387,10 +3793,17 @@ impl OffloadWorkflow {
             let timecode = {
                 if let Ok(conn) = self.db.lock() {
                     conn.query_row(
-                        "SELECT timecode_start FROM copy_tasks WHERE job_id = ?1 AND rel_path = ?2 LIMIT 1",
-                        rusqlite::params![self.config.job_id, file.rel_path],
-                        |row| row.get::<_, String>(0)
-                    ).ok()
+                        "SELECT timecode_start FROM copy_tasks
+                         WHERE job_id = ?1 AND source_path = ?2
+                         AND timecode_start IS NOT NULL AND timecode_start != ''
+                         LIMIT 1",
+                        rusqlite::params![
+                            self.config.job_id,
+                            file.abs_path.to_string_lossy().as_ref()
+                        ],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .ok()
                 } else {
                     None
                 }
@@ -3410,10 +3823,17 @@ impl OffloadWorkflow {
                     let proxy_path_str = proxy_path.to_string_lossy().to_string();
                     // Update DB
                     if let Ok(conn) = self.db.lock() {
-                        let _ = conn.execute(
-                            "UPDATE copy_tasks SET proxy_path = ?1 WHERE job_id = ?2 AND rel_path = ?3",
-                            rusqlite::params![proxy_path_str, self.config.job_id, file.rel_path],
-                        );
+                        if let Err(e) = conn.execute(
+                            "UPDATE copy_tasks SET proxy_path = ?1, updated_at = datetime('now')
+                             WHERE job_id = ?2 AND source_path = ?3",
+                            rusqlite::params![
+                                proxy_path_str,
+                                self.config.job_id,
+                                file.abs_path.to_string_lossy().as_ref()
+                            ],
+                        ) {
+                            log::warn!("Failed to persist proxy path for {}: {}", file.rel_path, e);
+                        }
                     }
                     self.emit(OffloadEvent::ProxyTranscodeCompleted {
                         rel_path: file.rel_path.clone(),
@@ -3896,6 +4316,124 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_source_tree_validation_fails_when_scanned_path_disappears() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("src");
+        let dest = tmp.path().join("dst");
+        std::fs::create_dir_all(&source).unwrap();
+        create_source_files(
+            &source,
+            &[("clip.mov.renamed-during-source-hash", b"camera data")],
+        );
+
+        let db = test_db();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let config = OffloadConfig {
+            job_id: "test-source-tree-drift".into(),
+            job_name: "Source Drift".into(),
+            source_path: source.clone(),
+            dest_paths: vec![dest],
+            hash_algorithms: vec![HashAlgorithm::XXH64],
+            buffer_size: 1024,
+            source_verify: true,
+            post_verify: true,
+            generate_mhl: false,
+            max_retries: 1,
+            cascade: false,
+            conflict_resolutions: HashMap::new(),
+            ..Default::default()
+        };
+
+        let workflow = OffloadWorkflow::new(config, db.clone(), tx);
+        let files = workflow.scan_source().await.unwrap();
+        workflow.create_db_records(&files).unwrap();
+        std::fs::rename(
+            source.join("clip.mov.renamed-during-source-hash"),
+            source.join("clip.mov"),
+        )
+        .unwrap();
+
+        let err = workflow
+            .validate_source_tree_snapshot(&files, "source verification")
+            .await
+            .unwrap_err();
+        let err_msg = err.to_string();
+        assert!(err_msg.contains("missing"));
+        assert!(err_msg.contains("appeared"));
+
+        let conn = db.lock().unwrap();
+        let failed: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM copy_tasks WHERE job_id = 'test-source-tree-drift' AND status = 'failed'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(failed, 1);
+    }
+
+    #[tokio::test]
+    async fn test_final_destination_guard_marks_corruption_failed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("src");
+        let dest = tmp.path().join("dst");
+        std::fs::create_dir_all(&source).unwrap();
+        create_source_files(&source, &[("data.raw", b"original raw camera data")]);
+
+        let db = test_db();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let config = OffloadConfig {
+            job_id: "test-final-guard".into(),
+            job_name: "Final Guard".into(),
+            source_path: source.clone(),
+            dest_paths: vec![dest.clone()],
+            hash_algorithms: vec![HashAlgorithm::SHA256],
+            buffer_size: 1024,
+            source_verify: true,
+            post_verify: true,
+            generate_mhl: false,
+            max_retries: 1,
+            cascade: false,
+            conflict_resolutions: HashMap::new(),
+            ..Default::default()
+        };
+
+        let workflow = OffloadWorkflow::new(config, db.clone(), tx);
+        let result = workflow.execute().await.unwrap();
+        assert!(result.success);
+
+        std::fs::write(dest.join("data.raw"), b"CORRUPTED!!!").unwrap();
+
+        let source_files = workflow.scan_source().await.unwrap();
+        let mut errors = Vec::new();
+        let failures = workflow
+            .run_final_destination_guard(
+                &source_files,
+                &result.source_hashes,
+                &mut errors,
+                &Instant::now(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(failures, 1);
+        assert_eq!(errors.len(), 1);
+
+        let conn = db.lock().unwrap();
+        let (status, error_msg): (String, Option<String>) = conn
+            .query_row(
+                "SELECT status, error_msg FROM copy_tasks WHERE job_id = 'test-final-guard'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "failed");
+        assert!(error_msg
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Verify failed"));
+    }
+
+    #[tokio::test]
     async fn test_offload_ignores_ds_store() {
         let tmp = tempfile::tempdir().unwrap();
         let source = tmp.path().join("src");
@@ -3939,6 +4477,38 @@ mod tests {
         assert!(dest.join("clip.mov").exists());
         assert!(!dest.join(".DS_Store").exists());
         assert!(!dest.join("Thumbs.db").exists());
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_removes_appledouble_sidecars_from_destinations() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("src");
+        let dest = tmp.path().join("dst");
+        let ascmhl = dest.join("ascmhl");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&ascmhl).unwrap();
+        std::fs::write(dest.join("normal.txt"), b"keep").unwrap();
+        std::fs::write(dest.join("._normal.txt"), b"appledouble").unwrap();
+        std::fs::write(ascmhl.join("0001_test.mhl"), b"keep mhl").unwrap();
+        std::fs::write(ascmhl.join("._0001_test.mhl"), b"appledouble mhl").unwrap();
+
+        let db = test_db();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let config = OffloadConfig {
+            job_id: "test-appledouble-cleanup".into(),
+            job_name: "AppleDouble Cleanup".into(),
+            source_path: source,
+            dest_paths: vec![dest.clone()],
+            ..Default::default()
+        };
+        let workflow = OffloadWorkflow::new(config, db, tx);
+
+        let removed = workflow.cleanup_appledouble_sidecars_in_destinations();
+        assert_eq!(removed, 2);
+        assert!(dest.join("normal.txt").exists());
+        assert!(!dest.join("._normal.txt").exists());
+        assert!(ascmhl.join("0001_test.mhl").exists());
+        assert!(!ascmhl.join("._0001_test.mhl").exists());
     }
 
     #[tokio::test]
@@ -4176,5 +4746,276 @@ mod tests {
             cascading_events.is_empty(),
             "Should NOT cascade when there's only 1 destination"
         );
+    }
+
+    #[tokio::test]
+    async fn test_resume_after_source_verify_interruption_copies_pending_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("src");
+        let dest = tmp.path().join("dst");
+        std::fs::create_dir_all(&source).unwrap();
+
+        create_source_files(
+            &source,
+            &[
+                ("clip001.mov", b"pre-copy hash interruption clip 001"),
+                ("clip002.mov", b"pre-copy hash interruption clip 002"),
+            ],
+        );
+
+        let db = test_db();
+        let (setup_tx, _setup_rx) = mpsc::unbounded_channel();
+        let setup_config = OffloadConfig {
+            job_id: "test-resume-source-hash".into(),
+            job_name: "Resume Source Hash".into(),
+            source_path: source.clone(),
+            dest_paths: vec![dest.clone()],
+            hash_algorithms: vec![HashAlgorithm::XXH64, HashAlgorithm::SHA256],
+            buffer_size: 1024,
+            source_verify: true,
+            post_verify: true,
+            generate_mhl: false,
+            max_retries: 1,
+            conflict_resolutions: HashMap::new(),
+            ..Default::default()
+        };
+
+        let setup_workflow = OffloadWorkflow::new(setup_config.clone(), db.clone(), setup_tx);
+        let source_files = setup_workflow.scan_source().await.unwrap();
+        setup_workflow.create_db_records(&source_files).unwrap();
+        {
+            let conn = db.lock().unwrap();
+            checkpoint::update_job_status(&conn, &setup_config.job_id, "terminated").unwrap();
+        }
+
+        let (tx, rx) = mpsc::unbounded_channel();
+        let resume_config = OffloadConfig {
+            source_verify: false,
+            post_verify: true,
+            generate_mhl: false,
+            ..setup_config
+        };
+        let resume_workflow = OffloadWorkflow::new(resume_config, db.clone(), tx);
+        let result = resume_workflow.execute_resume().await.unwrap();
+
+        assert!(result.success);
+        assert_eq!(
+            std::fs::read(dest.join("clip001.mov")).unwrap(),
+            b"pre-copy hash interruption clip 001"
+        );
+        assert_eq!(
+            std::fs::read(dest.join("clip002.mov")).unwrap(),
+            b"pre-copy hash interruption clip 002"
+        );
+
+        {
+            let conn = db.lock().unwrap();
+            let completed: usize = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM copy_tasks WHERE job_id = 'test-resume-source-hash' AND status = 'completed'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(completed, 2);
+        }
+
+        drop(resume_workflow);
+        let events = drain_events(rx).await;
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                OffloadEvent::PhaseChanged {
+                    phase: OffloadPhase::Copying,
+                    ..
+                }
+            )),
+            "resume should copy pending files"
+        );
+        assert!(
+            !events.iter().any(|e| matches!(
+                e,
+                OffloadEvent::PhaseChanged {
+                    phase: OffloadPhase::SourceVerify,
+                    ..
+                }
+            )),
+            "resume should not restart the separate pre-copy source hash phase"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_only_resume_after_post_verify_interruption_without_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("src");
+        let dest = tmp.path().join("dst");
+        std::fs::create_dir_all(&source).unwrap();
+
+        create_source_files(
+            &source,
+            &[
+                ("clip001.mov", b"verify-only resume clip 001"),
+                ("clip002.mov", b"verify-only resume clip 002"),
+            ],
+        );
+
+        let db = test_db();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let config = OffloadConfig {
+            job_id: "test-verify-only-resume".into(),
+            job_name: "Verify Only Resume".into(),
+            source_path: source.clone(),
+            dest_paths: vec![dest.clone()],
+            hash_algorithms: vec![HashAlgorithm::XXH64, HashAlgorithm::SHA256],
+            buffer_size: 1024,
+            source_verify: false,
+            post_verify: false,
+            generate_mhl: false,
+            max_retries: 1,
+            conflict_resolutions: HashMap::new(),
+            ..Default::default()
+        };
+
+        let workflow = OffloadWorkflow::new(config.clone(), db.clone(), tx);
+        let initial = workflow.execute().await.unwrap();
+        assert!(initial.success);
+        std::fs::remove_dir_all(&source).unwrap();
+
+        {
+            let conn = db.lock().unwrap();
+            checkpoint::update_job_status(&conn, &config.job_id, "verifying").unwrap();
+            conn.execute(
+                "UPDATE copy_tasks SET status = 'verifying' WHERE job_id = ?1 AND source_path LIKE '%clip001.mov'",
+                rusqlite::params![config.job_id],
+            )
+            .unwrap();
+        }
+
+        let (resume_tx, resume_rx) = mpsc::unbounded_channel();
+        let resume_config = OffloadConfig {
+            source_verify: false,
+            post_verify: true,
+            generate_mhl: false,
+            ..config
+        };
+        let resume_workflow = OffloadWorkflow::new(resume_config, db.clone(), resume_tx);
+        let result = resume_workflow.execute_resume().await.unwrap();
+
+        assert!(result.success);
+        assert_eq!(
+            std::fs::read(dest.join("clip001.mov")).unwrap(),
+            b"verify-only resume clip 001"
+        );
+        assert_eq!(
+            std::fs::read(dest.join("clip002.mov")).unwrap(),
+            b"verify-only resume clip 002"
+        );
+
+        {
+            let conn = db.lock().unwrap();
+            let completed: usize = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM copy_tasks WHERE job_id = 'test-verify-only-resume' AND status = 'completed'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(completed, 2);
+        }
+
+        drop(resume_workflow);
+        let events = drain_events(resume_rx).await;
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                OffloadEvent::PhaseChanged {
+                    phase: OffloadPhase::Verifying,
+                    ..
+                }
+            )),
+            "verify-only resume should re-enter destination verification"
+        );
+        assert!(
+            !events.iter().any(|e| matches!(
+                e,
+                OffloadEvent::PhaseChanged {
+                    phase: OffloadPhase::Copying,
+                    ..
+                }
+            )),
+            "verify-only resume should not require source-card copy work"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_only_resume_without_source_or_db_hash_fails_task() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("src");
+        let dest = tmp.path().join("dst");
+        let source_file = source.join("clip001.mov");
+        let dest_file = dest.join("clip001.mov");
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(&dest_file, b"destination exists but no trusted hash").unwrap();
+
+        let db = test_db();
+        let job_id = "test-verify-no-hash".to_string();
+        {
+            let conn = db.lock().unwrap();
+            checkpoint::create_job(
+                &conn,
+                &job_id,
+                "Verify Missing Hash",
+                source.to_string_lossy().as_ref(),
+                None,
+            )
+            .unwrap();
+            checkpoint::insert_task(
+                &conn,
+                "task-no-hash",
+                &job_id,
+                source_file.to_string_lossy().as_ref(),
+                dest_file.to_string_lossy().as_ref(),
+                dest_file.metadata().unwrap().len(),
+            )
+            .unwrap();
+            checkpoint::update_task_status(&conn, "task-no-hash", checkpoint::STATUS_VERIFYING)
+                .unwrap();
+            checkpoint::update_job_status(&conn, &job_id, "verifying").unwrap();
+        }
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let config = OffloadConfig {
+            job_id: job_id.clone(),
+            job_name: "Verify Missing Hash".into(),
+            source_path: source,
+            dest_paths: vec![dest],
+            hash_algorithms: vec![HashAlgorithm::XXH64, HashAlgorithm::SHA256],
+            buffer_size: 1024,
+            source_verify: false,
+            post_verify: true,
+            generate_mhl: false,
+            max_retries: 1,
+            conflict_resolutions: HashMap::new(),
+            ..Default::default()
+        };
+
+        let workflow = OffloadWorkflow::new(config, db.clone(), tx);
+        let result = workflow.execute_resume().await.unwrap();
+        assert!(!result.success);
+        assert_eq!(result.failed_files, 1);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("No hash available")));
+
+        let conn = db.lock().unwrap();
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM copy_tasks WHERE id = 'task-no-hash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, checkpoint::STATUS_FAILED);
     }
 }

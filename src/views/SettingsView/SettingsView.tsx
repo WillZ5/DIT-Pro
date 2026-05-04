@@ -4,10 +4,18 @@ import { useI18n, type Locale } from "../../i18n";
 import { SystemLog } from "../../components/SystemLog";
 import { playChime, type ChimeEvent } from "../../utils/audioChimes";
 import { initNotifications, checkNotificationPermission } from "../../utils/notifications";
-import type { CommandResult, AppSettings, DeviceIoConfig, SoundSettings } from "../../types";
+import type { CommandResult, AppSettings, DeviceIoConfig, HashAlgorithm, SoundSettings } from "../../types";
 
 export function SettingsView() {
   const { t, locale, setLocale } = useI18n();
+
+  const ALGO_OPTIONS: { id: HashAlgorithm; label: string }[] = [
+    { id: "XXH64", label: "XXH64" },
+    { id: "XXH3", label: "XXH3" },
+    { id: "XXH128", label: "XXH128" },
+    { id: "SHA256", label: "SHA-256" },
+    { id: "MD5", label: "MD5" },
+  ];
 
   const DEVICE_TYPES: { key: keyof AppSettings["ioScheduling"]; label: string; desc: string }[] = [
     { key: "hdd", label: "HDD", desc: t.settings.deviceHdd },
@@ -26,6 +34,7 @@ export function SettingsView() {
   const [exportingBundle, setExportingBundle] = useState(false);
   const [bundlePath, setBundlePath] = useState<string | null>(null);
   const [notifPermission, setNotifPermission] = useState<boolean | null>(null);
+  const [smtpPassword, setSmtpPassword] = useState("");
 
   // Check notification permission on mount
   useEffect(() => {
@@ -57,6 +66,20 @@ export function SettingsView() {
         settings,
       });
       if (result.success) {
+        if (smtpPassword) {
+          const passwordResult = await safeInvoke<CommandResult<boolean>>("save_smtp_password", {
+            password: smtpPassword,
+          });
+          if (!passwordResult.success) {
+            setError(passwordResult.error || t.settings.smtpPasswordSaveFailed);
+            return;
+          }
+          setSettings({
+            ...settings,
+            email: { ...settings.email, smtpPasswordSet: true },
+          });
+          setSmtpPassword("");
+        }
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
       } else {
@@ -69,12 +92,46 @@ export function SettingsView() {
     }
   };
 
-  const updateOffload = (key: string, value: boolean | number | string) => {
+  const handleResetSettings = async () => {
+    if (!window.confirm(t.settings.resetConfirm)) return;
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      const result = await safeInvoke<CommandResult<AppSettings>>("reset_settings");
+      if (result.success && result.data) {
+        setSettings(result.data);
+        setSmtpPassword("");
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      } else {
+        setError(result.error || t.settings.resetFailed);
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateOffload = (key: string, value: boolean | number | string | string[]) => {
     if (!settings) return;
     setSettings({
       ...settings,
       offload: { ...settings.offload, [key]: value },
     });
+  };
+
+  const toggleDefaultAlgorithm = (algoId: HashAlgorithm) => {
+    if (!settings) return;
+    const current = settings.offload.hashAlgorithms?.length
+      ? settings.offload.hashAlgorithms
+      : ["XXH64", "SHA256"];
+    const next = current.includes(algoId)
+      ? current.filter((algo) => algo !== algoId)
+      : [...current, algoId];
+    if (next.length === 0) return;
+    updateOffload("hashAlgorithms", next);
   };
 
   const updateIo = (
@@ -236,6 +293,13 @@ export function SettingsView() {
         <div className="settings-actions">
           {saved && <span className="save-success">{t.common.saved}</span>}
           <button
+            className="btn-secondary"
+            onClick={handleResetSettings}
+            disabled={saving}
+          >
+            {t.settings.resetSettings}
+          </button>
+          <button
             className="btn-primary"
             onClick={handleSave}
             disabled={saving}
@@ -338,6 +402,31 @@ export function SettingsView() {
               />
               <span className="toggle-switch" />
             </label>
+
+            <div className="number-row">
+              <span className="toggle-label">{t.settings.defaultHashAlgorithms}</span>
+              <span className="toggle-desc">{t.settings.defaultHashAlgorithmsDesc}</span>
+              <div className="algo-grid algo-grid--compact">
+                {ALGO_OPTIONS.map((algo) => {
+                  const selected = (settings.offload.hashAlgorithms?.length
+                    ? settings.offload.hashAlgorithms
+                    : ["XXH64", "SHA256"]).includes(algo.id);
+                  return (
+                    <label
+                      key={algo.id}
+                      className={`algo-chip ${selected ? "algo-chip--active" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleDefaultAlgorithm(algo.id)}
+                      />
+                      <span className="algo-name">{algo.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
 
             {settings.offload.cascade && (
               <div className="number-row">
@@ -610,6 +699,20 @@ export function SettingsView() {
                 />
               </div>
               <div className="field-row">
+                <label className="field-label">{t.settings.smtpPassword}</label>
+                <input
+                  type="password"
+                  className="settings-input"
+                  placeholder={
+                    settings.email.smtpPasswordSet
+                      ? t.settings.smtpPasswordSet
+                      : t.settings.smtpPasswordPlaceholder
+                  }
+                  value={smtpPassword}
+                  onChange={(e) => setSmtpPassword(e.target.value)}
+                />
+              </div>
+              <div className="field-row">
                 <label className="field-label">{t.settings.fromAddress}</label>
                 <input
                   type="email"
@@ -838,6 +941,16 @@ export function SettingsView() {
                   )}
 
                   <div className="form-group" style={{ marginTop: 12 }}>
+                    <label className="settings-toggle" style={{ marginBottom: 12 }}>
+                      <span className="toggle-label">{t.settings.cloudSyncProxies}</span>
+                      <input
+                        type="checkbox"
+                        className="toggle-input"
+                        checked={settings.cloud.syncProxies}
+                        onChange={(e) => updateCloud("syncProxies", e.target.checked)}
+                      />
+                      <span className="toggle-switch" />
+                    </label>
                     <button className="btn-secondary" onClick={testCloudConnection} disabled={testingCloud}>
                       {testingCloud ? "Testing..." : t.settings.cloudTestConnection}
                     </button>

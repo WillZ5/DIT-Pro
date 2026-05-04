@@ -24,6 +24,17 @@ pub struct WorkflowPreset {
     /// Hash algorithms to use
     #[serde(default = "default_algorithms")]
     pub hash_algorithms: Vec<String>,
+    /// Generate proxy files after a successful offload
+    #[serde(default)]
+    pub generate_proxies: bool,
+    /// Proxy generation settings
+    #[serde(default)]
+    pub proxy_config: crate::camera::transcode::ProxyConfig,
+    /// Preserve user's preference for automatic report export in preset data.
+    /// Reports are currently generated from completed jobs, so this flag is stored
+    /// for workflow planning and future automation.
+    #[serde(default)]
+    pub auto_export_report: bool,
     /// Source verification (hash source before copy)
     #[serde(default = "default_true")]
     pub source_verify: bool,
@@ -174,6 +185,9 @@ pub fn builtin_presets() -> Vec<WorkflowPreset> {
             description: "Maximum safety: source hash + copy + post-verify + MHL seal. Use for critical footage."
                 .to_string(),
             hash_algorithms: vec!["XXH64".to_string(), "SHA256".to_string()],
+            generate_proxies: false,
+            proxy_config: crate::camera::transcode::ProxyConfig::default(),
+            auto_export_report: false,
             source_verify: true,
             post_verify: true,
             generate_mhl: true,
@@ -190,6 +204,9 @@ pub fn builtin_presets() -> Vec<WorkflowPreset> {
             description: "Speed-optimized: skip source verify, use fastest hash only. Good for review copies."
                 .to_string(),
             hash_algorithms: vec!["XXH64".to_string()],
+            generate_proxies: false,
+            proxy_config: crate::camera::transcode::ProxyConfig::default(),
+            auto_export_report: false,
             source_verify: false,
             post_verify: true,
             generate_mhl: false,
@@ -206,6 +223,9 @@ pub fn builtin_presets() -> Vec<WorkflowPreset> {
             description: "Copy to fast SSD first, then cascade to shuttle drives. Frees source card sooner."
                 .to_string(),
             hash_algorithms: vec!["XXH64".to_string(), "SHA256".to_string()],
+            generate_proxies: false,
+            proxy_config: crate::camera::transcode::ProxyConfig::default(),
+            auto_export_report: false,
             source_verify: true,
             post_verify: true,
             generate_mhl: true,
@@ -241,6 +261,9 @@ mod tests {
             name: "My ARRI Preset".to_string(),
             description: "Day offload for ARRI Alexa Mini".to_string(),
             hash_algorithms: vec!["XXH64".to_string(), "SHA256".to_string()],
+            generate_proxies: false,
+            proxy_config: crate::camera::transcode::ProxyConfig::default(),
+            auto_export_report: false,
             source_verify: true,
             post_verify: true,
             generate_mhl: true,
@@ -270,6 +293,9 @@ mod tests {
             name: "Original Name".to_string(),
             description: String::new(),
             hash_algorithms: vec!["XXH64".to_string()],
+            generate_proxies: false,
+            proxy_config: crate::camera::transcode::ProxyConfig::default(),
+            auto_export_report: false,
             source_verify: true,
             post_verify: true,
             generate_mhl: true,
@@ -309,6 +335,9 @@ mod tests {
                     name: name.to_string(),
                     description: String::new(),
                     hash_algorithms: vec!["XXH64".to_string()],
+                    generate_proxies: false,
+                    proxy_config: crate::camera::transcode::ProxyConfig::default(),
+                    auto_export_report: false,
                     source_verify: true,
                     post_verify: true,
                     generate_mhl: true,

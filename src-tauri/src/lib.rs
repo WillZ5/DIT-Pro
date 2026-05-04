@@ -154,15 +154,17 @@ pub fn run() {
                 ],
             )?;
 
-            // macOS: "DIT Pro" app submenu with About, Hide, Show All, Quit
+            // macOS: "DIT Pro" app submenu with app-managed About, Hide, Show All, Quit
             #[cfg(target_os = "macos")]
             {
+                let about_item =
+                    MenuItem::with_id(app, "about", "About DIT Pro", true, None::<&str>)?;
                 let app_submenu = Submenu::with_items(
                     app,
                     "DIT Pro",
                     true,
                     &[
-                        &PredefinedMenuItem::about(app, Some("About DIT Pro"), None)?,
+                        &about_item,
                         &PredefinedMenuItem::separator(app)?,
                         &PredefinedMenuItem::hide(app, Some("Hide DIT Pro"))?,
                         &PredefinedMenuItem::hide_others(app, None)?,
@@ -201,8 +203,16 @@ pub fn run() {
             // - Hold ⌘Q for 1s (key repeat events stream in) → quit
             // - Tap ⌘Q once → show toast → tap again within 3s → quit
             // - Menu click "Quit" → same as tap (shows toast, click again to quit)
-            app.on_menu_event(move |app_handle, event| {
-                if event.id().as_ref() == "app-quit" {
+            app.on_menu_event(move |app_handle, event| match event.id().as_ref() {
+                "about" => {
+                    if let Some(w) = app_handle.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.unminimize();
+                        let _ = w.set_focus();
+                    }
+                    app_handle.emit("show-about", ()).ok();
+                }
+                "app-quit" => {
                     let now = now_ms();
                     let first = QUIT_FIRST_MS.load(Ordering::Relaxed);
                     let last = QUIT_LAST_MS.load(Ordering::Relaxed);
@@ -241,6 +251,7 @@ pub fn run() {
                         }
                     }
                 }
+                _ => {}
             });
 
             Ok(())
@@ -288,6 +299,7 @@ pub fn run() {
             // Settings
             commands::get_settings,
             commands::save_settings,
+            commands::reset_settings,
             commands::test_cloud_connection,
             // Presets
             commands::list_presets,

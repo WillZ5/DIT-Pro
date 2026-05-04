@@ -73,8 +73,11 @@ pub struct VersionInfo {
 impl VersionInfo {
     /// Build VersionInfo from compile-time environment variables.
     pub fn current() -> Self {
-        let version = env!("CARGO_PKG_VERSION").to_string();
-        let pre_release = option_env!("DIT_PRE_RELEASE").map(|s| s.to_string());
+        let (version, embedded_pre_release) = Self::split_pre_release(env!("CARGO_PKG_VERSION"));
+        let pre_release = option_env!("DIT_PRE_RELEASE")
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .or(embedded_pre_release);
         let git_hash = option_env!("DIT_GIT_HASH").map(|s| s.to_string());
         let build_time = option_env!("DIT_BUILD_TIME").map(|s| s.to_string());
 
@@ -103,7 +106,10 @@ impl VersionInfo {
 
     /// Derive release channel from version and pre-release tag.
     fn derive_channel(version: &str, pre_release: Option<&str>) -> ReleaseChannel {
-        match pre_release {
+        let (_, embedded_pre_release) = Self::split_pre_release(version);
+        let effective_pre_release = pre_release.or(embedded_pre_release.as_deref());
+
+        match effective_pre_release {
             Some(p) if p.starts_with("alpha") => ReleaseChannel::Alpha,
             Some(p) if p.starts_with("beta") => ReleaseChannel::Beta,
             Some(p) if p.starts_with("rc") => ReleaseChannel::Rc,
@@ -120,8 +126,10 @@ impl VersionInfo {
 
     /// Format the full version string.
     fn format_full(version: &str, pre_release: Option<&str>, build_meta: Option<&str>) -> String {
-        let mut s = version.to_string();
-        if let Some(pre) = pre_release {
+        let (base_version, embedded_pre_release) = Self::split_pre_release(version);
+        let effective_pre_release = pre_release.or(embedded_pre_release.as_deref());
+        let mut s = base_version;
+        if let Some(pre) = effective_pre_release {
             s.push('-');
             s.push_str(pre);
         }
@@ -130,6 +138,16 @@ impl VersionInfo {
             s.push_str(meta);
         }
         s
+    }
+
+    fn split_pre_release(raw_version: &str) -> (String, Option<String>) {
+        let version_without_meta = raw_version
+            .split_once('+')
+            .map_or(raw_version, |(base, _)| base);
+        match version_without_meta.split_once('-') {
+            Some((base, pre)) if !pre.is_empty() => (base.to_string(), Some(pre.to_string())),
+            _ => (version_without_meta.to_string(), None),
+        }
     }
 }
 
@@ -164,17 +182,27 @@ pub struct UpdateCheckResult {
 /// Compare two semver strings (e.g. "1.0.1" vs "1.0.2").
 /// Returns true if `remote` is newer than `local`.
 fn is_newer(local: &str, remote: &str) -> bool {
-    let parse = |s: &str| -> Vec<u64> {
-        s.trim_start_matches('v')
-            .split('.')
-            .filter_map(|p| p.parse::<u64>().ok())
-            .collect()
+    let parse = |s: &str| -> ([u64; 3], Option<String>) {
+        let without_v = s.trim().trim_start_matches('v');
+        let without_build = without_v
+            .split_once('+')
+            .map_or(without_v, |(base, _)| base);
+        let (core, pre) = without_build
+            .split_once('-')
+            .map_or((without_build, None), |(core, pre)| {
+                (core, Some(pre.to_string()))
+            });
+        let mut parts = [0_u64; 3];
+        for (idx, part) in core.split('.').take(3).enumerate() {
+            parts[idx] = part.parse::<u64>().unwrap_or(0);
+        }
+        (parts, pre)
     };
-    let l = parse(local);
-    let r = parse(remote);
+    let (l, l_pre) = parse(local);
+    let (r, r_pre) = parse(remote);
     for i in 0..3 {
-        let lv = l.get(i).copied().unwrap_or(0);
-        let rv = r.get(i).copied().unwrap_or(0);
+        let lv = l[i];
+        let rv = r[i];
         if rv > lv {
             return true;
         }
@@ -182,7 +210,11 @@ fn is_newer(local: &str, remote: &str) -> bool {
             return false;
         }
     }
-    false
+    match (l_pre, r_pre) {
+        (Some(_), None) => true,
+        (None, Some(_)) | (None, None) => false,
+        (Some(local_pre), Some(remote_pre)) => remote_pre > local_pre,
+    }
 }
 
 const WEBSITE_HOME: &str = "https://ditpro.negdims.com/";
@@ -198,6 +230,15 @@ struct WebsiteLatest {
     html_url: String,
     published_at: Option<String>,
     download_url: Option<String>,
+}
+
+fn normalize_version_tag(version: &str) -> String {
+    let version = version.trim();
+    if version.starts_with('v') {
+        version.to_string()
+    } else {
+        format!("v{}", version)
+    }
 }
 
 /// Build an HTTP client with timeout.
@@ -266,26 +307,43 @@ async fn fetch_json<T: serde::de::DeserializeOwned>(
 /// Parse `<meta name="ditpro-stable-version" content="vX.X.X">` from HTML.
 /// Returns the content value (e.g. "v1.2.0") or None.
 fn parse_stable_version_meta(html: &str) -> Option<String> {
-    // Look for: <meta name="ditpro-stable-version" content="...">
-    let needle = "name=\"ditpro-stable-version\"";
-    let pos = html.find(needle)?;
-    // Search for content="..." within the same <meta> tag
-    let tag_start = html[..pos].rfind('<')?;
-    let tag_end = html[pos..].find('>')? + pos;
-    let tag = &html[tag_start..=tag_end];
-    let content_marker = "content=\"";
-    let c_start = tag.find(content_marker)? + content_marker.len();
-    let c_end = tag[c_start..].find('"')? + c_start;
-    let version = tag[c_start..c_end].trim().to_string();
-    // Validate format: must be vX.X.X
-    if version.starts_with('v')
-        && version[1..].split('.').count() == 3
-        && version[1..].split('.').all(|p| p.parse::<u64>().is_ok())
-    {
-        Some(version)
-    } else {
+    fn attr_value(tag: &str, attr: &str) -> Option<String> {
+        for quote in ['"', '\''] {
+            let marker = format!("{}={}", attr, quote);
+            if let Some(start) = tag.find(&marker) {
+                let value_start = start + marker.len();
+                let value_end = tag[value_start..].find(quote)? + value_start;
+                return Some(tag[value_start..value_end].trim().to_string());
+            }
+        }
         None
     }
+
+    let mut offset = 0;
+    while let Some(meta_start_rel) = html[offset..].find("<meta") {
+        let meta_start = offset + meta_start_rel;
+        let Some(meta_end_rel) = html[meta_start..].find('>') else {
+            break;
+        };
+        let meta_end = meta_start + meta_end_rel;
+        let tag = &html[meta_start..=meta_end];
+        if attr_value(tag, "name").as_deref() == Some("ditpro-stable-version") {
+            let version = attr_value(tag, "content")?;
+            if is_stable_version_tag(&version) {
+                return Some(version);
+            }
+            return None;
+        }
+        offset = meta_end + 1;
+    }
+    None
+}
+
+fn is_stable_version_tag(version: &str) -> bool {
+    // Validate format: must be vX.X.X
+    version.starts_with('v')
+        && version[1..].split('.').count() == 3
+        && version[1..].split('.').all(|p| p.parse::<u64>().is_ok())
 }
 
 /// Shared update check implementation with injectable endpoints for tests.
@@ -294,51 +352,43 @@ async fn check_for_update_from_sources(
     website_home: &str,
     website_latest: &str,
 ) -> Result<UpdateCheckResult, String> {
-    // ── Primary: parse meta tag from website homepage ──
-    let (stable_version, release_notes) = match fetch_text(website_home, 3, 10).await {
-        Ok(html) => match parse_stable_version_meta(&html) {
-            Some(ver) => {
-                log::info!(
-                    "Update check: parsed stable version from website meta: {}",
-                    ver
-                );
-                (ver, String::new())
-            }
-            None => {
-                log::warn!(
-                    "Update check: meta tag ditpro-stable-version not found, trying fallback..."
-                );
-                (String::new(), String::new())
-            }
-        },
-        Err(e) => {
-            log::warn!(
-                "Update check: website fetch failed: {}, trying fallback...",
-                e
+    // ── Primary: stable manifest ──
+    let manifest = match fetch_json::<WebsiteLatest>(website_latest, 3, 10).await {
+        Ok(w) => {
+            log::info!(
+                "Update check: fetched from latest.json (tag={})",
+                w.tag_name
             );
-            (String::new(), String::new())
+            Some(w)
+        }
+        Err(json_err) => {
+            log::warn!(
+                "Update check: latest.json failed: {}, trying website meta fallback...",
+                json_err
+            );
+            None
         }
     };
 
-    // ── Fallback: /software/latest.json ──
-    let (final_version, final_notes) = if stable_version.is_empty() {
-        match fetch_json::<WebsiteLatest>(website_latest, 3, 10).await {
-            Ok(w) => {
-                log::info!(
-                    "Update check: fetched from latest.json (tag={})",
-                    w.tag_name
-                );
-                (w.tag_name, w.body.unwrap_or_default())
-            }
-            Err(json_err) => {
-                return Err(format!(
-                    "Update check failed — website HTML: meta not found; latest.json: {}",
-                    json_err
-                ));
-            }
-        }
+    // ── Fallback: hidden website meta tag ──
+    let (final_version, final_notes, final_download, final_published) = if let Some(w) = manifest {
+        (
+            normalize_version_tag(&w.tag_name),
+            w.body.unwrap_or_default(),
+            w.download_url,
+            w.published_at.unwrap_or_default(),
+        )
     } else {
-        (stable_version, release_notes)
+        let html = fetch_text(website_home, 3, 10).await?;
+        let stable_version = parse_stable_version_meta(&html).ok_or_else(|| {
+            "Update check failed: latest.json unavailable and website meta tag not found"
+                .to_string()
+        })?;
+        log::info!(
+            "Update check: parsed stable version from website meta: {}",
+            stable_version
+        );
+        (stable_version, String::new(), None, String::new())
     };
 
     let remote_ver = final_version.trim_start_matches('v');
@@ -347,19 +397,23 @@ async fn check_for_update_from_sources(
     Ok(UpdateCheckResult {
         has_update,
         latest_version: final_version,
-        current_version: format!("v{}", current),
+        current_version: normalize_version_tag(current),
         release_notes: final_notes,
         release_url: website_home.to_string(),
-        download_url: None,
-        published_at: String::new(),
+        download_url: final_download,
+        published_at: final_published,
     })
 }
 
 /// Check for updates:
-/// 1. Primary: fetch website HTML, parse `<meta name="ditpro-stable-version">`
-/// 2. Fallback: fetch `/software/latest.json`, use `tag_name`
+/// 1. Primary: fetch `/software/latest.json`
+/// 2. Fallback: fetch website HTML, parse `<meta name="ditpro-stable-version">`
 pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
-    check_for_update_from_sources(env!("CARGO_PKG_VERSION"), WEBSITE_HOME, WEBSITE_LATEST).await
+    let full = VersionInfo::current().full_string;
+    let current = full
+        .split_once('+')
+        .map_or_else(|| full.clone(), |(base, _)| base.to_string());
+    check_for_update_from_sources(&current, WEBSITE_HOME, WEBSITE_LATEST).await
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -486,6 +540,22 @@ mod tests {
             VersionInfo::format_full("1.0.0", None, Some("20260225.a3b4c5d")),
             "1.0.0+20260225.a3b4c5d"
         );
+        assert_eq!(
+            VersionInfo::format_full("1.4.0-beta", Some("beta.3"), None),
+            "1.4.0-beta.3"
+        );
+    }
+
+    #[test]
+    fn test_embedded_pre_release_normalization() {
+        assert_eq!(
+            VersionInfo::split_pre_release("1.4.0-beta"),
+            ("1.4.0".to_string(), Some("beta".to_string()))
+        );
+        assert_eq!(
+            VersionInfo::derive_channel("1.4.0-beta", None),
+            ReleaseChannel::Beta
+        );
     }
 
     #[test]
@@ -534,10 +604,14 @@ mod tests {
         // content before name attribute (reversed order)
         let html6 = r#"<meta content="v1.5.0" name="ditpro-stable-version">"#;
         assert_eq!(parse_stable_version_meta(html6), Some("v1.5.0".to_string()));
+
+        // single quotes
+        let html7 = r#"<meta name='ditpro-stable-version' content='v1.6.0'>"#;
+        assert_eq!(parse_stable_version_meta(html7), Some("v1.6.0".to_string()));
     }
 
     #[tokio::test]
-    async fn test_check_for_update_prefers_website_meta_and_returns_website_url() {
+    async fn test_check_for_update_prefers_manifest_and_returns_website_url() {
         let mut routes = HashMap::new();
         routes.insert(
             "/".to_string(),
@@ -558,11 +632,11 @@ mod tests {
                 status: "200 OK",
                 content_type: "application/json",
                 body: r#"{
-                    "tag_name":"v9.9.9",
-                    "body":"fallback should not be used",
-                    "html_url":"https://example.com/releases/v9.9.9",
+                    "tag_name":"v1.3.0",
+                    "body":"manifest notes",
+                    "html_url":"https://example.com/releases/v1.3.0",
                     "published_at":"2026-03-10T00:00:00Z",
-                    "download_url":"https://example.com/fallback.dmg"
+                    "download_url":"https://example.com/dit-pro.dmg"
                 }"#
                 .to_string(),
             },
@@ -578,14 +652,65 @@ mod tests {
 
         assert!(result.has_update);
         assert_eq!(result.current_version, "v1.1.0");
-        assert_eq!(result.latest_version, "v1.2.0");
+        assert_eq!(result.latest_version, "v1.3.0");
+        assert_eq!(result.release_notes, "manifest notes");
+        assert_eq!(result.release_url, home_url);
+        assert_eq!(
+            result.download_url.as_deref(),
+            Some("https://example.com/dit-pro.dmg")
+        );
+        assert_eq!(result.published_at, "2026-03-10T00:00:00Z");
+
+        let seen = request_log.lock().unwrap().clone();
+        assert!(seen.iter().any(|path| path == "/software/latest.json"));
+        assert!(!seen.iter().any(|path| path == "/"));
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_check_for_update_falls_back_to_website_meta() {
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/".to_string(),
+            TestResponse {
+                status: "200 OK",
+                content_type: "text/html",
+                body: r#"
+                    <html><head>
+                      <meta content="v1.4.0" name="ditpro-stable-version">
+                    </head><body>DIT Pro</body></html>
+                "#
+                .to_string(),
+            },
+        );
+        routes.insert(
+            "/software/latest.json".to_string(),
+            TestResponse {
+                status: "500 Internal Server Error",
+                content_type: "application/json",
+                body: "{}".to_string(),
+            },
+        );
+
+        let (base_url, request_log, server) = spawn_test_server(routes).await;
+        let home_url = format!("{}/", base_url);
+        let latest_url = format!("{}/software/latest.json", base_url);
+
+        let result = check_for_update_from_sources("1.4.0-beta.7", &home_url, &latest_url)
+            .await
+            .unwrap();
+
+        assert!(result.has_update);
+        assert_eq!(result.current_version, "v1.4.0-beta.7");
+        assert_eq!(result.latest_version, "v1.4.0");
         assert!(result.release_notes.is_empty());
         assert_eq!(result.release_url, home_url);
         assert_eq!(result.download_url, None);
 
         let seen = request_log.lock().unwrap().clone();
+        assert!(seen.iter().any(|path| path == "/software/latest.json"));
         assert!(seen.iter().any(|path| path == "/"));
-        assert!(!seen.iter().any(|path| path == "/software/latest.json"));
 
         server.abort();
     }
@@ -598,5 +723,7 @@ mod tests {
         assert!(!is_newer("1.3.0", "1.2.0"));
         assert!(!is_newer("1.2.0", "1.2.0"));
         assert!(is_newer("v1.2.0", "v1.3.0")); // with v prefix
+        assert!(is_newer("1.4.0-beta.7", "1.4.0"));
+        assert!(!is_newer("1.4.0", "1.4.0-beta.7"));
     }
 }

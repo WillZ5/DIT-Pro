@@ -888,7 +888,7 @@
   <section class="hero">
     <div class="hero-eyebrow">
       <span class="pulse"></span>
-      <span>Open-sourced · v1.2.0 · Available Now</span>
+      <span class="hero-eyebrow-text">Open-sourced · v1.2.0 · Available Now</span>
     </div>
 
     <h1 class="hero-headline">
@@ -1316,13 +1316,290 @@
     });
   });
 
-  // Lang toggle (visual only — full ZH dictionary port is straightforward, deferred for prototype)
+  /* ─────────── i18n ─────────── */
+  const i18n = {
+    en: {
+      htmlLang: "en",
+      pageTitle: "DIT Pro — Bulletproof footage offload",
+      metaDesc: "DIT Pro is an open-sourced footage offload tool for production teams with secure data integrity workflows.",
+      nav: ["Safety", "Features", "Stack", "Feedback"],
+      hero: {
+        eyebrow: "Open-sourced · v1.2.0 · Available Now",
+        headline: ["protect", "your", "footage"],
+        body: "Professional-grade, open-source data integrity with a clear GUI for production teams. No gimmicks. No guesswork. Just bulletproof backup.",
+        statNums: ["v1.2", "MIT", "macOS · Win"],
+        statLbls: ["stable release", "open licensed", "native builds"],
+        actions: ["Download stable", "Download beta", "Learn more ↓"]
+      },
+      preview: {
+        status: "Ready",
+        title: "offload · ARRI_A001",
+        keys: ["Source", "Destinations", "Verification"],
+        sourceVal: "/Volumes/ARRI_A001 · 847 files · 2.3 TB",
+        destVal: "SSD_01 · HDD_SHUTTLE",
+        progressText: "Safe to format · 2 generations sealed"
+      },
+      metrics: {
+        eyebrow: "// current build",
+        title: "Built from real engineering, not marketing claims.",
+        labels: ["Rust Modules", "Tauri Commands", "Rust Tests", "DB Tables"]
+      },
+      safety: {
+        eyebrow: "// data integrity",
+        titleHtml: "Four pillars of<br>data safety.",
+        body: "Every byte matters on set. DIT Pro is built around four non-negotiable safety dimensions that protect your footage from card to archive.",
+        pillarTitles: ["Atomic Writes", "Checkpoint Recovery", "ASC MHL Chain", "Multi-Hash Verify"],
+        pillarBodies: [
+          "Every file operation is atomic. Partial writes never corrupt your destination — if it fails, it rolls back cleanly.",
+          "Power loss? Drive disconnected? Resume exactly where you left off with persistent checkpoint state.",
+          "Industry-standard chain-of-custody. Every generation is sealed and traceable from set to post.",
+          "XXH3 for speed, MD5 for compatibility. Dual-hash verification ensures nothing slips through."
+        ]
+      },
+      features: {
+        eyebrow: "// capabilities",
+        titleHtml: "Built for the<br>chaos of set.",
+        body: "From 6AM call times to overnight data wrangling — DIT Pro combines a clear GUI with reliable automation so you don't have to guess.",
+        tags: ["CORE", "CORE", "CORE", "VERIFY", "TRAIL", "WORKFLOW"],
+        titles: ["Cascade Copy", "Real-time Progress", "Bilingual UI", "MHL Re-verify", "Audit Trail", "Preset System"],
+        bodies: [
+          "Prioritize the fastest SSD first to free up your card reader, then async-sync to shuttle drives in the background.",
+          "Per-file and per-destination progress tracking with speed metrics and ETA. Always know where you stand.",
+          "Full English and Chinese interface. Switch seamlessly — your entire team stays on the same page.",
+          "Re-validate any past offload against its sealed ASC MHL chain. Catch silent corruption months after wrap — not the day before delivery.",
+          "Every byte read, every hash computed, every checkpoint logged. Export the full offload trail as production paperwork.",
+          "Save your multi-camera setup once, recall it instantly. Same destinations, same hash config, zero re-entry."
+        ]
+      },
+      stack: {
+        eyebrow: "// architecture",
+        titleHtml: "Serious tools<br>need serious tech.",
+        rowTitles: ["Tauri 2.0 + Rust", "React + TypeScript", "SQLite · local-first", "Apple Silicon Native"],
+        rowBodies: [
+          "Native performance with minimal resource footprint. Rust's memory safety guarantees mean zero data corruption from runtime errors.",
+          "Type-safe frontend with purpose-built views. Every interaction is designed for speed and clarity under pressure.",
+          "Local-first schema covering jobs, files, checkpoints, MHL generations, and comprehensive audit trails.",
+          "Optimized for M-series chips. Maximum throughput on the hardware DIT workstations actually use."
+        ]
+      },
+      feedback: {
+        eyebrow: "// feedback",
+        titleHtml: "Questions or<br>suggestions?",
+        body: "Choose a channel below to report issues or share product feedback.",
+        cardTitles: ["GitHub Issues", "Survey"],
+        cardBodies: [
+          "Bug reports, feature requests, and technical discussion happen in GitHub Issues.",
+          "Product feedback and workflow suggestions through a short questionnaire."
+        ],
+        cardCtas: ["Open issue →", "Open survey →"]
+      },
+      finalCta: {
+        titleHtml: "your footage<br>deserves <em>better.</em>",
+        body: "Built as an open-source tool for production teams that need dependable data safety. v1.2.0 is available now.",
+        actions: ["GitHub →", "Buy me a coffee →", "Bilibili →"]
+      }
+    },
+
+    zh: {
+      htmlLang: "zh-CN",
+      pageTitle: "DIT Pro — 坚不可摧的素材备份",
+      metaDesc: "DIT Pro 是面向制片团队的开源素材备份工具，提供专业级的数据完整性工作流。",
+      nav: ["安全", "功能", "架构", "反馈"],
+      hero: {
+        eyebrow: "开源 · v1.2.0 · 现已可用",
+        headline: ["守护", "你的", "素材"],
+        body: "面向制片团队的专业级开源数据完整性工具，配备清晰的图形界面。无花哨噱头，无任何猜测——只有坚不可摧的备份。",
+        statNums: ["v1.2", "MIT", "macOS · Win"],
+        statLbls: ["稳定版本", "开源许可", "原生构建"],
+        actions: ["下载稳定版", "下载测试版", "了解更多 ↓"]
+      },
+      preview: {
+        status: "就绪",
+        title: "offload · ARRI_A001",
+        keys: ["源盘", "目标盘", "校验"],
+        sourceVal: "/Volumes/ARRI_A001 · 847 个文件 · 2.3 TB",
+        destVal: "SSD_01 · HDD_SHUTTLE",
+        progressText: "可安全格式化 · 已封存 2 代"
+      },
+      metrics: {
+        eyebrow: "// 当前构建",
+        title: "建立在真实的工程实践之上，不靠营销口号。",
+        labels: ["Rust 模块", "Tauri 命令", "Rust 测试", "数据库表"]
+      },
+      safety: {
+        eyebrow: "// 数据完整性",
+        titleHtml: "数据安全的<br>四大支柱。",
+        body: "片场每一字节都至关重要。DIT Pro 围绕四大不可妥协的安全维度构建，从读卡器到归档全程守护你的素材。",
+        pillarTitles: ["原子写入", "断点恢复", "ASC MHL 链", "多重哈希校验"],
+        pillarBodies: [
+          "每个文件操作都是原子的。部分写入永远不会污染目标盘——若失败将干净地回滚。",
+          "停电？硬盘断开？借助持久化检查点状态，从中断处精准继续。",
+          "符合行业标准的素材交接链。每一代数据都封存且可追溯，从片场到后期。",
+          "XXH3 保速度，MD5 保兼容。双重哈希让任何错误都无处遁形。"
+        ]
+      },
+      features: {
+        eyebrow: "// 核心能力",
+        titleHtml: "专为片场的<br>高压混乱打造。",
+        body: "从清晨开机到通宵整理素材——DIT Pro 以清晰的图形界面和可靠的自动化流程，让你不再凭直觉。",
+        tags: ["核心", "核心", "界面", "校验", "审计", "工作流"],
+        titles: ["级联拷贝", "实时进度", "双语界面", "MHL 复核", "操作审计链", "预设系统"],
+        bodies: [
+          "优先写入最快 SSD，先释放读卡器，再把数据异步同步到周转硬盘。",
+          "按文件、按目标盘展示进度，附带速度与 ETA——任何时刻都能掌握状态。",
+          "完整支持中文与英文界面，一键切换，整组成员沟通零障碍。",
+          "针对任何过往拷贝，对照其封存的 ASC MHL 链条重新校验。让静默损坏在杀青数月后被发现，而不是交片前一天。",
+          "每一次读取、每一次哈希、每一次断点都被记录。完整流程可导出为可交付的制片文档。",
+          "多机位参数一次保存即可复用，相同目标盘与哈希配置无需重复录入。"
+        ]
+      },
+      stack: {
+        eyebrow: "// 系统架构",
+        titleHtml: "专业工具，<br>必须有专业技术。",
+        rowTitles: ["Tauri 2.0 + Rust", "React + TypeScript", "SQLite · 本地优先", "Apple Silicon 原生"],
+        rowBodies: [
+          "原生性能且资源占用低。Rust 的内存安全机制可避免运行时错误导致的数据损坏。",
+          "类型安全的前端，多个为流程而生的视图。每一处交互都为高压场景下的速度与清晰而设计。",
+          "本地优先的数据结构覆盖任务、文件、检查点、MHL 世代与完整审计轨迹。",
+          "针对 M 系列芯片优化，在真实 DIT 工作站上实现最大吞吐。"
+        ]
+      },
+      feedback: {
+        eyebrow: "// 问题反馈",
+        titleHtml: "遇到问题或<br>想提建议？",
+        body: "通过下面任一渠道反馈问题或分享产品建议。",
+        cardTitles: ["GitHub 问题反馈", "问卷反馈"],
+        cardBodies: [
+          "Bug 报告、功能建议与技术讨论请直接提交到 GitHub Issues。",
+          "通过简短问卷分享你的产品体验与流程建议。"
+        ],
+        cardCtas: ["前往 GitHub →", "填写问卷 →"]
+      },
+      finalCta: {
+        titleHtml: "你的素材<br>值得 <em>更好。</em>",
+        body: "为需要可靠数据安全的制片团队打造的开源工具。v1.2.0 现已发布。",
+        actions: ["GitHub →", "请我喝杯咖啡 →", "B 站 →"]
+      }
+    }
+  };
+
+  const setText = (sel, val) => {
+    const el = document.querySelector(sel);
+    if (el && typeof val === 'string') el.textContent = val;
+  };
+  const setHtml = (sel, val) => {
+    const el = document.querySelector(sel);
+    if (el && typeof val === 'string') el.innerHTML = val;
+  };
+  const setListText = (sel, arr) => {
+    if (!Array.isArray(arr)) return;
+    document.querySelectorAll(sel).forEach((el, i) => {
+      if (arr[i] !== undefined) el.textContent = arr[i];
+    });
+  };
+
+  function applyLang(lang) {
+    const d = i18n[lang] || i18n.en;
+
+    // <html lang="...">
+    document.documentElement.lang = d.htmlLang;
+    // Page title + meta description
+    document.title = d.pageTitle;
+    const metaDesc = document.querySelector('meta[name="description"]');
+    if (metaDesc) metaDesc.setAttribute('content', d.metaDesc);
+
+    // Nav
+    setListText('.nav-links a', d.nav);
+
+    // Hero
+    setText('.hero-eyebrow-text', d.hero.eyebrow);
+    setText('.hero-headline .word-1', d.hero.headline[0]);
+    setText('.hero-headline .word-2', d.hero.headline[1]);
+    setText('.hero-headline .word-3', d.hero.headline[2]);
+    setText('.hero-body', d.hero.body);
+    setListText('.hero-stats .stat-num', d.hero.statNums);
+    setListText('.hero-stats .stat-lbl', d.hero.statLbls);
+    setListText('.hero-actions .btn', d.hero.actions);
+
+    // Hero preview card
+    const statusEl = document.querySelector('.preview-status');
+    if (statusEl) {
+      const dot = statusEl.querySelector('.dot-green');
+      statusEl.innerHTML = '';
+      if (dot) statusEl.appendChild(dot);
+      statusEl.appendChild(document.createTextNode(' ' + d.preview.status));
+    }
+    setText('.preview-title', d.preview.title);
+    setListText('.preview-key', d.preview.keys);
+    const previewVals = document.querySelectorAll('.preview-val');
+    if (previewVals[0]) previewVals[0].textContent = d.preview.sourceVal;
+    if (previewVals[1]) previewVals[1].textContent = d.preview.destVal;
+    setText('.preview-progress-text', d.preview.progressText);
+
+    // Metrics
+    setText('#metrics .section-eyebrow', d.metrics.eyebrow);
+    setText('.metrics-head h2', d.metrics.title);
+    setListText('.metric-lbl', d.metrics.labels);
+
+    // Safety
+    setText('#safety .section-eyebrow', d.safety.eyebrow);
+    setHtml('#safety .section-title', d.safety.titleHtml);
+    setText('#safety .section-body', d.safety.body);
+    setListText('.pillar-card h3', d.safety.pillarTitles);
+    setListText('.pillar-card p', d.safety.pillarBodies);
+
+    // Features / Capabilities
+    setText('#features .section-eyebrow', d.features.eyebrow);
+    setHtml('#features .section-title', d.features.titleHtml);
+    setText('#features .section-body', d.features.body);
+    setListText('.feature-card .feature-tag', d.features.tags);
+    setListText('.feature-card h3', d.features.titles);
+    setListText('.feature-card p', d.features.bodies);
+
+    // Stack
+    setText('#stack .section-eyebrow', d.stack.eyebrow);
+    setHtml('#stack .section-title', d.stack.titleHtml);
+    setListText('.stack-row h4', d.stack.rowTitles);
+    setListText('.stack-row p', d.stack.rowBodies);
+
+    // Feedback
+    setText('#feedback .section-eyebrow', d.feedback.eyebrow);
+    setHtml('#feedback .section-title', d.feedback.titleHtml);
+    setText('#feedback .section-body', d.feedback.body);
+    setListText('.feedback-card h3', d.feedback.cardTitles);
+    setListText('.feedback-card p', d.feedback.cardBodies);
+    setListText('.feedback-cta', d.feedback.cardCtas);
+
+    // Final CTA
+    setHtml('.final-cta h2', d.finalCta.titleHtml);
+    setText('.final-cta-body', d.finalCta.body);
+    setListText('.final-cta-actions .btn', d.finalCta.actions);
+
+    // Active button state
+    document.querySelectorAll('.lang-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.lang === lang);
+    });
+  }
+
+  function detectInitialLang() {
+    try {
+      const saved = localStorage.getItem('dit-pro-lang');
+      if (saved === 'en' || saved === 'zh') return saved;
+    } catch (_) { /* localStorage may be blocked */ }
+    const browserLang = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
+    return browserLang.startsWith('zh') ? 'zh' : 'en';
+  }
+
   document.querySelectorAll('.lang-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+      const lang = btn.dataset.lang;
+      if (!lang) return;
+      applyLang(lang);
+      try { localStorage.setItem('dit-pro-lang', lang); } catch (_) {}
     });
   });
+
+  applyLang(detectInitialLang());
 </script>
 
 <!-- ─────────── GLASS BLOB SHADER ─────────── -->

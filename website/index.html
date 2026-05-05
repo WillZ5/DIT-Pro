@@ -139,11 +139,7 @@
   .nav-logo-mark {
     width: 28px; height: 28px;
     border-radius: 7px;
-    background: var(--color-brand);
-    display: grid; place-items: center;
-    color: #fff;
-    font-size: 13px;
-    font-weight: 800;
+    object-fit: cover;
     box-shadow:
       0 6px 20px rgba(30, 91, 255, 0.55),
       inset 0 1px 0 rgba(255,255,255,0.30);
@@ -258,6 +254,20 @@
   .hero-headline .word-1 { grid-column: 1 / 2; text-align: left; }
   .hero-headline .word-2 { grid-column: 2 / 3; text-align: right; padding-top: 0.06em; }
   .hero-headline .word-3 { grid-column: 1 / 3; text-align: left; padding-top: 0.04em; }
+
+  html[lang^="zh"] .hero-headline {
+    width: fit-content;
+    grid-template-columns: max-content max-content;
+    column-gap: clamp(28px, 4.5vw, 72px);
+    letter-spacing: -0.08em;
+    text-transform: none;
+  }
+  html[lang^="zh"] .hero-headline .word-2 {
+    text-align: left;
+  }
+  html[lang^="zh"] .hero-headline .word-3 {
+    grid-column: 1 / -1;
+  }
 
   .hero-meta {
     display: grid;
@@ -864,7 +874,7 @@
 
 <header class="site-nav">
   <div class="nav-logo">
-    <span class="nav-logo-mark">D</span>
+    <img class="nav-logo-mark" src="./dit-pro-negative.svg" alt="" aria-hidden="true">
     <span>DIT Pro</span>
   </div>
   <ul class="nav-links">

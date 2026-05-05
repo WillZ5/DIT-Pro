@@ -11,21 +11,93 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # ─── Changed Path Detection ─────────────────────────────────────────
+  changes:
+    name: Detect Changed Paths
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      rust: ${{ steps.filter.outputs.rust }}
+      website: ${{ steps.filter.outputs.website }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: filter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          elif [[ -n "${{ github.event.before }}" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          else
+            base="$(git rev-parse HEAD^)"
+            head="${{ github.sha }}"
+          fi
+
+          changed_files="$(git diff --name-only "$base" "$head" || true)"
+          if [[ -z "$changed_files" ]]; then
+            changed_files="$(git diff --name-only HEAD^ HEAD || true)"
+          fi
+
+          app=false
+          rust=false
+          website=false
+
+          while IFS= read -r path; do
+            [[ -z "$path" ]] && continue
+
+            case "$path" in
+              website/*|.github/workflows/pages.yml)
+                website=true
+                ;;
+              .github/workflows/ci.yml|docs/*|README*|AGENTS.md|LICENSE|.gitignore)
+                ;;
+              *)
+                app=true
+                rust=true
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          {
+            echo "app=$app"
+            echo "rust=$rust"
+            echo "website=$website"
+          } >> "$GITHUB_OUTPUT"
+
+          printf 'Changed files:\n%s\n' "$changed_files"
+          printf 'app=%s rust=%s website=%s\n' "$app" "$rust" "$website"
+
   # ─── Rust Backend Tests ────────────────────────────────────────────
   rust-tests:
     name: Rust Tests (${{ matrix.os }})
+    needs: changes
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, macos-14, windows-latest]
     steps:
+      - name: Skip Rust tests
+        if: needs.changes.outputs.rust != 'true'
+        run: echo "No Rust-relevant changes detected; Rust tests are not required for this PR."
+
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.rust == 'true'
 
       - name: Install Rust toolchain
+        if: needs.changes.outputs.rust == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry & build
+        if: needs.changes.outputs.rust == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -36,22 +108,27 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-cargo-
 
       - name: Check formatting
+        if: needs.changes.outputs.rust == 'true'
         run: cargo fmt --all --check
         working-directory: src-tauri
 
       - name: Clippy lints
+        if: needs.changes.outputs.rust == 'true'
         run: cargo clippy --all-targets -- -D warnings
         working-directory: src-tauri
 
       - name: Run unit tests
+        if: needs.changes.outputs.rust == 'true'
         run: cargo test --lib --verbose
         working-directory: src-tauri
 
       - name: Run integration tests
+        if: needs.changes.outputs.rust == 'true'
         run: cargo test --tests --verbose
         working-directory: src-tauri
 
       - name: Run doc tests
+        if: needs.changes.outputs.rust == 'true'
         run: cargo test --doc --verbose
         working-directory: src-tauri
 
@@ -59,14 +136,21 @@ jobs:
   benchmark:
     name: Hash Throughput Benchmark
     runs-on: macos-latest
-    needs: rust-tests
+    needs: [changes, rust-tests]
     steps:
+      - name: Skip benchmark
+        if: needs.changes.outputs.rust != 'true'
+        run: echo "No Rust-relevant changes detected; benchmark is not required for this PR."
+
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.rust == 'true'
 
       - name: Install Rust toolchain
+        if: needs.changes.outputs.rust == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
+        if: needs.changes.outputs.rust == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -75,51 +159,140 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run benchmark (release mode)
+        if: needs.changes.outputs.rust == 'true'
         run: cargo test --release --test hash_benchmark -- --nocapture
         working-directory: src-tauri
 
   # ─── Frontend Type Check ───────────────────────────────────────────
   frontend:
     name: Frontend Type Check
+    needs: changes
     runs-on: macos-latest
     steps:
+      - name: Skip frontend type check
+        if: needs.changes.outputs.app != 'true'
+        run: echo "No app frontend changes detected; frontend type check is not required for this PR."
+
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.app == 'true'
 
       - name: Setup Node.js
+        if: needs.changes.outputs.app == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
+        if: needs.changes.outputs.app == 'true'
         run: npm ci
 
       - name: TypeScript type check
+        if: needs.changes.outputs.app == 'true'
         run: npx tsc --noEmit
+
+  # ─── Website Check ─────────────────────────────────────────────────
+  website:
+    name: Website Check
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip website check
+        if: needs.changes.outputs.website != 'true'
+        run: echo "No website changes detected; website check is not required for this PR."
+
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.website == 'true'
+
+      - name: Setup Node.js
+        if: needs.changes.outputs.website == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate website
+        if: needs.changes.outputs.website == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f website/index.html
+
+          python3 - <<'PY'
+          import pathlib
+          import re
+          import subprocess
+          import tempfile
+
+          html_path = pathlib.Path("website/index.html")
+          html = html_path.read_text(encoding="utf-8")
+
+          required_markers = [
+              'name="ditpro-stable-version"',
+              'data-download-channel="stable"',
+              'data-download-channel="beta"',
+          ]
+          missing = [marker for marker in required_markers if marker not in html]
+          if missing:
+              raise SystemExit(f"Missing website markers: {', '.join(missing)}")
+
+          scripts = re.findall(
+              r"<script(?![^>]*\bsrc=)([^>]*)>(.*?)</script>",
+              html,
+              flags=re.IGNORECASE | re.DOTALL,
+          )
+          if not scripts:
+              raise SystemExit("No inline scripts found in website/index.html")
+
+          with tempfile.TemporaryDirectory() as tmp:
+              tmp_path = pathlib.Path(tmp)
+              checked = 0
+              for index, (attrs, code) in enumerate(scripts, start=1):
+                  type_match = re.search(r"type=[\"']([^\"']+)[\"']", attrs, re.IGNORECASE)
+                  script_type = type_match.group(1).lower() if type_match else ""
+                  if script_type in {"importmap", "application/json"}:
+                      continue
+
+                  is_module = script_type == "module"
+                  script_path = tmp_path / f"inline-{index}{'.mjs' if is_module else '.js'}"
+                  script_path.write_text(code, encoding="utf-8")
+                  subprocess.run(["node", "--check", str(script_path)], check=True)
+                  checked += 1
+
+          print(f"Validated {checked} inline website JavaScript block(s).")
+          PY
 
   # ─── Universal macOS DMG Build ─────────────────────────────────────
   build-universal:
     name: Build Universal DMG (Intel + Apple Silicon)
     runs-on: macos-latest
-    needs: [rust-tests, frontend]
+    needs: [changes, rust-tests, frontend]
     steps:
+      - name: Skip Universal DMG build
+        if: needs.changes.outputs.app != 'true'
+        run: echo "No app changes detected; Universal DMG build is not required for this PR."
+
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.app == 'true'
 
       - name: Install Rust toolchain
+        if: needs.changes.outputs.app == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Setup Node.js
+        if: needs.changes.outputs.app == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
       - name: Install frontend dependencies
+        if: needs.changes.outputs.app == 'true'
         run: npm ci
 
       - name: Cache cargo registry
+        if: needs.changes.outputs.app == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -130,20 +303,24 @@ jobs:
             ${{ runner.os }}-cargo-universal-
 
       - name: Build Universal macOS app
+        if: needs.changes.outputs.app == 'true'
         run: cargo tauri build --target universal-apple-darwin
         env:
           TAURI_SIGNING_PRIVATE_KEY: ""
 
       - name: Verify Universal binary
+        if: needs.changes.outputs.app == 'true'
         run: file target/universal-apple-darwin/release/dit-pro
 
       - name: Upload Universal DMG
+        if: needs.changes.outputs.app == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: DIT-Pro-universal-dmg
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
 
       - name: Upload Universal App
+        if: needs.changes.outputs.app == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: DIT-Pro-universal-app
@@ -153,23 +330,32 @@ jobs:
   build-windows:
     name: Build Windows NSIS Installer
     runs-on: windows-latest
-    needs: [rust-tests, frontend]
+    needs: [changes, rust-tests, frontend]
     steps:
+      - name: Skip Windows build
+        if: needs.changes.outputs.app != 'true'
+        run: echo "No app changes detected; Windows build is not required for this PR."
+
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.app == 'true'
 
       - name: Install Rust toolchain
+        if: needs.changes.outputs.app == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Setup Node.js
+        if: needs.changes.outputs.app == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
       - name: Install frontend dependencies
+        if: needs.changes.outputs.app == 'true'
         run: npm ci
 
       - name: Cache cargo registry
+        if: needs.changes.outputs.app == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -180,11 +366,13 @@ jobs:
             ${{ runner.os }}-cargo-windows-
 
       - name: Build Windows app
+        if: needs.changes.outputs.app == 'true'
         run: cargo tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ""
 
       - name: Upload NSIS Installer
+        if: needs.changes.outputs.app == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: DIT-Pro-windows-installer

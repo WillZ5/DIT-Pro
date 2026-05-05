@@ -1,0 +1,1374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIT Pro — Bulletproof footage offload</title>
+<meta name="description" content="DIT Pro is an open-sourced footage offload tool for production teams with secure data integrity workflows.">
+<meta name="theme-color" content="#1e5bff">
+<link rel="icon" type="image/svg+xml" href="./dit-pro-negative.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+<style>
+  /* ─────────── DESIGN TOKENS ─────────── */
+  /* Brand palette anchored on the DIT Pro icon blue (#1e5bff). */
+  :root {
+    --color-bg: #030305;
+    --color-bg-soft: #060a18;
+    --color-text: #f6f4ef;
+    --color-muted: rgba(246, 244, 239, 0.62);
+    --color-faint: rgba(246, 244, 239, 0.38);
+    --color-line: rgba(255, 255, 255, 0.10);
+    --color-card: rgba(255, 255, 255, 0.045);
+    --color-brand: #1e5bff;       /* primary brand blue (favicon) */
+    --color-brand-deep: #0c2db8;  /* deeper blue for gradients/shadows */
+    --color-brand-bright: #5ce1ff; /* cyan accent — rim highlight */
+    --color-violet: #8c5cff;      /* warm-cool support */
+    --color-green: #4ade80;       /* verified state */
+    /* legacy aliases — keep referenceable but point to brand for prototype */
+    --color-orange: var(--color-brand);
+    --color-red: var(--color-brand-deep);
+    --color-blue: var(--color-brand);
+    --radius-sm: 12px;
+    --radius-md: 20px;
+    --radius-lg: 28px;
+    --radius-xl: 40px;
+    --container: 1200px;
+    --font-display: 'Inter', 'Noto Sans SC', 'Helvetica Neue', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'Cascadia Code', 'SF Mono', monospace;
+  }
+
+  /* ─────────── RESET ─────────── */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-size: 16px;
+  }
+  body {
+    background:
+      radial-gradient(ellipse at 50% -10%, rgba(30, 91, 255, 0.30) 0%, transparent 55%),
+      radial-gradient(ellipse at 80% 18%, rgba(92, 225, 255, 0.10) 0%, transparent 50%),
+      radial-gradient(ellipse at 20% 82%, rgba(140, 92, 255, 0.10) 0%, transparent 55%),
+      radial-gradient(ellipse at 50% 100%, rgba(12, 45, 184, 0.20) 0%, transparent 60%),
+      var(--color-bg);
+    background-attachment: fixed;
+    color: var(--color-text);
+    font-family: var(--font-display);
+    font-size: 16px;
+    line-height: 1.55;
+    overflow-x: hidden;
+    min-height: 100vh;
+    position: relative;
+  }
+  img { max-width: 100%; display: block; }
+  button { font: inherit; cursor: pointer; border: none; background: transparent; color: inherit; }
+  a { color: inherit; text-decoration: none; }
+  ::selection { background: rgba(30, 91, 255, 0.45); color: #fff; }
+
+  /* Subtle film-grain noise */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/></svg>");
+    pointer-events: none;
+    z-index: 80;
+    mix-blend-mode: overlay;
+  }
+
+  /* ─────────── GLASS BLOB CANVAS ─────────── */
+  #glass-blob-canvas {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* Vignette mask so blobs fade toward the edges */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 38%, transparent 0%, transparent 38%, rgba(3,3,5,0.55) 78%, rgba(3,3,5,0.92) 100%);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .site-shell { position: relative; z-index: 2; }
+
+  /* ─────────── NAV ─────────── */
+  .site-nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    background: rgba(3, 3, 5, 0.55);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.3s, background 0.3s;
+  }
+  .site-nav.scrolled {
+    border-bottom-color: var(--color-line);
+    background: rgba(3, 3, 5, 0.78);
+  }
+  .nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: -0.01em;
+  }
+  .nav-logo-mark {
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    background: var(--color-brand);
+    display: grid; place-items: center;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 800;
+    box-shadow:
+      0 6px 20px rgba(30, 91, 255, 0.55),
+      inset 0 1px 0 rgba(255,255,255,0.30);
+  }
+  .nav-links {
+    display: flex;
+    gap: 30px;
+    list-style: none;
+  }
+  .nav-links a {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--color-text); }
+  .nav-right { display: flex; align-items: center; gap: 12px; }
+  .nav-github {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 18px;
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    background: rgba(255,255,255,0.02);
+    transition: border-color 0.2s, background 0.2s, transform 0.2s;
+  }
+  .nav-github:hover {
+    border-color: rgba(30, 91, 255, 0.42);
+    background: rgba(30, 91, 255, 0.06);
+    transform: translateY(-1px);
+  }
+  .lang-switch {
+    display: inline-flex;
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.02);
+  }
+  .lang-btn {
+    padding: 7px 11px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-muted);
+    transition: background 0.2s, color 0.2s;
+  }
+  .lang-btn.active {
+    background: var(--color-text);
+    color: var(--color-bg);
+  }
+
+  /* ─────────── HERO ─────────── */
+  .hero {
+    position: relative;
+    min-height: 100vh;
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: 140px 32px 80px;
+    display: grid;
+    grid-template-rows: auto auto auto auto auto;
+    gap: 40px;
+  }
+
+  .hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    width: fit-content;
+    padding: 8px 16px;
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.025);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-muted);
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(8px);
+  }
+  .hero-eyebrow .pulse {
+    width: 6px; height: 6px;
+    background: var(--color-green);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--color-green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+  }
+
+  /* Massive layered headline */
+  .hero-headline {
+    font-family: var(--font-display);
+    font-size: clamp(72px, 14vw, 196px);
+    font-weight: 800;
+    line-height: 0.84;
+    letter-spacing: -0.07em;
+    text-transform: lowercase;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: end;
+    color: var(--color-text);
+  }
+  .hero-headline .word {
+    display: block;
+    text-rendering: geometricPrecision;
+  }
+  .hero-headline .word-1 { grid-column: 1 / 2; text-align: left; }
+  .hero-headline .word-2 { grid-column: 2 / 3; text-align: right; padding-top: 0.06em; }
+  .hero-headline .word-3 { grid-column: 1 / 3; text-align: left; padding-top: 0.04em; }
+
+  .hero-meta {
+    display: grid;
+    grid-template-columns: minmax(280px, 1.2fr) auto;
+    align-items: end;
+    gap: 32px;
+  }
+  .hero-body {
+    max-width: 480px;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--color-muted);
+  }
+  .hero-stats {
+    display: flex;
+    gap: 36px;
+    font-family: var(--font-mono);
+  }
+  .stat-inline {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+  .stat-num {
+    font-size: 30px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+  }
+  .stat-lbl {
+    font-size: 10.5px;
+    color: var(--color-faint);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+
+  /* ─────────── BUTTONS ─────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: var(--font-mono);
+    letter-spacing: 0.02em;
+    background: transparent;
+    color: var(--color-text);
+    transition: transform 0.2s, box-shadow 0.25s, background 0.2s, border-color 0.2s;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-violet) 100%);
+    color: #fff;
+    box-shadow:
+      0 8px 28px rgba(30, 91, 255, 0.42),
+      inset 0 1px 0 rgba(255,255,255,0.28);
+    font-weight: 600;
+  }
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 14px 48px rgba(30, 91, 255, 0.55),
+      inset 0 1px 0 rgba(255,255,255,0.28);
+  }
+  .btn-secondary {
+    background: rgba(255,255,255,0.045);
+    border: 1px solid var(--color-line);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .btn-secondary:hover {
+    background: rgba(255,255,255,0.075);
+    border-color: rgba(255,255,255,0.22);
+    transform: translateY(-2px);
+  }
+  .btn-ghost {
+    color: var(--color-muted);
+    padding: 14px 18px;
+  }
+  .btn-ghost:hover { color: var(--color-text); }
+
+  /* ─────────── HERO PREVIEW (replaces CLI) ─────────── */
+  .hero-preview {
+    margin-top: 8px;
+    padding: 20px 24px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    display: grid;
+    gap: 14px;
+  }
+  .preview-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--color-line);
+    gap: 12px;
+  }
+  .preview-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-green);
+    font-weight: 600;
+  }
+  .preview-status .dot-green {
+    width: 6px; height: 6px;
+    background: var(--color-green);
+    border-radius: 50%;
+    box-shadow: 0 0 10px var(--color-green);
+  }
+  .preview-title {
+    color: var(--color-muted);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+  .preview-version {
+    color: var(--color-faint);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+  }
+  .preview-body { display: grid; gap: 10px; }
+  .preview-row {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    align-items: center;
+    gap: 16px;
+    padding: 5px 0;
+  }
+  .preview-key {
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+  .preview-val {
+    color: var(--color-text);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(74, 222, 128, 0.10);
+    color: var(--color-green);
+    border: 1px solid rgba(74, 222, 128, 0.28);
+    letter-spacing: 0.02em;
+  }
+  .preview-progress {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-top: 6px;
+  }
+  .preview-progress-bar {
+    flex: 1;
+    height: 4px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 999px;
+    overflow: hidden;
+    position: relative;
+  }
+  .preview-progress-bar > span {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-green), #88ffaa);
+    border-radius: 999px;
+    box-shadow: 0 0 12px rgba(74,222,128,0.55);
+    width: 100%;
+    animation: progressShimmer 4s ease-in-out infinite;
+  }
+  @keyframes progressShimmer {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+  .preview-progress-text {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-green);
+    font-weight: 600;
+  }
+
+  /* ─────────── GLASS CARD ─────────── */
+  .glass-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.022));
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: var(--radius-lg);
+    backdrop-filter: blur(20px) saturate(1.2);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 24px 70px rgba(0, 0, 0, 0.42);
+    transition: border-color 0.3s, transform 0.3s, box-shadow 0.3s;
+    position: relative;
+  }
+
+  /* ─────────── SECTIONS ─────────── */
+  .section {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: 110px 32px;
+  }
+  .section-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-orange);
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-size: clamp(40px, 7vw, 92px);
+    font-weight: 700;
+    line-height: 0.96;
+    letter-spacing: -0.04em;
+    margin-bottom: 24px;
+  }
+  .section-body {
+    max-width: 540px;
+    font-size: 16px;
+    color: var(--color-muted);
+    line-height: 1.6;
+  }
+
+  /* ─────────── METRICS ─────────── */
+  .metrics-head {
+    margin-bottom: 36px;
+  }
+  .metrics-head h2 {
+    font-size: clamp(22px, 2.6vw, 34px);
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    max-width: 720px;
+    color: var(--color-muted);
+  }
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .metric-card {
+    padding: 28px 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .metric-card:hover {
+    border-color: rgba(30, 91, 255, 0.4);
+    transform: translateY(-3px);
+  }
+  .metric-icon {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    color: var(--color-orange);
+    margin-bottom: 6px;
+    opacity: 0.85;
+  }
+  .metric-num {
+    font-family: var(--font-mono);
+    font-size: clamp(40px, 5vw, 64px);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    color: var(--color-text);
+  }
+  .metric-lbl {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-faint);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+
+  /* ─────────── SAFETY GRID ─────────── */
+  .safety-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 48px;
+  }
+  .pillar-card {
+    padding: 36px 32px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow: hidden;
+  }
+  .pillar-card::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(135deg, transparent 60%, rgba(30, 91, 255, 0.0));
+    transition: background 0.4s;
+  }
+  .pillar-card:hover {
+    border-color: rgba(30, 91, 255, 0.45);
+    transform: translateY(-3px);
+  }
+  .pillar-card:hover::after {
+    background: linear-gradient(135deg, transparent 50%, rgba(30, 91, 255, 0.10));
+  }
+  .pillar-idx {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-orange);
+    letter-spacing: 0.18em;
+  }
+  .pillar-icon {
+    font-size: 30px;
+    color: var(--color-text);
+    opacity: 0.92;
+    margin-bottom: 6px;
+    line-height: 1;
+  }
+  .pillar-card h3 {
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .pillar-card p {
+    font-size: 15px;
+    color: var(--color-muted);
+    line-height: 1.6;
+  }
+
+  /* ─────────── FEATURES ─────────── */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 48px;
+  }
+  @media (min-width: 940px) {
+    .features-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+  .feature-card {
+    padding: 32px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow: hidden;
+  }
+  .feature-card:hover {
+    border-color: rgba(92, 225, 255, 0.45);
+    transform: translateY(-3px);
+  }
+  .feature-tag {
+    display: inline-block;
+    width: fit-content;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--color-orange);
+    background: rgba(30, 91, 255, 0.10);
+    border: 1px solid rgba(30, 91, 255, 0.28);
+    padding: 4px 10px;
+    border-radius: 999px;
+  }
+  .feature-tag.tag-blue {
+    color: var(--color-brand-bright);
+    background: rgba(92, 225, 255, 0.10);
+    border-color: rgba(92, 225, 255, 0.32);
+  }
+  .feature-tag.tag-violet {
+    color: var(--color-violet);
+    background: rgba(140, 92, 255, 0.10);
+    border-color: rgba(140, 92, 255, 0.32);
+  }
+  .feature-card h3 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .feature-card p {
+    font-size: 14.5px;
+    color: var(--color-muted);
+    line-height: 1.6;
+  }
+
+  /* ─────────── STACK ─────────── */
+  .stack-layout {
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap: 28px;
+    margin-top: 48px;
+    align-items: start;
+  }
+  .stack-image {
+    padding: 8px;
+    overflow: hidden;
+  }
+  .stack-image img {
+    width: 100%;
+    height: auto;
+    border-radius: calc(var(--radius-lg) - 8px);
+    display: block;
+  }
+  .stack-rows {
+    display: grid;
+    gap: 12px;
+  }
+  .stack-row {
+    padding: 22px 24px;
+  }
+  .stack-row:hover {
+    border-color: rgba(140, 92, 255, 0.4);
+    transform: translateY(-2px);
+  }
+  .stack-row h4 {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+  }
+  .stack-row p {
+    font-size: 13.5px;
+    color: var(--color-muted);
+    line-height: 1.55;
+  }
+
+  /* ─────────── FEEDBACK ─────────── */
+  .feedback-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 48px;
+  }
+  .feedback-card {
+    padding: 36px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    cursor: pointer;
+  }
+  .feedback-card:hover {
+    border-color: rgba(30, 91, 255, 0.5);
+    transform: translateY(-3px);
+  }
+  .feedback-card h3 {
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .feedback-card p {
+    color: var(--color-muted);
+    flex: 1;
+    font-size: 15px;
+  }
+  .feedback-cta {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--color-orange);
+    letter-spacing: 0.04em;
+    margin-top: 4px;
+  }
+
+  /* ─────────── FINAL CTA ─────────── */
+  .final-cta {
+    padding: 100px 32px 80px;
+    text-align: center;
+    max-width: var(--container);
+    margin: 0 auto;
+  }
+  .final-cta h2 {
+    font-size: clamp(48px, 9.5vw, 138px);
+    font-weight: 700;
+    line-height: 0.92;
+    letter-spacing: -0.05em;
+    text-transform: lowercase;
+    max-width: 920px;
+    margin: 0 auto;
+  }
+  .final-cta h2 em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--color-brand-bright) 0%, var(--color-brand) 45%, var(--color-violet) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .final-cta-body {
+    margin: 24px auto 36px;
+    max-width: 540px;
+    color: var(--color-muted);
+    font-size: 16px;
+  }
+  .final-cta-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+  }
+
+  /* ─────────── FOOTER ─────────── */
+  footer {
+    padding: 36px 32px 64px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-faint);
+    border-top: 1px solid var(--color-line);
+    margin-top: 60px;
+  }
+  footer a {
+    color: var(--color-muted);
+    border-bottom: 1px dotted var(--color-line);
+  }
+  footer a:hover { color: var(--color-text); }
+
+  /* ─────────── REVEAL ON SCROLL ─────────── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 0.9s ease, transform 0.9s cubic-bezier(0.21, 0.78, 0.34, 1);
+  }
+  .reveal.in {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .reveal-stagger > * {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.21, 0.78, 0.34, 1);
+  }
+  .reveal-stagger.in > * { opacity: 1; transform: translateY(0); }
+  .reveal-stagger.in > *:nth-child(1) { transition-delay: 0.04s; }
+  .reveal-stagger.in > *:nth-child(2) { transition-delay: 0.10s; }
+  .reveal-stagger.in > *:nth-child(3) { transition-delay: 0.16s; }
+  .reveal-stagger.in > *:nth-child(4) { transition-delay: 0.22s; }
+  .reveal-stagger.in > *:nth-child(5) { transition-delay: 0.28s; }
+  .reveal-stagger.in > *:nth-child(6) { transition-delay: 0.34s; }
+
+  /* ─────────── RESPONSIVE ─────────── */
+  @media (max-width: 880px) {
+    .nav-links { display: none; }
+    .hero { padding-top: 110px; gap: 32px; }
+    .hero-headline {
+      grid-template-columns: 1fr;
+      font-size: clamp(54px, 16vw, 110px);
+      line-height: 0.88;
+    }
+    .hero-headline .word-1,
+    .hero-headline .word-2,
+    .hero-headline .word-3 {
+      grid-column: 1 / 2;
+      text-align: left;
+      padding-top: 0;
+    }
+    .hero-headline .word-2 { padding-left: 0; }
+    .hero-meta {
+      grid-template-columns: 1fr;
+      align-items: flex-start;
+    }
+    .hero-stats {
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .stat-inline { align-items: flex-start; }
+    .preview-row { grid-template-columns: 100px 1fr; }
+    .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    .safety-grid { grid-template-columns: 1fr; }
+    .features-grid { grid-template-columns: 1fr; }
+    .feedback-grid { grid-template-columns: 1fr; }
+    .stack-layout { grid-template-columns: 1fr; }
+    .section { padding: 80px 24px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001s !important;
+      transition-duration: 0.001s !important;
+    }
+    .reveal, .reveal-stagger > * { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="glass-blob-canvas" aria-hidden="true"></canvas>
+
+<header class="site-nav">
+  <div class="nav-logo">
+    <span class="nav-logo-mark">D</span>
+    <span>DIT Pro</span>
+  </div>
+  <ul class="nav-links">
+    <li><a href="#safety">Safety</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#stack">Stack</a></li>
+    <li><a href="#feedback">Feedback</a></li>
+  </ul>
+  <div class="nav-right">
+    <a href="https://github.com/WillZ5/DIT-Pro" target="_blank" rel="noopener noreferrer" class="nav-github">GitHub →</a>
+    <div class="lang-switch" aria-label="Language switcher">
+      <button class="lang-btn active" data-lang="en">EN</button>
+      <button class="lang-btn" data-lang="zh">中</button>
+    </div>
+  </div>
+</header>
+
+<div class="site-shell">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-eyebrow">
+      <span class="pulse"></span>
+      <span>Open-sourced · v1.2.0 · Available Now</span>
+    </div>
+
+    <h1 class="hero-headline">
+      <span class="word word-1">protect</span>
+      <span class="word word-2">your</span>
+      <span class="word word-3">footage</span>
+    </h1>
+
+    <div class="hero-meta">
+      <p class="hero-body">
+        Professional-grade, open-source data integrity with a clear GUI for production teams.
+        No gimmicks. No guesswork. Just bulletproof backup.
+      </p>
+      <div class="hero-stats">
+        <div class="stat-inline">
+          <span class="stat-num">v1.2</span>
+          <span class="stat-lbl">stable release</span>
+        </div>
+        <div class="stat-inline">
+          <span class="stat-num">MIT</span>
+          <span class="stat-lbl">open licensed</span>
+        </div>
+        <div class="stat-inline">
+          <span class="stat-num">macOS · Win</span>
+          <span class="stat-lbl">native builds</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hero-actions">
+      <a href="https://github.com/WillZ5/DIT-Pro/releases/latest" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Download stable</a>
+      <a href="https://github.com/WillZ5/DIT-Pro/releases" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Download beta</a>
+      <a href="#safety" class="btn btn-ghost">Learn more ↓</a>
+    </div>
+
+    <div class="hero-preview glass-card reveal">
+      <div class="preview-head">
+        <span class="preview-status"><span class="dot-green"></span> Ready</span>
+        <span class="preview-title">offload · ARRI_A001</span>
+        <span class="preview-version">v1.2.0</span>
+      </div>
+      <div class="preview-body">
+        <div class="preview-row">
+          <span class="preview-key">Source</span>
+          <span class="preview-val">/Volumes/ARRI_A001 · 847 files · 2.3 TB</span>
+        </div>
+        <div class="preview-row">
+          <span class="preview-key">Destinations</span>
+          <span class="preview-val">SSD_01 · HDD_SHUTTLE</span>
+        </div>
+        <div class="preview-row">
+          <span class="preview-key">Verification</span>
+          <span class="preview-val">
+            <span class="chip">XXH3</span>
+            <span class="chip">MD5</span>
+            <span class="chip">ASC MHL</span>
+          </span>
+        </div>
+        <div class="preview-progress">
+          <div class="preview-progress-bar"><span></span></div>
+          <span class="preview-progress-text">Safe to format · 2 generations sealed</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- METRICS — replaces logo strip -->
+  <section class="section" id="metrics">
+    <div class="metrics-head reveal">
+      <p class="section-eyebrow">// current build</p>
+      <h2>Built from real engineering, not marketing claims.</h2>
+    </div>
+    <div class="metrics-grid reveal-stagger">
+      <div class="metric-card glass-card">
+        <div class="metric-icon">{ }</div>
+        <div class="metric-num" data-counter-to="20">20</div>
+        <div class="metric-lbl">Rust Modules</div>
+      </div>
+      <div class="metric-card glass-card">
+        <div class="metric-icon">⌘</div>
+        <div class="metric-num" data-counter-to="52">52</div>
+        <div class="metric-lbl">Tauri Commands</div>
+      </div>
+      <div class="metric-card glass-card">
+        <div class="metric-icon">✓</div>
+        <div class="metric-num" data-counter-to="227">227</div>
+        <div class="metric-lbl">Rust Tests</div>
+      </div>
+      <div class="metric-card glass-card">
+        <div class="metric-icon">▤</div>
+        <div class="metric-num" data-counter-to="5">5</div>
+        <div class="metric-lbl">DB Tables</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SAFETY -->
+  <section class="section" id="safety">
+    <div class="reveal">
+      <p class="section-eyebrow">// data integrity</p>
+      <h2 class="section-title">Four pillars of<br>data safety.</h2>
+      <p class="section-body">
+        Every byte matters on set. DIT Pro is built around four
+        non-negotiable safety dimensions that protect your footage from card to archive.
+      </p>
+    </div>
+    <div class="safety-grid reveal-stagger">
+      <div class="pillar-card glass-card">
+        <div class="pillar-idx">01</div>
+        <div class="pillar-icon">⚛</div>
+        <h3>Atomic Writes</h3>
+        <p>Every file operation is atomic. Partial writes never corrupt your destination — if it fails, it rolls back cleanly.</p>
+      </div>
+      <div class="pillar-card glass-card">
+        <div class="pillar-idx">02</div>
+        <div class="pillar-icon">↺</div>
+        <h3>Checkpoint Recovery</h3>
+        <p>Power loss? Drive disconnected? Resume exactly where you left off with persistent checkpoint state.</p>
+      </div>
+      <div class="pillar-card glass-card">
+        <div class="pillar-idx">03</div>
+        <div class="pillar-icon">⛓</div>
+        <h3>ASC MHL Chain</h3>
+        <p>Industry-standard chain-of-custody. Every generation is sealed and traceable from set to post.</p>
+      </div>
+      <div class="pillar-card glass-card">
+        <div class="pillar-idx">04</div>
+        <div class="pillar-icon">##</div>
+        <h3>Multi-Hash Verify</h3>
+        <p>XXH3 for speed, MD5 for compatibility. Dual-hash verification ensures nothing slips through.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES / CAPABILITIES -->
+  <section class="section" id="features">
+    <div class="reveal">
+      <p class="section-eyebrow">// capabilities</p>
+      <h2 class="section-title">Built for the<br>chaos of set.</h2>
+      <p class="section-body">
+        From 6AM call times to overnight data wrangling — DIT Pro combines a clear GUI
+        with reliable automation so you don't have to guess.
+      </p>
+    </div>
+    <div class="features-grid reveal-stagger">
+      <div class="feature-card glass-card">
+        <span class="feature-tag">CORE</span>
+        <h3>Cascade Copy</h3>
+        <p>Prioritize the fastest SSD first to free up your card reader, then async-sync to shuttle drives in the background.</p>
+      </div>
+      <div class="feature-card glass-card">
+        <span class="feature-tag">CORE</span>
+        <h3>Real-time Progress</h3>
+        <p>Per-file and per-destination progress tracking with speed metrics and ETA. Always know where you stand.</p>
+      </div>
+      <div class="feature-card glass-card">
+        <span class="feature-tag">CORE</span>
+        <h3>Bilingual UI</h3>
+        <p>Full English and Chinese interface. Switch seamlessly — your entire team stays on the same page.</p>
+      </div>
+      <div class="feature-card glass-card">
+        <span class="feature-tag tag-blue">VERIFY</span>
+        <h3>MHL Re-verify</h3>
+        <p>Re-validate any past offload against its sealed ASC MHL chain. Catch silent corruption months after wrap — not the day before delivery.</p>
+      </div>
+      <div class="feature-card glass-card">
+        <span class="feature-tag tag-violet">TRAIL</span>
+        <h3>Audit Trail</h3>
+        <p>Every byte read, every hash computed, every checkpoint logged. Export the full offload trail as production paperwork.</p>
+      </div>
+      <div class="feature-card glass-card">
+        <span class="feature-tag">WORKFLOW</span>
+        <h3>Preset System</h3>
+        <p>Save your multi-camera setup once, recall it instantly. Same destinations, same hash config, zero re-entry.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- STACK / ARCHITECTURE -->
+  <section class="section" id="stack">
+    <div class="reveal">
+      <p class="section-eyebrow">// architecture</p>
+      <h2 class="section-title">Serious tools<br>need serious tech.</h2>
+    </div>
+    <div class="stack-layout reveal">
+      <div class="stack-image glass-card">
+        <img src="./app-screenshot.png" alt="DIT Pro GUI offload workflow preview">
+      </div>
+      <div class="stack-rows">
+        <div class="stack-row glass-card">
+          <h4>Tauri 2.0 + Rust</h4>
+          <p>Native performance with minimal resource footprint. Rust's memory safety guarantees mean zero data corruption from runtime errors.</p>
+        </div>
+        <div class="stack-row glass-card">
+          <h4>React + TypeScript</h4>
+          <p>Type-safe frontend with purpose-built views. Every interaction is designed for speed and clarity under pressure.</p>
+        </div>
+        <div class="stack-row glass-card">
+          <h4>SQLite · local-first</h4>
+          <p>Local-first schema covering jobs, files, checkpoints, MHL generations, and comprehensive audit trails.</p>
+        </div>
+        <div class="stack-row glass-card">
+          <h4>Apple Silicon Native</h4>
+          <p>Optimized for M-series chips. Maximum throughput on the hardware DIT workstations actually use.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEEDBACK -->
+  <section class="section" id="feedback">
+    <div class="reveal">
+      <p class="section-eyebrow">// feedback</p>
+      <h2 class="section-title">Questions or<br>suggestions?</h2>
+      <p class="section-body">
+        Choose a channel below to report issues or share product feedback.
+      </p>
+    </div>
+    <div class="feedback-grid reveal-stagger">
+      <a href="https://github.com/WillZ5/DIT-Pro/issues" target="_blank" rel="noopener noreferrer" class="feedback-card glass-card">
+        <h3>GitHub Issues</h3>
+        <p>Bug reports, feature requests, and technical discussion happen in GitHub Issues.</p>
+        <span class="feedback-cta">Open issue →</span>
+      </a>
+      <a href="https://wj.qq.com/s2/25858950/ib2b/" target="_blank" rel="noopener noreferrer" class="feedback-card glass-card">
+        <h3>Survey</h3>
+        <p>Product feedback and workflow suggestions through a short questionnaire.</p>
+        <span class="feedback-cta">Open survey →</span>
+      </a>
+    </div>
+  </section>
+
+  <!-- FINAL CTA -->
+  <section class="final-cta">
+    <div class="reveal">
+      <h2>your footage<br>deserves <em>better.</em></h2>
+      <p class="final-cta-body">
+        Built as an open-source tool for production teams that need dependable data safety.
+        v1.2.0 is available now.
+      </p>
+      <div class="final-cta-actions">
+        <a href="https://github.com/WillZ5/DIT-Pro" target="_blank" rel="noopener noreferrer" class="btn btn-primary">GitHub →</a>
+        <a href="https://www.buymeacoffee.com/willzmx" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Buy me a coffee →</a>
+        <a href="https://space.bilibili.com/109630638" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Bilibili →</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    © 2026 DIT Pro v1.2.0 · <a href="https://willzmx.com" target="_blank" rel="noopener noreferrer">Mingxuan Zhao</a>
+  </footer>
+
+</div>
+
+<!-- ─────────── INTERACTION SCRIPTS ─────────── -->
+<script>
+  // Reveal-on-scroll
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.reveal, .reveal-stagger').forEach(el => io.observe(el));
+
+  // Nav scrolled state
+  const nav = document.querySelector('.site-nav');
+  let lastY = 0;
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY;
+    nav.classList.toggle('scrolled', y > 16);
+    lastY = y;
+  }, { passive: true });
+
+  // Counter animation on metrics — runs once when in view
+  const metricNums = document.querySelectorAll('[data-counter-to]');
+  const counterIO = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      const el = e.target;
+      const target = parseInt(el.dataset.counterTo, 10);
+      const duration = 1100;
+      const start = performance.now();
+      el.textContent = '0';
+      function step(now) {
+        const t = Math.min((now - start) / duration, 1);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = Math.round(eased * target).toString();
+        if (t < 1) requestAnimationFrame(step);
+        else el.textContent = String(target);
+      }
+      requestAnimationFrame(step);
+      counterIO.unobserve(el);
+    });
+  }, { threshold: 0.5 });
+  metricNums.forEach(el => counterIO.observe(el));
+
+  // Smooth scroll for in-page anchors
+  document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function(e) {
+      const target = document.querySelector(this.getAttribute('href'));
+      if (target) {
+        e.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  });
+
+  // Lang toggle (visual only — full ZH dictionary port is straightforward, deferred for prototype)
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+</script>
+
+<!-- ─────────── GLASS BLOB SHADER ─────────── -->
+<script type="module">
+  import * as THREE from 'three';
+
+  const canvas = document.getElementById('glass-blob-canvas');
+  if (canvas) initGlassBlob(canvas);
+
+  function initGlassBlob(canvas) {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isMobile = window.innerWidth < 768;
+    const maxDPR = isMobile ? 1.0 : 1.25;
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      alpha: true,
+      antialias: false,
+      powerPreference: 'high-performance'
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxDPR));
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+    const uniforms = {
+      uTime: { value: 0 },
+      uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+      uMouse: { value: new THREE.Vector2(0.5, 0.5) },
+      uIntensity: { value: reduceMotion ? 0.55 : 1.0 },
+      uScroll: { value: 0 }
+    };
+
+    const material = new THREE.ShaderMaterial({
+      uniforms,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      vertexShader: /* glsl */`
+        void main() {
+          gl_Position = vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */`
+        precision highp float;
+        uniform float uTime;
+        uniform vec2 uResolution;
+        uniform vec2 uMouse;
+        uniform float uIntensity;
+        uniform float uScroll;
+
+        // Soft inverse-square metaball field per blob
+        float ball(vec2 p, vec2 c, float r) {
+          vec2 d = (p - c) / r;
+          return 1.0 / (dot(d, d) + 0.55);
+        }
+
+        void main() {
+          // Aspect-correct UV centered at origin
+          vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution) / uResolution.y;
+          float aspect = uResolution.x / uResolution.y;
+
+          // Mouse offset, aspect-correct, gently scaled
+          vec2 m = (uMouse - 0.5) * vec2(aspect, 1.0);
+
+          float t = uTime;
+
+          // Four drifting blob centers, each lerping toward the mouse with different gain
+          vec2 c1 = vec2(sin(t * 0.30 + 0.0) * 0.50 * aspect * 0.55, cos(t * 0.35) * 0.32) + m * 0.18;
+          vec2 c2 = vec2(cos(t * 0.25 + 2.0) * 0.55 * aspect * 0.50, sin(t * 0.40 + 1.0) * 0.30) + m * 0.10;
+          vec2 c3 = vec2(sin(t * 0.20 + 4.0) * 0.45 * aspect * 0.55, cos(t * 0.30 + 3.0) * 0.40) + m * 0.22;
+          vec2 c4 = vec2(cos(t * 0.35 + 5.0) * 0.50 * aspect * 0.50, sin(t * 0.25 + 2.5) * 0.34) + m * 0.06;
+
+          float f1 = ball(uv, c1, 0.50);
+          float f2 = ball(uv, c2, 0.46);
+          float f3 = ball(uv, c3, 0.55);
+          float f4 = ball(uv, c4, 0.42);
+
+          // Brand palette: anchor on DIT Pro #1e5bff, with cyan rim and violet warmth
+          vec3 col1 = vec3(0.118, 0.357, 1.000);  // brand blue #1e5bff
+          vec3 col2 = vec3(0.043, 0.176, 0.722);  // deep blue #0c2db8
+          vec3 col3 = vec3(0.361, 0.882, 1.000);  // cyan accent #5ce1ff
+          vec3 col4 = vec3(0.549, 0.361, 1.000);  // violet support #8c5cff
+
+          float field = f1 + f2 + f3 + f4;
+          vec3 col = (col1 * f1 + col2 * f2 + col3 * f3 + col4 * f4) / max(field, 0.001);
+
+          // Band-pass: bright rim where the field is in a "shell" range; soft inner core
+          float rim  = smoothstep(0.85, 1.25, field) - smoothstep(1.7, 2.8, field);
+          float core = smoothstep(1.7, 2.8, field) * 0.20;
+
+          vec3 finalCol = col * (rim * 1.65 + core);
+          float alpha = (rim * 0.85 + core * 0.40) * uIntensity;
+
+          // Fade alpha as user scrolls past hero — keeps lower sections clean
+          alpha *= (1.0 - clamp(uScroll * 0.0008, 0.0, 0.7));
+
+          gl_FragColor = vec4(finalCol, alpha);
+        }
+      `
+    });
+
+    const geom = new THREE.PlaneGeometry(2, 2);
+    const mesh = new THREE.Mesh(geom, material);
+    scene.add(mesh);
+
+    // Pointer (no React state, just refs)
+    const pointer = { x: 0.5, y: 0.5 };
+    const smooth = { x: 0.5, y: 0.5 };
+    window.addEventListener('pointermove', (e) => {
+      pointer.x = e.clientX / window.innerWidth;
+      pointer.y = 1.0 - e.clientY / window.innerHeight;
+    }, { passive: true });
+
+    // Scroll uniform for fade
+    window.addEventListener('scroll', () => {
+      uniforms.uScroll.value = window.scrollY;
+    }, { passive: true });
+
+    // Resize
+    function resize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      uniforms.uResolution.value.set(w, h);
+    }
+    window.addEventListener('resize', resize);
+
+    // Animation loop
+    const clock = new THREE.Clock();
+    let running = true;
+    let rafId = 0;
+
+    function tick() {
+      if (!running) return;
+      uniforms.uTime.value = clock.getElapsedTime();
+      smooth.x += (pointer.x - smooth.x) * 0.06;
+      smooth.y += (pointer.y - smooth.y) * 0.06;
+      uniforms.uMouse.value.set(smooth.x, smooth.y);
+      renderer.render(scene, camera);
+      rafId = requestAnimationFrame(tick);
+    }
+
+    if (reduceMotion) {
+      // single static frame
+      uniforms.uTime.value = 1.5;
+      renderer.render(scene, camera);
+    } else {
+      rafId = requestAnimationFrame(tick);
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      running = document.visibilityState === 'visible';
+      if (running) {
+        clock.start();
+        if (!reduceMotion) rafId = requestAnimationFrame(tick);
+      } else {
+        clock.stop();
+        cancelAnimationFrame(rafId);
+      }
+    });
+  }
+</script>
+
+</body>
+</html>

@@ -6,6 +6,7 @@
 <title>DIT Pro — Bulletproof footage offload</title>
 <meta name="description" content="DIT Pro is an open-sourced footage offload tool for production teams with secure data integrity workflows.">
 <meta name="theme-color" content="#1e5bff">
+<meta name="ditpro-stable-version" content="v1.2.0">
 <link rel="icon" type="image/svg+xml" href="./dit-pro-negative.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -918,8 +919,8 @@
     </div>
 
     <div class="hero-actions">
-      <a href="https://github.com/WillZ5/DIT-Pro/releases/latest" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Download stable</a>
-      <a href="https://github.com/WillZ5/DIT-Pro/releases" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Download beta</a>
+      <a href="./software/stable-DIT.Pro_1.2.0_universal.dmg" data-download-channel="stable" data-download-platform="auto" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Download stable</a>
+      <a href="./software/beta-DIT.Pro_1.4.0-beta.7_universal.dmg" data-download-channel="beta" data-download-platform="auto" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Download beta</a>
       <a href="#safety" class="btn btn-ghost">Learn more ↓</a>
     </div>
 
@@ -1144,6 +1145,123 @@
 
 <!-- ─────────── INTERACTION SCRIPTS ─────────── -->
 <script>
+  const DEFAULT_DOWNLOAD_TARGETS = {
+    stable: {
+      macos: {
+        local: './software/stable-DIT.Pro_1.2.0_universal.dmg',
+        github: 'https://github.com/WillZ5/DIT-Pro/releases/download/v1.2.0/DIT.Pro_1.2.0_universal.dmg'
+      },
+      windows: {
+        local: './software/stable-DIT.Pro_1.2.0_x64-setup.exe',
+        github: 'https://github.com/WillZ5/DIT-Pro/releases/download/v1.2.0/DIT.Pro_1.2.0_x64-setup.exe'
+      }
+    },
+    beta: {
+      macos: {
+        local: './software/beta-DIT.Pro_1.4.0-beta.7_universal.dmg',
+        github: 'https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-beta.7/DIT.Pro_1.4.0-beta.7_universal.dmg'
+      }
+    }
+  };
+  let downloadTargets = DEFAULT_DOWNLOAD_TARGETS;
+
+  const isLikelyMainlandChinaVisitor = () => {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const languages = [navigator.language, ...(navigator.languages || [])]
+      .filter(Boolean)
+      .map(language => language.toLowerCase());
+    return timeZone === 'Asia/Shanghai' || languages.some(language => language === 'zh-cn' || language.startsWith('zh-hans-cn'));
+  };
+
+  const isWindowsVisitor = () => /windows|win32|win64/i.test(`${navigator.platform} ${navigator.userAgent}`);
+
+  const resolveUrl = (url) => {
+    try {
+      return new URL(url, window.location.href);
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const pickPlatformTargets = (channelTargets, platform) => {
+    if (!channelTargets) return null;
+    if (platform === 'windows' && channelTargets.windows) return channelTargets.windows;
+    if (platform === 'macos' && channelTargets.macos) return channelTargets.macos;
+    return channelTargets.macos || channelTargets.windows || null;
+  };
+
+  const shouldUseLocalDownload = () => {
+    return isLikelyMainlandChinaVisitor();
+  };
+
+  const updateDownloadLinks = () => {
+    document.querySelectorAll('[data-download-channel]').forEach(link => {
+      const channel = link.dataset.downloadChannel;
+      const platform = link.dataset.downloadPlatform === 'auto'
+        ? (isWindowsVisitor() ? 'windows' : 'macos')
+        : link.dataset.downloadPlatform;
+      const targets = pickPlatformTargets(downloadTargets[channel], platform);
+      if (!targets) return;
+
+      const useLocal = shouldUseLocalDownload();
+      const nextUrl = useLocal ? targets.local : targets.github;
+      if (!nextUrl) return;
+
+      const absoluteUrl = resolveUrl(nextUrl);
+      link.href = absoluteUrl ? absoluteUrl.toString() : nextUrl;
+      if (useLocal && absoluteUrl && absoluteUrl.origin === window.location.origin) {
+        link.setAttribute('download', absoluteUrl.pathname.split('/').pop() || '');
+        link.removeAttribute('target');
+      } else {
+        link.removeAttribute('download');
+        link.setAttribute('target', '_blank');
+      }
+    });
+  };
+
+  const githubAssetUrl = (manifest, sourceAssetName) => {
+    if (!manifest || !manifest.tag_name || !sourceAssetName) return null;
+    return `https://github.com/WillZ5/DIT-Pro/releases/download/${manifest.tag_name}/${sourceAssetName}`;
+  };
+
+  const targetsFromManifest = (manifest) => {
+    if (!manifest) return null;
+    const macosAssetName = manifest.macos_asset_name || manifest.assets?.macos?.name;
+    const windowsAssetName = manifest.windows_asset_name || manifest.assets?.windows?.name;
+    const macosSourceName = manifest.macos_source_asset_name || manifest.assets?.macos?.source_asset_name;
+    const windowsSourceName = manifest.windows_source_asset_name || manifest.assets?.windows?.source_asset_name;
+    return {
+      macos: macosAssetName ? {
+        local: `./software/${macosAssetName}`,
+        github: manifest.assets?.macos?.source_url || githubAssetUrl(manifest, macosSourceName)
+      } : null,
+      windows: windowsAssetName ? {
+        local: `./software/${windowsAssetName}`,
+        github: manifest.assets?.windows?.source_url || githubAssetUrl(manifest, windowsSourceName)
+      } : null
+    };
+  };
+
+  const loadDownloadManifests = async () => {
+    const [stableResponse, betaResponse] = await Promise.all([
+      fetch('./software/latest.json', { cache: 'no-store' }),
+      fetch('./software/latest-beta.json', { cache: 'no-store' })
+    ]);
+    if (!stableResponse.ok || !betaResponse.ok) return;
+    const [stableManifest, betaManifest] = await Promise.all([
+      stableResponse.json(),
+      betaResponse.json()
+    ]);
+    downloadTargets = {
+      stable: targetsFromManifest(stableManifest) || DEFAULT_DOWNLOAD_TARGETS.stable,
+      beta: targetsFromManifest(betaManifest) || DEFAULT_DOWNLOAD_TARGETS.beta
+    };
+    updateDownloadLinks();
+  };
+
+  updateDownloadLinks();
+  loadDownloadManifests().catch(() => {});
+
   // Reveal-on-scroll
   const io = new IntersectionObserver((entries) => {
     entries.forEach(e => {

@@ -12,41 +12,44 @@ use genpdf::elements::{Break, LinearLayout, Paragraph, TableLayout};
 use genpdf::fonts::{FontData, FontFamily};
 use genpdf::style::{self, Style};
 use genpdf::{Alignment, Element};
-use std::path::Path;
+use lopdf::{Document as PdfDocument, Object, ObjectId};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
-use super::{format_bytes, format_duration, RushesLogReport};
+use super::{format_bytes, format_duration, ReportLocale, RushesLogReport};
 
 /// Try to load a font from common macOS/Linux locations.
 /// Returns a FontFamily suitable for genpdf Document creation.
-fn load_font_family() -> Result<FontFamily<FontData>> {
-    // macOS: Arial files in /System/Library/Fonts/Supplemental/
-    let mac_supp = Path::new("/System/Library/Fonts/Supplemental");
-    if mac_supp.exists() {
-        let regular = mac_supp.join("Arial.ttf");
-        let bold = mac_supp.join("Arial Bold.ttf");
-        let italic = mac_supp.join("Arial Italic.ttf");
-        let bold_italic = mac_supp.join("Arial Bold Italic.ttf");
+fn load_font_family(locale: ReportLocale) -> Result<FontFamily<FontData>> {
+    if locale == ReportLocale::Zh {
+        if let Some(regular) = load_first_embedded_font(&cjk_font_candidates()) {
+            let latin = load_builtin_helvetica_family().or_else(load_embedded_latin_family);
+            if let Some(latin) = latin {
+                return Ok(FontFamily {
+                    regular,
+                    bold: latin.bold,
+                    italic: latin.italic,
+                    bold_italic: latin.bold_italic,
+                });
+            }
 
-        if regular.exists() && bold.exists() {
-            let r = FontData::load(&regular, None)?;
-            let b = FontData::load(&bold, None)?;
-            let i = if italic.exists() {
-                FontData::load(&italic, None)?
-            } else {
-                FontData::load(&regular, None)?
-            };
-            let bi = if bold_italic.exists() {
-                FontData::load(&bold_italic, None)?
-            } else {
-                FontData::load(&bold, None)?
-            };
+            let regular_clone = regular.clone();
             return Ok(FontFamily {
-                regular: r,
-                bold: b,
-                italic: i,
-                bold_italic: bi,
+                regular,
+                bold: regular_clone.clone(),
+                italic: regular_clone.clone(),
+                bold_italic: regular_clone,
             });
         }
+    }
+
+    if let Some(family) = load_builtin_helvetica_family() {
+        return Ok(family);
+    }
+
+    if let Some(family) = load_embedded_latin_family() {
+        return Ok(family);
     }
 
     // Linux: Liberation Sans
@@ -66,13 +69,273 @@ fn load_font_family() -> Result<FontFamily<FontData>> {
     anyhow::bail!("No suitable font found for PDF generation")
 }
 
+fn cjk_font_candidates() -> Vec<PathBuf> {
+    vec![
+        // macOS
+        PathBuf::from("/System/Library/Fonts/Supplemental/NISC18030.ttf"),
+        PathBuf::from("/Library/Fonts/RODE Noto Sans CJK SC R.otf"),
+        PathBuf::from("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+        PathBuf::from("/Library/Fonts/Arial Unicode.ttf"),
+        // Windows. Some are TTC collections that rusttype may reject; keep
+        // trying because Chinese Windows installs vary by edition/language.
+        PathBuf::from(r"C:\Windows\Fonts\msyh.ttc"),
+        PathBuf::from(r"C:\Windows\Fonts\simhei.ttf"),
+        PathBuf::from(r"C:\Windows\Fonts\simsun.ttc"),
+        PathBuf::from(r"C:\Windows\Fonts\Deng.ttf"),
+        PathBuf::from(r"C:\Windows\Fonts\NotoSansCJK-Regular.ttc"),
+        // Linux
+        PathBuf::from("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+        PathBuf::from("/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf"),
+        PathBuf::from("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"),
+    ]
+}
+
+fn latin_font_candidates() -> Vec<[PathBuf; 4]> {
+    vec![
+        [
+            PathBuf::from("/System/Library/Fonts/Supplemental/Arial.ttf"),
+            PathBuf::from("/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
+            PathBuf::from("/System/Library/Fonts/Supplemental/Arial Italic.ttf"),
+            PathBuf::from("/System/Library/Fonts/Supplemental/Arial Bold Italic.ttf"),
+        ],
+        [
+            PathBuf::from(r"C:\Windows\Fonts\arial.ttf"),
+            PathBuf::from(r"C:\Windows\Fonts\arialbd.ttf"),
+            PathBuf::from(r"C:\Windows\Fonts\ariali.ttf"),
+            PathBuf::from(r"C:\Windows\Fonts\arialbi.ttf"),
+        ],
+        [
+            PathBuf::from("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+            PathBuf::from("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+            PathBuf::from("/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf"),
+            PathBuf::from("/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf"),
+        ],
+        [
+            PathBuf::from("/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf"),
+            PathBuf::from("/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf"),
+            PathBuf::from("/usr/share/fonts/liberation-sans/LiberationSans-Italic.ttf"),
+            PathBuf::from("/usr/share/fonts/liberation-sans/LiberationSans-BoldItalic.ttf"),
+        ],
+    ]
+}
+
+fn load_first_embedded_font(paths: &[PathBuf]) -> Option<FontData> {
+    paths.iter().find_map(|path| {
+        if path.exists() {
+            FontData::load(path, None).ok()
+        } else {
+            None
+        }
+    })
+}
+
+fn load_builtin_helvetica_family() -> Option<FontFamily<FontData>> {
+    latin_font_candidates().into_iter().find_map(|paths| {
+        if !paths.iter().all(|path| path.exists()) {
+            return None;
+        }
+
+        Some(FontFamily {
+            regular: FontData::load(&paths[0], Some(printpdf::BuiltinFont::Helvetica)).ok()?,
+            bold: FontData::load(&paths[1], Some(printpdf::BuiltinFont::HelveticaBold)).ok()?,
+            italic: FontData::load(&paths[2], Some(printpdf::BuiltinFont::HelveticaOblique))
+                .ok()?,
+            bold_italic: FontData::load(
+                &paths[3],
+                Some(printpdf::BuiltinFont::HelveticaBoldOblique),
+            )
+            .ok()?,
+        })
+    })
+}
+
+fn load_embedded_latin_family() -> Option<FontFamily<FontData>> {
+    latin_font_candidates().into_iter().find_map(|paths| {
+        if !paths[0].exists() || !paths[1].exists() {
+            return None;
+        }
+
+        let regular = FontData::load(&paths[0], None).ok()?;
+        let bold = FontData::load(&paths[1], None).ok()?;
+        let italic = if paths[2].exists() {
+            FontData::load(&paths[2], None).ok()?
+        } else {
+            regular.clone()
+        };
+        let bold_italic = if paths[3].exists() {
+            FontData::load(&paths[3], None).ok()?
+        } else {
+            bold.clone()
+        };
+
+        Some(FontFamily {
+            regular,
+            bold,
+            italic,
+            bold_italic,
+        })
+    })
+}
+
+fn strong_style(locale: ReportLocale, font_size: u8) -> Style {
+    let style = Style::new().with_font_size(font_size);
+    if locale == ReportLocale::Zh {
+        style
+    } else {
+        style.bold()
+    }
+}
+
+fn optimize_pdf_file(path: &Path) -> Result<()> {
+    let before = std::fs::metadata(path)
+        .with_context(|| format!("Failed to read PDF metadata for {:?}", path))?
+        .len();
+    let mut doc = PdfDocument::load(path)
+        .with_context(|| format!("Failed to load rendered PDF for optimization: {:?}", path))?;
+
+    dedupe_font_file_streams(&mut doc);
+    doc.prune_objects();
+    doc.compress();
+    doc.renumber_objects();
+
+    let tmp_path = path.with_extension("pdf.tmp");
+    doc.save(&tmp_path)
+        .with_context(|| format!("Failed to write optimized PDF to {:?}", tmp_path))?;
+    replace_rendered_pdf(path, &tmp_path)?;
+
+    if let Ok(after) = std::fs::metadata(path).map(|meta| meta.len()) {
+        log::debug!(
+            "optimized rushes log PDF: {} bytes -> {} bytes",
+            before,
+            after
+        );
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn replace_rendered_pdf(path: &Path, tmp_path: &Path) -> Result<()> {
+    let backup_path = path.with_extension("pdf.unoptimized.tmp");
+    if backup_path.exists() {
+        let _ = std::fs::remove_file(&backup_path);
+    }
+
+    std::fs::rename(path, &backup_path).with_context(|| {
+        format!(
+            "Failed to move rendered PDF {:?} aside before optimization",
+            path
+        )
+    })?;
+
+    match std::fs::rename(tmp_path, path) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&backup_path);
+            Ok(())
+        }
+        Err(err) => {
+            let _ = std::fs::rename(&backup_path, path);
+            Err(err).with_context(|| {
+                format!(
+                    "Failed to replace rendered PDF {:?} with optimized file {:?}",
+                    path, tmp_path
+                )
+            })
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_rendered_pdf(path: &Path, tmp_path: &Path) -> Result<()> {
+    std::fs::rename(tmp_path, path).with_context(|| {
+        format!(
+            "Failed to replace rendered PDF {:?} with optimized file {:?}",
+            path, tmp_path
+        )
+    })
+}
+
+fn dedupe_font_file_streams(doc: &mut PdfDocument) {
+    let mut font_hashes: HashMap<Vec<u8>, ObjectId> = HashMap::new();
+    let mut replacements: HashMap<ObjectId, ObjectId> = HashMap::new();
+
+    for (object_id, object) in &doc.objects {
+        if let Object::Stream(stream) = object {
+            let type_name = stream
+                .dict
+                .get(b"Length1")
+                .ok()
+                .map(|_| true)
+                .unwrap_or(false);
+            if !type_name {
+                continue;
+            }
+
+            let hash = Sha256::digest(&stream.content).to_vec();
+            if let Some(existing) = font_hashes.get(&hash).copied() {
+                replacements.insert(*object_id, existing);
+            } else {
+                font_hashes.insert(hash, *object_id);
+            }
+        }
+    }
+
+    if replacements.is_empty() {
+        return;
+    }
+
+    for object in doc.objects.values_mut() {
+        replace_font_file_refs(object, &replacements);
+    }
+}
+
+fn replace_font_file_refs(object: &mut Object, replacements: &HashMap<ObjectId, ObjectId>) {
+    match object {
+        Object::Dictionary(dict) => {
+            for key in [b"FontFile".as_slice(), b"FontFile2", b"FontFile3"] {
+                if let Ok(value) = dict.get_mut(key) {
+                    if let Ok(id) = value.as_reference() {
+                        if let Some(replacement) = replacements.get(&id) {
+                            *value = Object::Reference(*replacement);
+                        }
+                    }
+                }
+            }
+
+            for (_, value) in dict.iter_mut() {
+                replace_font_file_refs(value, replacements);
+            }
+        }
+        Object::Stream(stream) => {
+            for (_, value) in stream.dict.iter_mut() {
+                replace_font_file_refs(value, replacements);
+            }
+        }
+        Object::Array(values) => {
+            for value in values {
+                replace_font_file_refs(value, replacements);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Export a rushes log report to a PDF file.
 pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String> {
-    let font_family =
-        load_font_family().context("Cannot generate PDF: no suitable font found on this system")?;
+    export_pdf_localized(report, output_path, ReportLocale::En)
+}
+
+/// Export a rushes log report to a localized PDF file.
+pub fn export_pdf_localized(
+    report: &RushesLogReport,
+    output_path: &Path,
+    locale: ReportLocale,
+) -> Result<String> {
+    let font_family = load_font_family(locale)
+        .context("Cannot generate PDF: no suitable font found on this system")?;
+    let labels = locale.labels();
 
     let mut doc = genpdf::Document::new(font_family);
-    doc.set_title(format!("Rushes Log — {}", report.shoot_date));
+    doc.set_title(format!("{} - {}", labels.title, report.shoot_date));
 
     let mut decorator = genpdf::SimplePageDecorator::new();
     decorator.set_margins(15);
@@ -80,17 +343,17 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
 
     // ── Title ──
     doc.push(
-        Paragraph::new("DIT Pro — Rushes Log")
+        Paragraph::new(labels.title)
             .aligned(Alignment::Center)
-            .styled(Style::new().bold().with_font_size(18)),
+            .styled(strong_style(locale, 18)),
     );
     doc.push(
-        Paragraph::new(format!("Shoot Date: {}", report.shoot_date))
+        Paragraph::new(format!("{}: {}", labels.shoot_date, report.shoot_date))
             .aligned(Alignment::Center)
             .styled(Style::new().with_font_size(12)),
     );
     doc.push(
-        Paragraph::new(format!("Generated: {}", report.generated_at))
+        Paragraph::new(format!("{}: {}", labels.generated, report.generated_at))
             .aligned(Alignment::Center)
             .styled(
                 Style::new()
@@ -101,15 +364,36 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
     doc.push(Break::new(1.0));
 
     // ── Summary ──
-    doc.push(Paragraph::new("Summary").styled(Style::new().bold().with_font_size(14)));
+    doc.push(Paragraph::new(labels.summary).styled(strong_style(locale, 14)));
 
     let mut summary_layout = LinearLayout::vertical();
     summary_layout.push(
         Paragraph::new(format!(
-            "Total Reels: {}   |   Total Clips: {}   |   Total Size: {}",
+            "{}: {}   |   {}: {}   |   {}: {}   |   {}: {}",
+            labels.total_reels,
             report.summary.total_reels,
+            labels.total_clips,
             report.summary.total_clips,
+            labels.total_files,
+            report.summary.total_files,
+            labels.total_size,
             format_bytes(report.summary.total_size),
+        ))
+        .styled(Style::new().with_font_size(10)),
+    );
+
+    summary_layout.push(
+        Paragraph::new(format!(
+            "{}: {} {} / {} {} / {} {} / {} {}",
+            labels.media_breakdown,
+            labels.video,
+            report.summary.video_files,
+            labels.audio,
+            report.summary.audio_files,
+            labels.images,
+            report.summary.image_files,
+            labels.other,
+            report.summary.other_files,
         ))
         .styled(Style::new().with_font_size(10)),
     );
@@ -117,7 +401,8 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
     if !report.summary.cameras_used.is_empty() {
         summary_layout.push(
             Paragraph::new(format!(
-                "Cameras Used: {}",
+                "{}: {}",
+                labels.cameras_used,
                 report.summary.cameras_used.join(", "),
             ))
             .styled(Style::new().with_font_size(10)),
@@ -126,7 +411,8 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
 
     summary_layout.push(
         Paragraph::new(format!(
-            "Total Duration: {}",
+            "{}: {}",
+            labels.total_duration,
             format_duration(report.summary.total_duration_seconds),
         ))
         .styled(Style::new().with_font_size(10)),
@@ -136,26 +422,25 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
     doc.push(Break::new(0.5));
 
     // ── Data Table ──
-    // Column weights: Thumb, Reel, Camera, Clips, Size, Dur, Speed, Status, MHL, Proxy, Res, Codec, FPS
-    let mut table = TableLayout::new(vec![2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    // Column weights: Thumb, Reel, Camera, Clips, Files, Size, Status, MHL, Proxy, Res, Codec, FPS
+    let mut table = TableLayout::new(vec![2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
 
     // Header row
-    let header_style = Style::new().bold().with_font_size(8);
+    let header_style = strong_style(locale, 8);
     let mut header_row = table.row();
     for header in [
-        "Thumb",
-        "Reel",
-        "Camera",
-        "Clips",
-        "Size",
-        "Duration",
-        "Speed",
-        "Status",
-        "MHL",
-        "Proxy",
-        "Resolution",
-        "Codec",
-        "FPS",
+        labels.thumbnail,
+        labels.reel,
+        labels.camera,
+        labels.clips,
+        labels.files,
+        labels.size,
+        labels.status,
+        labels.mhl,
+        labels.proxy,
+        labels.resolution,
+        labels.codec,
+        labels.frame_rate,
     ] {
         header_row.push_element(Paragraph::new(header).styled(header_style));
     }
@@ -197,12 +482,11 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
         row.push_element(Paragraph::new(&entry.reel_name).styled(s));
         row.push_element(Paragraph::new(&camera).styled(s));
         row.push_element(Paragraph::new(entry.clip_count.to_string()).styled(s));
+        row.push_element(Paragraph::new(entry.total_files.to_string()).styled(s));
         row.push_element(Paragraph::new(format_bytes(entry.total_size)).styled(s));
-        row.push_element(Paragraph::new(format_duration(entry.duration_seconds)).styled(s));
-        row.push_element(Paragraph::new(format!("{:.1} MB/s", entry.avg_speed_mbps)).styled(s));
-        row.push_element(Paragraph::new(&entry.backup_status).styled(s));
-        row.push_element(Paragraph::new(if entry.mhl_verified { "Yes" } else { "No" }).styled(s));
-        row.push_element(Paragraph::new(&entry.proxy_status).styled(s));
+        row.push_element(Paragraph::new(locale.backup_status(&entry.backup_status)).styled(s));
+        row.push_element(Paragraph::new(locale.yes_no(entry.mhl_verified)).styled(s));
+        row.push_element(Paragraph::new(locale.proxy_status(&entry.proxy_status)).styled(s));
         row.push_element(Paragraph::new(entry.resolution.as_deref().unwrap_or("-")).styled(s));
         row.push_element(Paragraph::new(entry.codec.as_deref().unwrap_or("-")).styled(s));
         row.push_element(Paragraph::new(entry.frame_rate.as_deref().unwrap_or("-")).styled(s));
@@ -210,26 +494,83 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
     }
 
     doc.push(table);
-    doc.push(Break::new(1.5));
+    doc.push(Break::new(1.0));
+
+    // ── Source/Destination Details ──
+    doc.push(Paragraph::new(labels.entries).styled(strong_style(locale, 12)));
+    for entry in &report.entries {
+        doc.push(
+            Paragraph::new(format!(
+                "{}: {}   |   {}: {}   |   {}: {} / {}: {}",
+                labels.reel,
+                entry.reel_name,
+                labels.completed,
+                entry.completed_files,
+                labels.failed,
+                entry.failed_files,
+                labels.source_release,
+                locale.source_release(entry),
+            ))
+            .styled(strong_style(locale, 8)),
+        );
+        doc.push(
+            Paragraph::new(format!("{}: {}", labels.source, entry.source_path))
+                .styled(Style::new().with_font_size(7)),
+        );
+        doc.push(
+            Paragraph::new(format!(
+                "{}: {}",
+                labels.destinations,
+                entry.dest_paths.join("; ")
+            ))
+            .styled(Style::new().with_font_size(7)),
+        );
+        doc.push(
+            Paragraph::new(format!(
+                "{}: {} {} / {} {} / {} {} / {} {}",
+                labels.media_breakdown,
+                labels.video,
+                entry.video_files,
+                labels.audio,
+                entry.audio_files,
+                labels.images,
+                entry.image_files,
+                labels.other,
+                entry.other_files,
+            ))
+            .styled(Style::new().with_font_size(7)),
+        );
+        doc.push(Break::new(0.35));
+    }
+    doc.push(Break::new(0.8));
 
     // ── Signature Area ──
-    doc.push(Paragraph::new("Sign-Off").styled(Style::new().bold().with_font_size(12)));
+    doc.push(Paragraph::new(labels.sign_off).styled(strong_style(locale, 12)));
     doc.push(Break::new(0.5));
 
     let mut sig_layout = LinearLayout::vertical();
     sig_layout.push(
-        Paragraph::new("DIT Name: _________________________________     Date: ____________")
-            .styled(Style::new().with_font_size(10)),
+        Paragraph::new(format!(
+            "{}: _________________________________     {}: ____________",
+            labels.dit_name, labels.date
+        ))
+        .styled(Style::new().with_font_size(10)),
     );
     sig_layout.push(Break::new(1.0));
     sig_layout.push(
-        Paragraph::new("Signature:  _________________________________")
-            .styled(Style::new().with_font_size(10)),
+        Paragraph::new(format!(
+            "{}:  _________________________________",
+            labels.signature
+        ))
+        .styled(Style::new().with_font_size(10)),
     );
     sig_layout.push(Break::new(1.0));
     sig_layout.push(
-        Paragraph::new("Notes: _______________________________________________________________")
-            .styled(Style::new().with_font_size(10)),
+        Paragraph::new(format!(
+            "{}: _______________________________________________________________",
+            labels.notes
+        ))
+        .styled(Style::new().with_font_size(10)),
     );
     doc.push(sig_layout);
 
@@ -237,7 +578,7 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
 
     // ── Footer ──
     doc.push(
-        Paragraph::new("Generated by DIT Pro — Professional Card Offload Engine")
+        Paragraph::new(labels.footer)
             .aligned(Alignment::Center)
             .styled(
                 Style::new()
@@ -249,6 +590,10 @@ pub fn export_pdf(report: &RushesLogReport, output_path: &Path) -> Result<String
     // Render to file
     doc.render_to_file(output_path)
         .with_context(|| format!("Failed to render PDF to {:?}", output_path))?;
+
+    if let Err(err) = optimize_pdf_file(output_path) {
+        log::warn!("Failed to optimize rushes log PDF {:?}: {err}", output_path);
+    }
 
     Ok(output_path.to_string_lossy().to_string())
 }
@@ -277,6 +622,14 @@ mod tests {
                 total_files: 10,
                 completed_files: 10,
                 failed_files: 0,
+                video_files: 10,
+                audio_files: 0,
+                image_files: 0,
+                other_files: 0,
+                video_size: 10_737_418_240,
+                audio_size: 0,
+                image_size: 0,
+                other_size: 0,
                 duration_seconds: 300.0,
                 avg_speed_mbps: 34.1,
                 backup_status: "Verified".to_string(),
@@ -295,7 +648,12 @@ mod tests {
             summary: RushesLogSummary {
                 total_reels: 1,
                 total_clips: 10,
+                total_files: 10,
                 total_size: 10_737_418_240,
+                video_files: 10,
+                audio_files: 0,
+                image_files: 0,
+                other_files: 0,
                 total_duration_seconds: 300.0,
                 cameras_used: vec!["ARRI".to_string()],
             },
@@ -312,6 +670,86 @@ mod tests {
             }
             Err(e) => {
                 // Expected on systems without Arial/Liberation fonts
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("font") || msg.contains("Font"),
+                    "Unexpected error: {}",
+                    msg
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_export_pdf_zh_locale() {
+        let report = RushesLogReport {
+            generated_at: "2026-03-09 10:00:00".to_string(),
+            shoot_date: "2026-03-09".to_string(),
+            entries: vec![RushesLogEntry {
+                job_id: "j1".to_string(),
+                job_name: "Test".to_string(),
+                reel_name: "A001".to_string(),
+                camera_brand: "ARRI".to_string(),
+                camera_model: "ALEXA Mini".to_string(),
+                clip_count: 1,
+                first_clip: "A001C001.mov".to_string(),
+                last_clip: "A001C001.mov".to_string(),
+                source_path: "/Volumes/CARD".to_string(),
+                total_size: 1_048_576,
+                total_files: 1,
+                completed_files: 1,
+                failed_files: 0,
+                video_files: 1,
+                audio_files: 0,
+                image_files: 0,
+                other_files: 0,
+                video_size: 1_048_576,
+                audio_size: 0,
+                image_size: 0,
+                other_size: 0,
+                duration_seconds: 10.0,
+                avg_speed_mbps: 100.0,
+                backup_status: "Verified".to_string(),
+                mhl_verified: true,
+                proxy_status: "Generated".to_string(),
+                dest_paths: vec!["/Volumes/SSD1".to_string()],
+                started_at: "2026-03-09 09:00:00".to_string(),
+                completed_at: "2026-03-09 09:00:10".to_string(),
+                resolution: Some("3840x2160".to_string()),
+                frame_rate: Some("23.976".to_string()),
+                codec: Some("H.264".to_string()),
+                color_space: Some("bt709".to_string()),
+                timecode_range: Some("01:00:00:00".to_string()),
+                thumbnail_path: None,
+            }],
+            summary: RushesLogSummary {
+                total_reels: 1,
+                total_clips: 1,
+                total_files: 1,
+                total_size: 1_048_576,
+                video_files: 1,
+                audio_files: 0,
+                image_files: 0,
+                other_files: 0,
+                total_duration_seconds: 10.0,
+                cameras_used: vec!["ARRI".to_string()],
+            },
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test-zh.pdf");
+        match export_pdf_localized(&report, &path, ReportLocale::Zh) {
+            Ok(_) => {
+                assert!(path.exists());
+                let size = std::fs::metadata(&path).unwrap().len();
+                assert!(size > 0);
+                assert!(
+                    size < 40 * 1024 * 1024,
+                    "Chinese PDF should not embed duplicate full CJK fonts; got {} bytes",
+                    size
+                );
+            }
+            Err(e) => {
                 let msg = e.to_string();
                 assert!(
                     msg.contains("font") || msg.contains("Font"),

@@ -76,6 +76,8 @@ rust_xlsxwriter = "0.79"
 
 # PDF generation
 genpdf = { version = "0.2", features = ["images"] }
+lopdf = "0.26"
+printpdf = "0.3.4"
 
 # Platform-specific
 [target.'cfg(unix)'.dependencies]

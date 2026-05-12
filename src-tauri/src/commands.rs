@@ -503,18 +503,10 @@ pub struct SpaceIssue {
     pub deficit_bytes: u64,
 }
 
-/// Scan a source directory and return total file count and total bytes.
-/// Used by the frontend for pre-flight space estimation before starting an offload.
-#[tauri::command]
-pub async fn scan_source_size(
-    source_path: String,
-) -> Result<CommandResult<SourceSizeInfo>, String> {
-    let source_root = PathBuf::from(&source_path);
+async fn scan_source_size_inner(source_path: &str) -> Result<SourceSizeInfo, String> {
+    let source_root = PathBuf::from(source_path);
     if !source_root.exists() {
-        return Ok(CommandResult::err(format!(
-            "Source path does not exist: {}",
-            source_path
-        )));
+        return Err(format!("Source path does not exist: {}", source_path));
     }
 
     let ignore_patterns: Vec<String> = crate::mhl::DEFAULT_IGNORE_PATTERNS
@@ -529,7 +521,7 @@ pub async fn scan_source_size(
     while let Some(dir) = stack.pop() {
         let mut entries = match tokio::fs::read_dir(&dir).await {
             Ok(e) => e,
-            Err(_) => continue,
+            Err(e) => return Err(format!("Cannot read directory {}: {}", dir.display(), e)),
         };
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
@@ -560,16 +552,28 @@ pub async fn scan_source_size(
     }
 
     if total_files == 0 {
-        return Ok(CommandResult::err(format!(
+        return Err(format!(
             "No files found in source directory: {}",
             source_path
-        )));
+        ));
     }
 
-    Ok(CommandResult::ok(SourceSizeInfo {
+    Ok(SourceSizeInfo {
         total_files,
         total_bytes,
-    }))
+    })
+}
+
+/// Scan a source directory and return total file count and total bytes.
+/// Used by the frontend for pre-flight space estimation before starting an offload.
+#[tauri::command]
+pub async fn scan_source_size(
+    source_path: String,
+) -> Result<CommandResult<SourceSizeInfo>, String> {
+    match scan_source_size_inner(&source_path).await {
+        Ok(info) => Ok(CommandResult::ok(info)),
+        Err(err) => Ok(CommandResult::err(err)),
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -972,6 +976,16 @@ pub async fn start_offload(
     state: State<'_, AppState>,
     request: StartOffloadRequest,
 ) -> Result<CommandResult<String>, String> {
+    if request.dest_paths.is_empty() {
+        return Ok(CommandResult::err(
+            "At least one destination path is required".to_string(),
+        ));
+    }
+
+    if let Err(err) = scan_source_size_inner(&request.source_path).await {
+        return Ok(CommandResult::err(err));
+    }
+
     let job_id = uuid::Uuid::new_v4().to_string();
 
     // Read saved settings as defaults
@@ -1851,18 +1865,28 @@ pub fn export_rushes_log(
     date: String,
     format: String,
     output_path: String,
+    locale: Option<String>,
 ) -> Result<CommandResult<String>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let report = crate::rushes_log::get_rushes_log(&conn, &date).map_err(|e| e.to_string())?;
     let out = std::path::Path::new(&output_path);
+    let report_locale = crate::rushes_log::ReportLocale::from_code(locale.as_deref());
 
     let result = match format.to_lowercase().as_str() {
-        "xlsx" => crate::rushes_log::excel::export_xlsx(&report, out),
-        "pdf" => crate::rushes_log::pdf::export_pdf(&report, out),
-        "tsv" => {
-            crate::rushes_log::export_to_file(&report, &crate::rushes_log::ExportFormat::Tsv, out)
-        }
-        _ => crate::rushes_log::export_to_file(&report, &crate::rushes_log::ExportFormat::Csv, out),
+        "xlsx" => crate::rushes_log::excel::export_xlsx_localized(&report, out, report_locale),
+        "pdf" => crate::rushes_log::pdf::export_pdf_localized(&report, out, report_locale),
+        "tsv" => crate::rushes_log::export_to_file_localized(
+            &report,
+            &crate::rushes_log::ExportFormat::Tsv,
+            out,
+            report_locale,
+        ),
+        _ => crate::rushes_log::export_to_file_localized(
+            &report,
+            &crate::rushes_log::ExportFormat::Csv,
+            out,
+            report_locale,
+        ),
     };
 
     match result {
@@ -1876,10 +1900,16 @@ pub fn export_rushes_log(
 pub fn copy_rushes_log_clipboard(
     state: State<'_, AppState>,
     date: String,
+    locale: Option<String>,
 ) -> Result<CommandResult<String>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let report = crate::rushes_log::get_rushes_log(&conn, &date).map_err(|e| e.to_string())?;
-    let tsv = crate::rushes_log::export_to_string(&report, &crate::rushes_log::ExportFormat::Tsv);
+    let report_locale = crate::rushes_log::ReportLocale::from_code(locale.as_deref());
+    let tsv = crate::rushes_log::export_to_string_localized(
+        &report,
+        &crate::rushes_log::ExportFormat::Tsv,
+        report_locale,
+    );
     Ok(CommandResult::ok(tsv))
 }
 

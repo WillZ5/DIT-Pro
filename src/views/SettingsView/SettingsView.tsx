@@ -35,6 +35,7 @@ export function SettingsView() {
   const [bundlePath, setBundlePath] = useState<string | null>(null);
   const [notifPermission, setNotifPermission] = useState<boolean | null>(null);
   const [smtpPassword, setSmtpPassword] = useState("");
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // Check notification permission on mount
   useEffect(() => {
@@ -92,8 +93,11 @@ export function SettingsView() {
     }
   };
 
-  const handleResetSettings = async () => {
-    if (!window.confirm(t.settings.resetConfirm)) return;
+  const handleResetSettings = () => {
+    setShowResetConfirm(true);
+  };
+
+  const confirmResetSettings = async () => {
     setSaving(true);
     setSaved(false);
     setError(null);
@@ -102,6 +106,7 @@ export function SettingsView() {
       if (result.success && result.data) {
         setSettings(result.data);
         setSmtpPassword("");
+        setShowResetConfirm(false);
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
       } else {
@@ -313,6 +318,31 @@ export function SettingsView() {
         <div className="error-banner">
           <span>{error}</span>
           <button onClick={() => setError(null)}>{t.common.dismiss}</button>
+        </div>
+      )}
+
+      {showResetConfirm && (
+        <div className="confirm-overlay">
+          <div className="confirm-dialog">
+            <h3>{t.settings.resetSettings}</h3>
+            <p>{t.settings.resetConfirm}</p>
+            <div className="confirm-actions">
+              <button
+                className="btn-confirm-cancel"
+                onClick={() => setShowResetConfirm(false)}
+                disabled={saving}
+              >
+                {t.common.cancel}
+              </button>
+              <button
+                className="btn-confirm-terminate"
+                onClick={confirmResetSettings}
+                disabled={saving}
+              >
+                {saving ? t.common.saving : t.settings.resetSettings}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

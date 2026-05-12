@@ -451,30 +451,67 @@ pub async fn copy_file_multi(
             .collect());
     }
 
-    // Check space only for non-skipped destinations
-    for (i, dest) in destinations.iter().enumerate() {
-        if !skip_flags[i] {
-            check_available_space(dest, file_size).await?;
-        }
-    }
-
     let mut source_file = tokio::fs::File::open(source).await?;
 
-    // Create writers only for non-skipped destinations
+    // Create writers only for non-skipped destinations. Destination setup must
+    // be isolated: one broken target must not fail the whole multi-target copy.
     let mut writers: Vec<Option<AtomicWriter>> = Vec::with_capacity(destinations.len());
+    let mut writer_errors: Vec<Option<String>> = vec![None; destinations.len()];
     for (i, dest) in destinations.iter().enumerate() {
         if skip_flags[i] {
             writers.push(None);
+        } else if let Err(e) = check_available_space(dest, file_size).await {
+            writer_errors[i] = Some(e.to_string());
+            writers.push(None);
         } else {
-            writers.push(Some(AtomicWriter::new(dest).await?));
+            match AtomicWriter::new(dest).await {
+                Ok(writer) => writers.push(Some(writer)),
+                Err(e) => {
+                    writer_errors[i] = Some(e.to_string());
+                    writers.push(None);
+                }
+            }
         }
+    }
+
+    if !writers.iter().any(|w| w.is_some()) {
+        return Ok(destinations
+            .iter()
+            .enumerate()
+            .map(|(i, dest)| {
+                if skip_flags[i] {
+                    CopyFileResult {
+                        source_path: source.to_path_buf(),
+                        dest_path: dest.clone(),
+                        bytes_copied: 0,
+                        hash_results: vec![],
+                        success: true,
+                        skipped: true,
+                        error: None,
+                    }
+                } else {
+                    CopyFileResult {
+                        source_path: source.to_path_buf(),
+                        dest_path: dest.clone(),
+                        bytes_copied: 0,
+                        hash_results: vec![],
+                        success: false,
+                        skipped: false,
+                        error: Some(
+                            writer_errors[i]
+                                .clone()
+                                .unwrap_or_else(|| "Destination unavailable".to_string()),
+                        ),
+                    }
+                }
+            })
+            .collect());
     }
 
     let mut hasher = MultiHasher::new(&config.hash_algorithms);
     let mut buffer = vec![0u8; config.buffer_size];
     let mut total_written: u64 = 0;
-    // Per-writer error tracking: if a destination write fails, skip it on subsequent chunks
-    let mut writer_errors: Vec<Option<String>> = vec![None; destinations.len()];
+    // Per-writer error tracking: if a destination write fails, skip it on subsequent chunks.
 
     loop {
         // Check cancel/pause before each chunk read
@@ -554,16 +591,30 @@ pub async fn copy_file_multi(
                 )),
             });
         } else {
-            writer.finalize().await?;
-            results.push(CopyFileResult {
-                source_path: source.to_path_buf(),
-                dest_path: destinations[i].clone(),
-                bytes_copied: bytes_written,
-                hash_results: hash_results.clone(),
-                success: true,
-                skipped: false,
-                error: None,
-            });
+            match writer.finalize().await {
+                Ok(()) => {
+                    results.push(CopyFileResult {
+                        source_path: source.to_path_buf(),
+                        dest_path: destinations[i].clone(),
+                        bytes_copied: bytes_written,
+                        hash_results: hash_results.clone(),
+                        success: true,
+                        skipped: false,
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    results.push(CopyFileResult {
+                        source_path: source.to_path_buf(),
+                        dest_path: destinations[i].clone(),
+                        bytes_copied: bytes_written,
+                        hash_results: hash_results.clone(),
+                        success: false,
+                        skipped: false,
+                        error: Some(e.to_string()),
+                    });
+                }
+            }
         }
     }
 
@@ -655,6 +706,35 @@ mod tests {
             results[0].hash_results[0].hex_digest,
             results[1].hash_results[0].hex_digest
         );
+    }
+
+    #[tokio::test]
+    async fn test_copy_multi_isolates_destination_setup_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = create_test_file(dir.path(), "source.r3d", b"raw camera data");
+
+        std::fs::create_dir_all(dir.path().join("good")).unwrap();
+        std::fs::write(dir.path().join("blocked_parent"), b"not a directory").unwrap();
+
+        let good_dest = dir.path().join("good").join("source.r3d");
+        let bad_dest = dir.path().join("blocked_parent").join("source.r3d");
+        let dests = vec![good_dest.clone(), bad_dest.clone()];
+
+        let config = CopyEngineConfig::default();
+        let results = copy_file_multi(&source, &dests, &config, &CopyControl::none())
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].success);
+        assert!(good_dest.exists());
+        assert!(!results[1].success);
+        assert_eq!(results[1].dest_path, bad_dest);
+        assert!(results[1]
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("parent"));
     }
 
     #[tokio::test]

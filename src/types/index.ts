@@ -70,6 +70,14 @@ export interface RushesLogEntry {
   totalFiles: number;
   completedFiles: number;
   failedFiles: number;
+  videoFiles: number;
+  audioFiles: number;
+  imageFiles: number;
+  otherFiles: number;
+  videoSize: number;
+  audioSize: number;
+  imageSize: number;
+  otherSize: number;
   durationSeconds: number;
   avgSpeedMbps: number;
   backupStatus: string;
@@ -90,7 +98,12 @@ export interface RushesLogEntry {
 export interface RushesLogSummary {
   totalReels: number;
   totalClips: number;
+  totalFiles: number;
   totalSize: number;
+  videoFiles: number;
+  audioFiles: number;
+  imageFiles: number;
+  otherFiles: number;
   totalDurationSeconds: number;
   camerasUsed: string[];
 }

@@ -38,6 +38,14 @@ pub struct RushesLogEntry {
     pub total_files: u32,
     pub completed_files: u32,
     pub failed_files: u32,
+    pub video_files: u32,
+    pub audio_files: u32,
+    pub image_files: u32,
+    pub other_files: u32,
+    pub video_size: u64,
+    pub audio_size: u64,
+    pub image_size: u64,
+    pub other_size: u64,
 
     // Computed
     pub duration_seconds: f64,
@@ -78,9 +86,270 @@ pub struct RushesLogReport {
 pub struct RushesLogSummary {
     pub total_reels: u32,
     pub total_clips: u32,
+    pub total_files: u32,
     pub total_size: u64,
+    pub video_files: u32,
+    pub audio_files: u32,
+    pub image_files: u32,
+    pub other_files: u32,
     pub total_duration_seconds: f64,
     pub cameras_used: Vec<String>,
+}
+
+/// Report language used for exported rushes logs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportLocale {
+    En,
+    Zh,
+}
+
+impl ReportLocale {
+    pub fn from_code(code: Option<&str>) -> Self {
+        match code.unwrap_or_default().to_lowercase().as_str() {
+            value if value.starts_with("zh") => Self::Zh,
+            _ => Self::En,
+        }
+    }
+
+    pub fn labels(self) -> RushesLogLabels {
+        match self {
+            Self::En => RushesLogLabels::en(),
+            Self::Zh => RushesLogLabels::zh(),
+        }
+    }
+
+    pub fn backup_status(self, status: &str) -> &'static str {
+        match (self, status) {
+            (Self::Zh, "Verified") => "已验证",
+            (Self::Zh, "Partial") => "部分完成",
+            (Self::Zh, "Failed") => "失败",
+            (Self::Zh, "Pending") => "进行中",
+            (_, "Verified") => "Verified",
+            (_, "Partial") => "Partial",
+            (_, "Failed") => "Failed",
+            _ => "Pending",
+        }
+    }
+
+    pub fn proxy_status(self, status: &str) -> &'static str {
+        match (self, status) {
+            (Self::Zh, "Generated") => "已生成",
+            (Self::Zh, "Partial") => "部分",
+            (Self::Zh, _) => "无",
+            (_, "Generated") => "Generated",
+            (_, "Partial") => "Partial",
+            _ => "None",
+        }
+    }
+
+    pub fn yes_no(self, value: bool) -> &'static str {
+        match (self, value) {
+            (Self::Zh, true) => "是",
+            (Self::Zh, false) => "否",
+            (_, true) => "Yes",
+            (_, false) => "No",
+        }
+    }
+
+    pub fn source_release(self, entry: &RushesLogEntry) -> &'static str {
+        let safe = entry.failed_files == 0
+            && entry.total_files > 0
+            && entry.completed_files == entry.total_files
+            && entry.mhl_verified;
+        match (self, safe) {
+            (Self::Zh, true) => "可释放源盘",
+            (Self::Zh, false) => "继续保留源盘",
+            (_, true) => "Safe to release source",
+            (_, false) => "Keep source mounted",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RushesLogLabels {
+    pub title: &'static str,
+    pub shoot_date: &'static str,
+    pub generated: &'static str,
+    pub summary: &'static str,
+    pub total_reels: &'static str,
+    pub total_clips: &'static str,
+    pub total_files: &'static str,
+    pub total_size: &'static str,
+    pub total_duration: &'static str,
+    pub cameras_used: &'static str,
+    pub media_breakdown: &'static str,
+    pub video: &'static str,
+    pub audio: &'static str,
+    pub images: &'static str,
+    pub other: &'static str,
+    pub entries: &'static str,
+    pub thumbnail: &'static str,
+    pub reel: &'static str,
+    pub camera: &'static str,
+    pub model: &'static str,
+    pub clips: &'static str,
+    pub files: &'static str,
+    pub completed: &'static str,
+    pub failed: &'static str,
+    pub first_clip: &'static str,
+    pub last_clip: &'static str,
+    pub size: &'static str,
+    pub duration: &'static str,
+    pub speed: &'static str,
+    pub status: &'static str,
+    pub mhl: &'static str,
+    pub proxy: &'static str,
+    pub resolution: &'static str,
+    pub frame_rate: &'static str,
+    pub codec: &'static str,
+    pub color_space: &'static str,
+    pub timecode: &'static str,
+    pub source: &'static str,
+    pub destinations: &'static str,
+    pub start_time: &'static str,
+    pub end_time: &'static str,
+    pub source_release: &'static str,
+    pub sign_off: &'static str,
+    pub dit_name: &'static str,
+    pub date: &'static str,
+    pub signature: &'static str,
+    pub notes: &'static str,
+    pub footer: &'static str,
+    pub total: &'static str,
+    pub reels_word: &'static str,
+    pub clips_word: &'static str,
+    pub files_word: &'static str,
+    pub cameras_word: &'static str,
+}
+
+impl RushesLogLabels {
+    fn en() -> Self {
+        Self {
+            title: "DIT Pro - Offload Verification Report",
+            shoot_date: "Shoot Date",
+            generated: "Generated",
+            summary: "Summary",
+            total_reels: "Total Reels",
+            total_clips: "Total Clips",
+            total_files: "Total Files",
+            total_size: "Total Size",
+            total_duration: "Total Duration",
+            cameras_used: "Cameras Used",
+            media_breakdown: "Media Type Breakdown",
+            video: "Video",
+            audio: "Audio",
+            images: "Images",
+            other: "Other",
+            entries: "Entries",
+            thumbnail: "Thumbnail",
+            reel: "Reel",
+            camera: "Camera",
+            model: "Model",
+            clips: "Clips",
+            files: "Files",
+            completed: "Completed",
+            failed: "Failed",
+            first_clip: "First Clip",
+            last_clip: "Last Clip",
+            size: "Size",
+            duration: "Duration",
+            speed: "Speed",
+            status: "Status",
+            mhl: "MHL",
+            proxy: "Proxy",
+            resolution: "Resolution",
+            frame_rate: "Frame Rate",
+            codec: "Codec",
+            color_space: "Color Space",
+            timecode: "Timecode",
+            source: "Source",
+            destinations: "Destinations",
+            start_time: "Start Time",
+            end_time: "End Time",
+            source_release: "Source Release",
+            sign_off: "Sign-Off",
+            dit_name: "DIT Name",
+            date: "Date",
+            signature: "Signature",
+            notes: "Notes",
+            footer: "Generated by DIT Pro - Professional Card Offload Engine",
+            total: "Total",
+            reels_word: "reels",
+            clips_word: "clips",
+            files_word: "files",
+            cameras_word: "Cameras",
+        }
+    }
+
+    fn zh() -> Self {
+        Self {
+            title: "DIT Pro - 拷卡校验报告",
+            shoot_date: "拍摄日期",
+            generated: "生成时间",
+            summary: "汇总",
+            total_reels: "总卷数",
+            total_clips: "总片段",
+            total_files: "总文件数",
+            total_size: "总素材大小",
+            total_duration: "总时长",
+            cameras_used: "使用相机",
+            media_breakdown: "媒体类型统计",
+            video: "视频",
+            audio: "音频",
+            images: "图片",
+            other: "其他",
+            entries: "任务明细",
+            thumbnail: "缩略图",
+            reel: "卷名",
+            camera: "相机",
+            model: "型号",
+            clips: "片段",
+            files: "文件",
+            completed: "完成",
+            failed: "失败",
+            first_clip: "首片段",
+            last_clip: "尾片段",
+            size: "大小",
+            duration: "用时",
+            speed: "速度",
+            status: "状态",
+            mhl: "MHL",
+            proxy: "Proxy",
+            resolution: "分辨率",
+            frame_rate: "帧率",
+            codec: "编码",
+            color_space: "色彩空间",
+            timecode: "时码",
+            source: "来源文件位置",
+            destinations: "目标文件位置",
+            start_time: "开始时间",
+            end_time: "结束时间",
+            source_release: "源盘释放",
+            sign_off: "签字确认",
+            dit_name: "DIT 姓名",
+            date: "日期",
+            signature: "签名",
+            notes: "备注",
+            footer: "由 DIT Pro 生成 - 专业拷卡校验工具",
+            total: "合计",
+            reels_word: "卷",
+            clips_word: "片段",
+            files_word: "个文件",
+            cameras_word: "相机",
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone)]
+struct MediaStats {
+    video_files: u32,
+    audio_files: u32,
+    image_files: u32,
+    other_files: u32,
+    video_size: u64,
+    audio_size: u64,
+    image_size: u64,
+    other_size: u64,
 }
 
 // ─── Data Query ──────────────────────────────────────────────────────────
@@ -124,7 +393,12 @@ pub fn get_rushes_log(conn: &Connection, date: &str) -> Result<RushesLogReport> 
     let mut summary = RushesLogSummary {
         total_reels: 0,
         total_clips: 0,
+        total_files: 0,
         total_size: 0,
+        video_files: 0,
+        audio_files: 0,
+        image_files: 0,
+        other_files: 0,
         total_duration_seconds: 0.0,
         cameras_used: Vec::new(),
     };
@@ -134,7 +408,12 @@ pub fn get_rushes_log(conn: &Connection, date: &str) -> Result<RushesLogReport> 
 
         summary.total_reels += 1;
         summary.total_clips += entry.clip_count;
+        summary.total_files += entry.total_files;
         summary.total_size += entry.total_size;
+        summary.video_files += entry.video_files;
+        summary.audio_files += entry.audio_files;
+        summary.image_files += entry.image_files;
+        summary.other_files += entry.other_files;
         summary.total_duration_seconds += entry.duration_seconds;
 
         if !entry.camera_brand.is_empty()
@@ -199,18 +478,35 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
     let failed_files = failed_files_i as u32;
     let total_size = total_size_i.max(0) as u64;
 
-    let mut source_stmt =
-        conn.prepare("SELECT source_path FROM copy_tasks WHERE job_id = ?1 GROUP BY source_path ORDER BY source_path ASC")?;
-    let source_names: Vec<String> = source_stmt
+    let mut source_stmt = conn.prepare(
+        "SELECT
+            source_path,
+            COALESCE(MAX(file_size), 0) AS file_size,
+            COALESCE(MAX(NULLIF(resolution, '')), '') AS resolution
+         FROM copy_tasks
+         WHERE job_id = ?1
+         GROUP BY source_path
+         ORDER BY source_path ASC",
+    )?;
+    let source_rows: Vec<(String, u64, String)> = source_stmt
         .query_map(rusqlite::params![job.id], |row| {
             let source_path: String = row.get(0)?;
-            Ok(Path::new(&source_path)
+            let file_size: i64 = row.get(1)?;
+            let resolution: String = row.get(2)?;
+            Ok((source_path, file_size.max(0) as u64, resolution))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let source_names: Vec<String> = source_rows
+        .iter()
+        .map(|(source_path, _, _)| {
+            Path::new(source_path)
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy()
-                .to_string())
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+                .to_string()
+        })
+        .collect();
+    let media_stats = media_stats_from_sources(&source_rows);
 
     // Get distinct destination root paths
     let mut dest_stmt =
@@ -377,6 +673,14 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
         total_files,
         completed_files,
         failed_files,
+        video_files: media_stats.video_files,
+        audio_files: media_stats.audio_files,
+        image_files: media_stats.image_files,
+        other_files: media_stats.other_files,
+        video_size: media_stats.video_size,
+        audio_size: media_stats.audio_size,
+        image_size: media_stats.image_size,
+        other_size: media_stats.other_size,
         duration_seconds,
         avg_speed_mbps,
         backup_status,
@@ -392,6 +696,62 @@ fn build_entry(conn: &Connection, job: &JobRow) -> Result<RushesLogEntry> {
         timecode_range,
         thumbnail_path,
     })
+}
+
+fn media_stats_from_sources(source_rows: &[(String, u64, String)]) -> MediaStats {
+    let mut stats = MediaStats::default();
+
+    for (source_path, size, resolution) in source_rows {
+        match classify_media_path(source_path, resolution) {
+            MediaKind::Video => {
+                stats.video_files += 1;
+                stats.video_size += *size;
+            }
+            MediaKind::Audio => {
+                stats.audio_files += 1;
+                stats.audio_size += *size;
+            }
+            MediaKind::Image => {
+                stats.image_files += 1;
+                stats.image_size += *size;
+            }
+            MediaKind::Other => {
+                stats.other_files += 1;
+                stats.other_size += *size;
+            }
+        }
+    }
+
+    stats
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MediaKind {
+    Video,
+    Audio,
+    Image,
+    Other,
+}
+
+fn classify_media_path(source_path: &str, resolution: &str) -> MediaKind {
+    if !resolution.trim().is_empty() {
+        return MediaKind::Video;
+    }
+
+    let ext = Path::new(source_path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    match ext.as_str() {
+        "mov" | "mp4" | "m4v" | "mxf" | "r3d" | "braw" | "ari" | "arx" | "crm" | "cine"
+        | "m2ts" | "mts" | "avi" | "mkv" => MediaKind::Video,
+        "wav" | "bwf" | "mp3" | "aac" | "aif" | "aiff" | "flac" | "m4a" | "ogg" => MediaKind::Audio,
+        "jpg" | "jpeg" | "png" | "tif" | "tiff" | "dpx" | "exr" | "dng" | "arw" | "cr2" | "cr3"
+        | "nef" | "orf" | "rw2" | "raf" | "heic" | "heif" => MediaKind::Image,
+        _ => MediaKind::Other,
+    }
 }
 
 fn query_video_proxy_sources(conn: &Connection, job_id: &str) -> Result<Vec<(String, String)>> {
@@ -504,42 +864,58 @@ pub enum ExportFormat {
     Tsv,
 }
 
-/// Column headers for the rushes log export
-const EXPORT_HEADERS: &[&str] = &[
-    "Reel",
-    "Camera",
-    "Model",
-    "Clips",
-    "First Clip",
-    "Last Clip",
-    "Size",
-    "Duration",
-    "Speed (MB/s)",
-    "Status",
-    "MHL Verified",
-    "Proxy Status",
-    "Resolution",
-    "Frame Rate",
-    "Codec",
-    "Color Space",
-    "Timecode",
-    "Source",
-    "Destinations",
-    "Start Time",
-    "End Time",
-];
-
 /// Generate CSV or TSV string from a rushes log report.
 pub fn export_to_string(report: &RushesLogReport, format: &ExportFormat) -> String {
+    export_to_string_localized(report, format, ReportLocale::En)
+}
+
+/// Generate CSV or TSV string from a rushes log report using a specific language.
+pub fn export_to_string_localized(
+    report: &RushesLogReport,
+    format: &ExportFormat,
+    locale: ReportLocale,
+) -> String {
     let sep = match format {
         ExportFormat::Csv => ',',
         ExportFormat::Tsv => '\t',
     };
+    let labels = locale.labels();
 
     let mut output = String::new();
+    let headers = [
+        labels.reel,
+        labels.camera,
+        labels.model,
+        labels.clips,
+        labels.files,
+        labels.completed,
+        labels.failed,
+        labels.video,
+        labels.audio,
+        labels.images,
+        labels.other,
+        labels.first_clip,
+        labels.last_clip,
+        labels.size,
+        labels.duration,
+        "Speed (MB/s)",
+        labels.status,
+        labels.mhl,
+        labels.proxy,
+        labels.resolution,
+        labels.frame_rate,
+        labels.codec,
+        labels.color_space,
+        labels.timecode,
+        labels.source,
+        labels.destinations,
+        labels.source_release,
+        labels.start_time,
+        labels.end_time,
+    ];
 
     // Header row
-    output.push_str(&EXPORT_HEADERS.join(&sep.to_string()));
+    output.push_str(&headers.join(&sep.to_string()));
     output.push('\n');
 
     // Data rows
@@ -547,7 +923,7 @@ pub fn export_to_string(report: &RushesLogReport, format: &ExportFormat) -> Stri
         let size_str = format_bytes(entry.total_size);
         let duration_str = format_duration(entry.duration_seconds);
         let speed_str = format!("{:.1}", entry.avg_speed_mbps);
-        let mhl_str = if entry.mhl_verified { "Yes" } else { "No" };
+        let mhl_str = locale.yes_no(entry.mhl_verified);
         let dests = entry.dest_paths.join("; ");
 
         let fields = vec![
@@ -555,14 +931,21 @@ pub fn export_to_string(report: &RushesLogReport, format: &ExportFormat) -> Stri
             escape_field(&entry.camera_brand, format),
             escape_field(&entry.camera_model, format),
             entry.clip_count.to_string(),
+            entry.total_files.to_string(),
+            entry.completed_files.to_string(),
+            entry.failed_files.to_string(),
+            entry.video_files.to_string(),
+            entry.audio_files.to_string(),
+            entry.image_files.to_string(),
+            entry.other_files.to_string(),
             escape_field(&entry.first_clip, format),
             escape_field(&entry.last_clip, format),
             escape_field(&size_str, format),
             escape_field(&duration_str, format),
             speed_str,
-            escape_field(&entry.backup_status, format),
+            escape_field(locale.backup_status(&entry.backup_status), format),
             mhl_str.to_string(),
-            escape_field(&entry.proxy_status, format),
+            escape_field(locale.proxy_status(&entry.proxy_status), format),
             escape_field(entry.resolution.as_deref().unwrap_or(""), format),
             escape_field(entry.frame_rate.as_deref().unwrap_or(""), format),
             escape_field(entry.codec.as_deref().unwrap_or(""), format),
@@ -570,6 +953,7 @@ pub fn export_to_string(report: &RushesLogReport, format: &ExportFormat) -> Stri
             escape_field(entry.timecode_range.as_deref().unwrap_or(""), format),
             escape_field(&entry.source_path, format),
             escape_field(&dests, format),
+            escape_field(locale.source_release(entry), format),
             escape_field(&entry.started_at, format),
             escape_field(&entry.completed_at, format),
         ];
@@ -581,15 +965,21 @@ pub fn export_to_string(report: &RushesLogReport, format: &ExportFormat) -> Stri
     // Summary row
     output.push('\n');
     output.push_str(&format!(
-        "{}Total: {} reels, {} clips, {}",
+        "{}{}: {} {}, {} {}, {} {}, {}",
         sep, // empty first column
+        labels.total,
         report.summary.total_reels,
+        labels.reels_word,
         report.summary.total_clips,
+        labels.clips_word,
+        report.summary.total_files,
+        labels.files_word,
         format_bytes(report.summary.total_size),
     ));
     if !report.summary.cameras_used.is_empty() {
         output.push_str(&format!(
-            " | Cameras: {}",
+            " | {}: {}",
+            labels.cameras_word,
             report.summary.cameras_used.join(", ")
         ));
     }
@@ -604,7 +994,17 @@ pub fn export_to_file(
     format: &ExportFormat,
     output_path: &Path,
 ) -> Result<String> {
-    let content = export_to_string(report, format);
+    export_to_file_localized(report, format, output_path, ReportLocale::En)
+}
+
+/// Save localized export to a file.
+pub fn export_to_file_localized(
+    report: &RushesLogReport,
+    format: &ExportFormat,
+    output_path: &Path,
+    locale: ReportLocale,
+) -> Result<String> {
+    let content = export_to_string_localized(report, format, locale);
     std::fs::write(output_path, &content)
         .with_context(|| format!("Failed to write rushes log to {:?}", output_path))?;
     Ok(output_path.to_string_lossy().to_string())
@@ -820,6 +1220,8 @@ mod tests {
         assert_eq!(report.entries.len(), 2);
         assert_eq!(report.summary.total_reels, 2);
         assert_eq!(report.summary.cameras_used.len(), 2);
+        assert_eq!(report.summary.total_files, 3);
+        assert_eq!(report.summary.video_files, 3);
 
         // First job: all completed → Verified
         assert_eq!(report.entries[0].backup_status, "Verified");
@@ -829,6 +1231,34 @@ mod tests {
         // Second job: has failures → Partial
         assert_eq!(report.entries[1].backup_status, "Partial");
         assert!(!report.entries[1].mhl_verified);
+    }
+
+    #[test]
+    fn test_rushes_log_media_type_breakdown() {
+        let conn = test_db();
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        insert_job(&conn, "j1", "Mixed Media", "completed", "Generic", "A001");
+
+        insert_task(&conn, "j1", "/Volumes/SSD1/A001.mov", 1_000, "completed");
+        insert_task(&conn, "j1", "/Volumes/SSD1/A001.wav", 200, "completed");
+        insert_task(&conn, "j1", "/Volumes/SSD1/A001.jpg", 100, "completed");
+        insert_task(&conn, "j1", "/Volumes/SSD1/A001.xml", 50, "completed");
+
+        let report = get_rushes_log(&conn, &today).unwrap();
+        let entry = &report.entries[0];
+        assert_eq!(entry.video_files, 1);
+        assert_eq!(entry.audio_files, 1);
+        assert_eq!(entry.image_files, 1);
+        assert_eq!(entry.other_files, 1);
+        assert_eq!(entry.video_size, 1_000);
+        assert_eq!(entry.audio_size, 200);
+        assert_eq!(entry.image_size, 100);
+        assert_eq!(entry.other_size, 50);
+        assert_eq!(report.summary.total_files, 4);
+        assert_eq!(report.summary.video_files, 1);
+        assert_eq!(report.summary.audio_files, 1);
+        assert_eq!(report.summary.image_files, 1);
+        assert_eq!(report.summary.other_files, 1);
     }
 
     #[test]
@@ -947,6 +1377,14 @@ mod tests {
                 total_files: 3,
                 completed_files: 3,
                 failed_files: 0,
+                video_files: 3,
+                audio_files: 0,
+                image_files: 0,
+                other_files: 0,
+                video_size: 10_737_418_240,
+                audio_size: 0,
+                image_size: 0,
+                other_size: 0,
                 duration_seconds: 120.0,
                 avg_speed_mbps: 85.3,
                 backup_status: "Verified".to_string(),
@@ -965,7 +1403,12 @@ mod tests {
             summary: RushesLogSummary {
                 total_reels: 1,
                 total_clips: 3,
+                total_files: 3,
                 total_size: 10_737_418_240,
+                video_files: 3,
+                audio_files: 0,
+                image_files: 0,
+                other_files: 0,
                 total_duration_seconds: 120.0,
                 cameras_used: vec!["ARRI".to_string()],
             },
@@ -984,6 +1427,11 @@ mod tests {
         let tsv = export_to_string(&report, &ExportFormat::Tsv);
         assert!(tsv.contains("Reel\tCamera\tModel"));
         assert!(tsv.contains("A001\tARRI\t"));
+
+        let zh_csv = export_to_string_localized(&report, &ExportFormat::Csv, ReportLocale::Zh);
+        assert!(zh_csv.contains("卷名,相机,型号"));
+        assert!(zh_csv.contains("来源文件位置"));
+        assert!(zh_csv.contains("可释放源盘"));
     }
 
     #[test]

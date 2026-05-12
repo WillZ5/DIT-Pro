@@ -2,11 +2,15 @@
 //!
 //! Supports S3-compatible storage and WebDAV (for Alist/Baidu/Aliyun compatibility).
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use opendal::Operator;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::time::Duration;
 use tokio::fs;
+
+const CLOUD_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+const CLOUD_CHUNK_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(
@@ -175,7 +179,9 @@ impl CloudClient {
                 } else {
                     format!("{}/", parent_str)
                 };
-                let _ = self.op.create_dir(&dir_to_create).await;
+                let _ =
+                    tokio::time::timeout(CLOUD_CONNECT_TIMEOUT, self.op.create_dir(&dir_to_create))
+                        .await;
             }
         }
 
@@ -188,10 +194,10 @@ impl CloudClient {
         let file_size = metadata.len();
 
         // Use OpenDAL's writer for streaming upload
-        let mut writer =
-            self.op.writer(remote_path).await.with_context(|| {
-                format!("Failed to initialize cloud writer for {}", remote_path)
-            })?;
+        let mut writer = tokio::time::timeout(CLOUD_CONNECT_TIMEOUT, self.op.writer(remote_path))
+            .await
+            .map_err(|_| anyhow!("Timed out initializing cloud writer for {}", remote_path))?
+            .with_context(|| format!("Failed to initialize cloud writer for {}", remote_path))?;
 
         use tokio::io::AsyncReadExt;
         let mut buffer = vec![0; 4 * 1024 * 1024]; // 4MB buffer
@@ -200,13 +206,56 @@ impl CloudClient {
             if bytes_read == 0 {
                 break;
             }
-            writer.write(buffer[..bytes_read].to_vec()).await?;
+            if let Err(e) = tokio::time::timeout(
+                CLOUD_CHUNK_TIMEOUT,
+                writer.write(buffer[..bytes_read].to_vec()),
+            )
+            .await
+            .map_err(|_| anyhow!("Timed out uploading chunk to {}", remote_path))?
+            {
+                self.cleanup_partial_upload(remote_path).await;
+                return Err(e)
+                    .with_context(|| format!("Failed to upload chunk to {}", remote_path));
+            }
         }
 
-        writer
-            .close()
-            .await
-            .with_context(|| format!("Failed to finalize upload for {}", remote_path))?;
+        match tokio::time::timeout(CLOUD_CHUNK_TIMEOUT, writer.close()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                self.cleanup_partial_upload(remote_path).await;
+                return Err(e)
+                    .with_context(|| format!("Failed to finalize upload for {}", remote_path));
+            }
+            Err(_) => {
+                self.cleanup_partial_upload(remote_path).await;
+                return Err(anyhow!("Timed out finalizing upload for {}", remote_path));
+            }
+        }
+
+        let remote_meta =
+            match tokio::time::timeout(CLOUD_CONNECT_TIMEOUT, self.op.stat(remote_path)).await {
+                Ok(Ok(meta)) => meta,
+                Ok(Err(e)) => {
+                    self.cleanup_partial_upload(remote_path).await;
+                    return Err(e).with_context(|| {
+                        format!("Failed to stat uploaded object {}", remote_path)
+                    });
+                }
+                Err(_) => {
+                    self.cleanup_partial_upload(remote_path).await;
+                    return Err(anyhow!("Timed out verifying remote object {}", remote_path));
+                }
+            };
+        let remote_size = remote_meta.content_length();
+        if remote_size != file_size {
+            self.cleanup_partial_upload(remote_path).await;
+            bail!(
+                "Remote size mismatch for {}: local={} remote={}",
+                remote_path,
+                file_size,
+                remote_size
+            );
+        }
 
         log::info!(
             "Successfully uploaded {} ({} bytes)",
@@ -214,6 +263,10 @@ impl CloudClient {
             file_size
         );
         Ok(())
+    }
+
+    async fn cleanup_partial_upload(&self, remote_path: &str) {
+        let _ = tokio::time::timeout(CLOUD_CONNECT_TIMEOUT, self.op.delete(remote_path)).await;
     }
 
     /// Check connection/credentials by trying to list the root.

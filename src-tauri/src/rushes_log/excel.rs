@@ -12,11 +12,21 @@ use anyhow::{Context, Result};
 use rust_xlsxwriter::{Color, Format, Workbook};
 use std::path::Path;
 
-use super::{format_bytes, format_duration, RushesLogReport};
+use super::{format_bytes, format_duration, ReportLocale, RushesLogReport};
 
 /// Export a rushes log report to an Excel (.xlsx) file.
 pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<String> {
+    export_xlsx_localized(report, output_path, ReportLocale::En)
+}
+
+/// Export a localized rushes log report to an Excel (.xlsx) file.
+pub fn export_xlsx_localized(
+    report: &RushesLogReport,
+    output_path: &Path,
+    locale: ReportLocale,
+) -> Result<String> {
     let mut workbook = Workbook::new();
+    let labels = locale.labels();
 
     // Sheet name: shoot date
     let sheet_name = format!("Rushes {}", report.shoot_date);
@@ -65,34 +75,42 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
 
     // ── Headers ──
     let headers = [
-        "Thumb",
-        "Reel",
-        "Camera",
-        "Model",
-        "Clips",
-        "First Clip",
-        "Last Clip",
-        "Size",
-        "Duration",
+        labels.thumbnail,
+        labels.reel,
+        labels.camera,
+        labels.model,
+        labels.clips,
+        labels.files,
+        labels.completed,
+        labels.failed,
+        labels.video,
+        labels.audio,
+        labels.images,
+        labels.other,
+        labels.first_clip,
+        labels.last_clip,
+        labels.size,
+        labels.duration,
         "Speed (MB/s)",
-        "Status",
-        "MHL",
-        "Proxy",
-        "Resolution",
-        "Frame Rate",
-        "Codec",
-        "Color Space",
-        "Timecode",
-        "Source",
-        "Destinations",
-        "Start Time",
-        "End Time",
+        labels.status,
+        labels.mhl,
+        labels.proxy,
+        labels.resolution,
+        labels.frame_rate,
+        labels.codec,
+        labels.color_space,
+        labels.timecode,
+        labels.source,
+        labels.destinations,
+        labels.source_release,
+        labels.start_time,
+        labels.end_time,
     ];
 
     // Column widths (approximate)
     let col_widths: &[f64] = &[
-        12.0, 12.0, 12.0, 14.0, 6.0, 24.0, 24.0, 10.0, 10.0, 10.0, 10.0, 5.0, 10.0, 12.0, 10.0,
-        14.0, 12.0, 14.0, 28.0, 30.0, 20.0, 20.0,
+        12.0, 12.0, 12.0, 14.0, 6.0, 7.0, 9.0, 7.0, 7.0, 7.0, 7.0, 7.0, 24.0, 24.0, 10.0, 10.0,
+        10.0, 10.0, 5.0, 10.0, 12.0, 10.0, 14.0, 12.0, 14.0, 28.0, 30.0, 18.0, 20.0, 20.0,
     ];
 
     for (col, header) in headers.iter().enumerate() {
@@ -143,72 +161,85 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
         worksheet.write_string_with_format(row, 2, &entry.camera_brand, txt_fmt)?;
         worksheet.write_string_with_format(row, 3, &entry.camera_model, txt_fmt)?;
         worksheet.write_number_with_format(row, 4, entry.clip_count as f64, n_fmt)?;
-        worksheet.write_string_with_format(row, 5, &entry.first_clip, txt_fmt)?;
-        worksheet.write_string_with_format(row, 6, &entry.last_clip, txt_fmt)?;
-        worksheet.write_string_with_format(row, 7, format_bytes(entry.total_size), n_fmt)?;
+        worksheet.write_number_with_format(row, 5, entry.total_files as f64, n_fmt)?;
+        worksheet.write_number_with_format(row, 6, entry.completed_files as f64, n_fmt)?;
+        worksheet.write_number_with_format(row, 7, entry.failed_files as f64, n_fmt)?;
+        worksheet.write_number_with_format(row, 8, entry.video_files as f64, n_fmt)?;
+        worksheet.write_number_with_format(row, 9, entry.audio_files as f64, n_fmt)?;
+        worksheet.write_number_with_format(row, 10, entry.image_files as f64, n_fmt)?;
+        worksheet.write_number_with_format(row, 11, entry.other_files as f64, n_fmt)?;
+        worksheet.write_string_with_format(row, 12, &entry.first_clip, txt_fmt)?;
+        worksheet.write_string_with_format(row, 13, &entry.last_clip, txt_fmt)?;
+        worksheet.write_string_with_format(row, 14, format_bytes(entry.total_size), n_fmt)?;
         worksheet.write_string_with_format(
             row,
-            8,
+            15,
             format_duration(entry.duration_seconds),
             n_fmt,
         )?;
         worksheet.write_number_with_format(
             row,
-            9,
+            16,
             (entry.avg_speed_mbps * 10.0).round() / 10.0,
             n_fmt,
         )?;
-        worksheet.write_string_with_format(row, 10, &entry.backup_status, txt_fmt)?;
         worksheet.write_string_with_format(
             row,
-            11,
-            if entry.mhl_verified { "Yes" } else { "No" },
+            17,
+            locale.backup_status(&entry.backup_status),
             txt_fmt,
         )?;
-        worksheet.write_string_with_format(row, 12, &entry.proxy_status, txt_fmt)?;
+        worksheet.write_string_with_format(row, 18, locale.yes_no(entry.mhl_verified), txt_fmt)?;
         worksheet.write_string_with_format(
             row,
-            13,
+            19,
+            locale.proxy_status(&entry.proxy_status),
+            txt_fmt,
+        )?;
+        worksheet.write_string_with_format(
+            row,
+            20,
             entry.resolution.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            14,
+            21,
             entry.frame_rate.as_deref().unwrap_or(""),
             n_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            15,
+            22,
             entry.codec.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            16,
+            23,
             entry.color_space.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
         worksheet.write_string_with_format(
             row,
-            17,
+            24,
             entry.timecode_range.as_deref().unwrap_or(""),
             txt_fmt,
         )?;
-        worksheet.write_string_with_format(row, 18, &entry.source_path, txt_fmt)?;
-        worksheet.write_string_with_format(row, 19, entry.dest_paths.join("; "), txt_fmt)?;
-        worksheet.write_string_with_format(row, 20, &entry.started_at, txt_fmt)?;
-        worksheet.write_string_with_format(row, 21, &entry.completed_at, txt_fmt)?;
+        worksheet.write_string_with_format(row, 25, &entry.source_path, txt_fmt)?;
+        worksheet.write_string_with_format(row, 26, entry.dest_paths.join("; "), txt_fmt)?;
+        worksheet.write_string_with_format(row, 27, locale.source_release(entry), txt_fmt)?;
+        worksheet.write_string_with_format(row, 28, &entry.started_at, txt_fmt)?;
+        worksheet.write_string_with_format(row, 29, &entry.completed_at, txt_fmt)?;
     }
 
     // ── Summary Row ──
     let summary_row = (report.entries.len() + 2) as u32;
-    worksheet.write_string_with_format(summary_row, 1, "TOTAL", &summary_format)?;
+    worksheet.write_string_with_format(summary_row, 1, labels.total, &summary_format)?;
     worksheet.write_string_with_format(
         summary_row,
         2,
-        format!("{} reels", report.summary.total_reels),
+        format!("{} {}", report.summary.total_reels, labels.reels_word),
         &summary_format,
     )?;
     worksheet.write_string_with_format(summary_row, 3, "", &summary_format)?;
@@ -218,17 +249,47 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
         report.summary.total_clips as f64,
         &summary_format,
     )?;
-    worksheet.write_string_with_format(summary_row, 5, "", &summary_format)?;
+    worksheet.write_number_with_format(
+        summary_row,
+        5,
+        report.summary.total_files as f64,
+        &summary_format,
+    )?;
     worksheet.write_string_with_format(summary_row, 6, "", &summary_format)?;
+    worksheet.write_string_with_format(summary_row, 7, "", &summary_format)?;
+    worksheet.write_number_with_format(
+        summary_row,
+        8,
+        report.summary.video_files as f64,
+        &summary_format,
+    )?;
+    worksheet.write_number_with_format(
+        summary_row,
+        9,
+        report.summary.audio_files as f64,
+        &summary_format,
+    )?;
+    worksheet.write_number_with_format(
+        summary_row,
+        10,
+        report.summary.image_files as f64,
+        &summary_format,
+    )?;
+    worksheet.write_number_with_format(
+        summary_row,
+        11,
+        report.summary.other_files as f64,
+        &summary_format,
+    )?;
     worksheet.write_string_with_format(
         summary_row,
-        7,
+        14,
         format_bytes(report.summary.total_size),
         &summary_format,
     )?;
     worksheet.write_string_with_format(
         summary_row,
-        8,
+        15,
         format_duration(report.summary.total_duration_seconds),
         &summary_format,
     )?;
@@ -237,7 +298,11 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
         worksheet.write_string_with_format(
             summary_row + 1,
             0,
-            format!("Cameras: {}", report.summary.cameras_used.join(", ")),
+            format!(
+                "{}: {}",
+                labels.cameras_used,
+                report.summary.cameras_used.join(", ")
+            ),
             &normal_format,
         )?;
     }
@@ -245,7 +310,7 @@ pub fn export_xlsx(report: &RushesLogReport, output_path: &Path) -> Result<Strin
     worksheet.write_string_with_format(
         summary_row + 2,
         0,
-        format!("Generated by DIT Pro — {}", report.generated_at),
+        format!("{} - {}", labels.footer, report.generated_at),
         &normal_format,
     )?;
 
@@ -281,6 +346,14 @@ mod tests {
                 total_files: 10,
                 completed_files: 10,
                 failed_files: 0,
+                video_files: 10,
+                audio_files: 0,
+                image_files: 0,
+                other_files: 0,
+                video_size: 10_737_418_240,
+                audio_size: 0,
+                image_size: 0,
+                other_size: 0,
                 duration_seconds: 300.0,
                 avg_speed_mbps: 34.1,
                 backup_status: "Verified".to_string(),
@@ -299,7 +372,12 @@ mod tests {
             summary: RushesLogSummary {
                 total_reels: 1,
                 total_clips: 10,
+                total_files: 10,
                 total_size: 10_737_418_240,
+                video_files: 10,
+                audio_files: 0,
+                image_files: 0,
+                other_files: 0,
                 total_duration_seconds: 300.0,
                 cameras_used: vec!["ARRI".to_string()],
             },

@@ -2375,7 +2375,15 @@ impl OffloadWorkflow {
                             }
                         }
                     }
-                    true
+                    if let Err(e) = self.validate_source_snapshot(file, "copy completion") {
+                        self.emit(OffloadEvent::Warning {
+                            message: e.to_string(),
+                        });
+                        copy_failed_count += dest_files.len();
+                        false
+                    } else {
+                        true
+                    }
                 }
                 Err(e) => {
                     // If cancelled, propagate the error immediately
@@ -2722,6 +2730,14 @@ impl OffloadWorkflow {
                         checkpoint::update_task_failed(&conn, &tid, &e.to_string())?;
                     }
                 }
+            }
+
+            if let Err(e) = self.validate_source_snapshot(file, "primary copy completion") {
+                self.emit(OffloadEvent::Warning {
+                    message: e.to_string(),
+                });
+                copy_failed_count += 1;
+                consecutive_failures += 1;
             }
 
             completed_bytes += file.size;
@@ -4841,6 +4857,126 @@ mod tests {
                 }
             )),
             "resume should not restart the separate pre-copy source hash phase"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resume_skips_completed_tasks_and_copies_only_pending() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("src");
+        let dest = tmp.path().join("dst");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+
+        create_source_files(
+            &source,
+            &[
+                ("clip001.mov", b"source clip one"),
+                ("clip002.mov", b"source clip two"),
+            ],
+        );
+        std::fs::write(dest.join("clip001.mov"), b"already verified sentinel").unwrap();
+
+        let db = test_db();
+        let (setup_tx, _setup_rx) = mpsc::unbounded_channel();
+        let setup_config = OffloadConfig {
+            job_id: "test-resume-skips-completed".into(),
+            job_name: "Resume Skip Completed".into(),
+            source_path: source.clone(),
+            dest_paths: vec![dest.clone()],
+            hash_algorithms: vec![HashAlgorithm::SHA256],
+            buffer_size: 1024,
+            source_verify: false,
+            post_verify: true,
+            generate_mhl: false,
+            max_retries: 1,
+            conflict_resolutions: HashMap::new(),
+            ..Default::default()
+        };
+
+        let setup_workflow = OffloadWorkflow::new(setup_config.clone(), db.clone(), setup_tx);
+        let source_files = setup_workflow.scan_source().await.unwrap();
+        setup_workflow.create_db_records(&source_files).unwrap();
+        {
+            let conn = db.lock().unwrap();
+            let completed_task_id: String = conn
+                .query_row(
+                    "SELECT id FROM copy_tasks WHERE job_id = ?1 AND source_path = ?2",
+                    rusqlite::params![
+                        setup_config.job_id,
+                        source.join("clip001.mov").to_string_lossy().as_ref()
+                    ],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            checkpoint::update_task_completed(
+                &conn,
+                &completed_task_id,
+                &TaskHashes {
+                    sha256: Some("stored-completed-hash".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            checkpoint::update_job_status(&conn, &setup_config.job_id, "terminated").unwrap();
+        }
+
+        let (tx, rx) = mpsc::unbounded_channel();
+        let resume_config = OffloadConfig {
+            source_verify: false,
+            post_verify: true,
+            generate_mhl: false,
+            ..setup_config
+        };
+        let resume_workflow = OffloadWorkflow::new(resume_config, db.clone(), tx);
+        let result = resume_workflow.execute_resume().await.unwrap();
+
+        assert!(result.success);
+        assert_eq!(
+            std::fs::read(dest.join("clip001.mov")).unwrap(),
+            b"already verified sentinel",
+            "resume must not rewrite a task already marked completed"
+        );
+        assert_eq!(
+            std::fs::read(dest.join("clip002.mov")).unwrap(),
+            b"source clip two"
+        );
+
+        {
+            let conn = db.lock().unwrap();
+            let pending: usize = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM copy_tasks WHERE job_id = 'test-resume-skips-completed' AND status = 'pending'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let completed: usize = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM copy_tasks WHERE job_id = 'test-resume-skips-completed' AND status = 'completed'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(pending, 0);
+            assert_eq!(completed, 2);
+        }
+
+        drop(resume_workflow);
+        let events = drain_events(rx).await;
+        assert!(
+            !events.iter().any(|e| matches!(
+                e,
+                OffloadEvent::FileCopyStarted { rel_path, .. } if rel_path == "clip001.mov"
+            )),
+            "completed tasks should not re-enter copy"
+        );
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                OffloadEvent::FileCopyStarted { rel_path, .. } if rel_path == "clip002.mov"
+            )),
+            "pending tasks should still be copied"
         );
     }
 

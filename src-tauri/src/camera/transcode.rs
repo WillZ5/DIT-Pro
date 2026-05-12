@@ -35,6 +35,38 @@ impl Default for ProxyConfig {
     }
 }
 
+fn escape_drawtext_value(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' | ':' | '\'' | ',' | '[' | ']' | '%' => {
+                escaped.push('\\');
+                escaped.push(ch);
+            }
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+fn ffmpeg_supports_filter(ffmpeg: &str, filter_name: &str) -> bool {
+    let output = Command::new(ffmpeg)
+        .args(["-hide_banner", "-filters"])
+        .output();
+
+    let Ok(output) = output else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .any(|line| line.split_whitespace().any(|token| token == filter_name))
+}
+
 /// Transcode a single video file to a proxy file.
 pub fn generate_proxy(
     source: &Path,
@@ -58,7 +90,20 @@ pub fn generate_proxy(
 
     let dest_path = dest_dir.join(format!("{}_proxy.{}", file_stem, ext));
 
-    let mut args = vec!["-i".to_string(), source.to_string_lossy().to_string()];
+    let mut args = vec![
+        "-hide_banner".to_string(),
+        "-y".to_string(),
+        "-i".to_string(),
+        source.to_string_lossy().to_string(),
+        // Camera MOV files often contain timecode/data streams that MP4 cannot
+        // mux. Map only the primary video and optional audio tracks.
+        "-map".to_string(),
+        "0:v:0".to_string(),
+        "-map".to_string(),
+        "0:a?".to_string(),
+        "-dn".to_string(),
+        "-sn".to_string(),
+    ];
 
     // Scale filter
     let mut vf = format!("scale={}:-1", config.width);
@@ -66,20 +111,28 @@ pub fn generate_proxy(
     // Timecode burn-in filter
     if config.burn_timecode {
         if let Some(tc) = timecode {
-            // FFmpeg drawtext filter for timecode
-            // Note: fontfile path may vary by OS, using a generic approach or skipping if font missing
-            // For now, we'll try a common system font path
-            #[cfg(target_os = "macos")]
-            let font = "/System/Library/Fonts/Helvetica.ttc";
-            #[cfg(target_os = "windows")]
-            let font = "C\\\\:/Windows/Fonts/arial.ttf";
-            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-            let font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+            if ffmpeg_supports_filter(&ffmpeg, "drawtext") {
+                #[cfg(target_os = "macos")]
+                let font = "/System/Library/Fonts/Helvetica.ttc";
+                #[cfg(target_os = "windows")]
+                let font = "C\\\\:/Windows/Fonts/arial.ttf";
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                let font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 
-            vf = format!(
-                "{},drawtext=fontfile='{}':text='{}':timecode='{}':rate=24:x=(w-tw)/2:y=h-th-20:fontcolor=white:fontsize=48:box=1:boxcolor=black@0.5",
-                vf, font, file_stem, tc
-            );
+                let escaped_font = escape_drawtext_value(font);
+                let escaped_text = escape_drawtext_value(file_stem.as_ref());
+                let escaped_timecode = escape_drawtext_value(tc);
+
+                vf = format!(
+                    "{},drawtext=fontfile='{}':text='{}':timecode='{}':rate=24:x=(w-tw)/2:y=h-th-20:fontcolor=white:fontsize=48:box=1:boxcolor=black@0.5",
+                    vf, escaped_font, escaped_text, escaped_timecode
+                );
+            } else {
+                log::warn!(
+                    "FFmpeg drawtext filter unavailable; generating proxy without burned-in timecode for {:?}",
+                    source
+                );
+            }
         }
     }
 
@@ -116,15 +169,19 @@ pub fn generate_proxy(
         }
     }
 
-    args.push("-y".to_string()); // Overwrite
     args.push(dest_path.to_string_lossy().to_string());
 
-    let status = Command::new(ffmpeg).args(&args).status()?;
+    let output = Command::new(ffmpeg).args(&args).output()?;
 
-    if status.success() {
+    if output.status.success() {
         Ok(dest_path)
     } else {
-        anyhow::bail!("FFmpeg transcode failed for {:?}", source)
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "FFmpeg transcode failed for {:?}: {}",
+            source,
+            stderr.trim()
+        )
     }
 }
 
@@ -146,5 +203,18 @@ mod tests {
         let value = serde_json::to_value(&config).expect("proxy config should serialize");
         assert_eq!(value["burnTimecode"], false);
         assert!(value.get("burn_timecode").is_none());
+    }
+
+    #[test]
+    fn drawtext_escaping_handles_timecode_and_paths() {
+        assert_eq!(escape_drawtext_value("01:00:00:00"), "01\\:00\\:00\\:00");
+        assert_eq!(
+            escape_drawtext_value("C\\:/Windows/Fonts/arial.ttf"),
+            "C\\\\\\:/Windows/Fonts/arial.ttf"
+        );
+        assert_eq!(
+            escape_drawtext_value("clip's [A], 50%"),
+            "clip\\'s \\[A\\]\\, 50\\%"
+        );
     }
 }

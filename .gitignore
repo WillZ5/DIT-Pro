@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-ssr/
 target/
+output/
 
 # Rust
 src-tauri/target/
@@ -41,4 +42,3 @@ blob-report/
 # OS files
 .DS_Store
 Thumbs.db
-

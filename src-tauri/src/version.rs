@@ -9,6 +9,7 @@
 //!   DIT_PRE_RELEASE  — pre-release tag (e.g., "alpha.1", "beta.2", "rc.1")
 
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 // ─── Release Channel ─────────────────────────────────────────────────────────
 
@@ -213,12 +214,52 @@ fn is_newer(local: &str, remote: &str) -> bool {
     match (l_pre, r_pre) {
         (Some(_), None) => true,
         (None, Some(_)) | (None, None) => false,
-        (Some(local_pre), Some(remote_pre)) => remote_pre > local_pre,
+        (Some(local_pre), Some(remote_pre)) => {
+            compare_pre_release(&remote_pre, &local_pre) == Ordering::Greater
+        }
     }
+}
+
+fn compare_pre_release(left: &str, right: &str) -> Ordering {
+    let mut left_parts = left.split('.');
+    let mut right_parts = right.split('.');
+
+    loop {
+        match (left_parts.next(), right_parts.next()) {
+            (Some(left_part), Some(right_part)) => {
+                let ordering = compare_pre_release_identifier(left_part, right_part);
+                if ordering != Ordering::Equal {
+                    return ordering;
+                }
+            }
+            (Some(_), None) => return Ordering::Greater,
+            (None, Some(_)) => return Ordering::Less,
+            (None, None) => return Ordering::Equal,
+        }
+    }
+}
+
+fn compare_pre_release_identifier(left: &str, right: &str) -> Ordering {
+    let left_num = parse_numeric_identifier(left);
+    let right_num = parse_numeric_identifier(right);
+    match (left_num, right_num) {
+        (Some(left), Some(right)) => left.cmp(&right),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => left.cmp(right),
+    }
+}
+
+fn parse_numeric_identifier(value: &str) -> Option<u64> {
+    if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    value.parse::<u64>().ok()
 }
 
 const WEBSITE_HOME: &str = "https://ditpro.negdims.com/";
 const WEBSITE_LATEST: &str = "https://ditpro.negdims.com/software/latest.json";
+const WEBSITE_LATEST_BETA: &str = "https://ditpro.negdims.com/software/latest-beta.json";
 
 /// Shape of the website's `/software/latest.json` (fallback source).
 /// Extra fields kept for forward compatibility with the JSON schema.
@@ -347,11 +388,46 @@ fn is_stable_version_tag(version: &str) -> bool {
 }
 
 /// Shared update check implementation with injectable endpoints for tests.
+#[cfg(test)]
 async fn check_for_update_from_sources(
     current: &str,
     website_home: &str,
     website_latest: &str,
 ) -> Result<UpdateCheckResult, String> {
+    check_for_update_from_sources_with_beta(current, website_home, website_latest, None).await
+}
+
+async fn check_for_update_from_sources_with_beta(
+    current: &str,
+    website_home: &str,
+    website_latest: &str,
+    website_latest_beta: Option<&str>,
+) -> Result<UpdateCheckResult, String> {
+    if current.contains('-') {
+        if let Some(beta_url) = website_latest_beta {
+            match fetch_json::<WebsiteLatest>(beta_url, 3, 10).await {
+                Ok(w) => {
+                    let beta_version = normalize_version_tag(&w.tag_name);
+                    let remote_ver = beta_version.trim_start_matches('v');
+                    if is_newer(current, remote_ver) {
+                        return Ok(UpdateCheckResult {
+                            has_update: true,
+                            latest_version: beta_version,
+                            current_version: normalize_version_tag(current),
+                            release_notes: w.body.unwrap_or_default(),
+                            release_url: website_home.to_string(),
+                            download_url: w.download_url,
+                            published_at: w.published_at.unwrap_or_default(),
+                        });
+                    }
+                }
+                Err(err) => {
+                    log::warn!("Update check: latest-beta.json failed: {}", err);
+                }
+            }
+        }
+    }
+
     // ── Primary: stable manifest ──
     let manifest = match fetch_json::<WebsiteLatest>(website_latest, 3, 10).await {
         Ok(w) => {
@@ -413,7 +489,13 @@ pub async fn check_for_update() -> Result<UpdateCheckResult, String> {
     let current = full
         .split_once('+')
         .map_or_else(|| full.clone(), |(base, _)| base.to_string());
-    check_for_update_from_sources(&current, WEBSITE_HOME, WEBSITE_LATEST).await
+    check_for_update_from_sources_with_beta(
+        &current,
+        WEBSITE_HOME,
+        WEBSITE_LATEST,
+        Some(WEBSITE_LATEST_BETA),
+    )
+    .await
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -715,6 +797,69 @@ mod tests {
         server.abort();
     }
 
+    #[tokio::test]
+    async fn test_beta_update_check_prefers_latest_beta_for_beta_builds() {
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/software/latest.json".to_string(),
+            TestResponse {
+                status: "200 OK",
+                content_type: "application/json",
+                body: r#"{
+                    "tag_name":"v1.2.0",
+                    "body":"stable notes",
+                    "html_url":"https://example.com/releases/v1.2.0",
+                    "published_at":"2026-03-10T00:00:00Z",
+                    "download_url":"https://example.com/stable.dmg"
+                }"#
+                .to_string(),
+            },
+        );
+        routes.insert(
+            "/software/latest-beta.json".to_string(),
+            TestResponse {
+                status: "200 OK",
+                content_type: "application/json",
+                body: r#"{
+                    "tag_name":"v1.4.0-beta.9",
+                    "body":"beta notes",
+                    "html_url":"https://example.com/releases/v1.4.0-beta.9",
+                    "published_at":"2026-05-06T00:00:00Z",
+                    "download_url":"https://example.com/beta.dmg"
+                }"#
+                .to_string(),
+            },
+        );
+
+        let (base_url, request_log, server) = spawn_test_server(routes).await;
+        let home_url = format!("{}/", base_url);
+        let latest_url = format!("{}/software/latest.json", base_url);
+        let latest_beta_url = format!("{}/software/latest-beta.json", base_url);
+
+        let result = check_for_update_from_sources_with_beta(
+            "1.4.0-beta.7",
+            &home_url,
+            &latest_url,
+            Some(&latest_beta_url),
+        )
+        .await
+        .unwrap();
+
+        assert!(result.has_update);
+        assert_eq!(result.latest_version, "v1.4.0-beta.9");
+        assert_eq!(result.release_notes, "beta notes");
+        assert_eq!(
+            result.download_url.as_deref(),
+            Some("https://example.com/beta.dmg")
+        );
+
+        let seen = request_log.lock().unwrap().clone();
+        assert!(seen.iter().any(|path| path == "/software/latest-beta.json"));
+        assert!(!seen.iter().any(|path| path == "/software/latest.json"));
+
+        server.abort();
+    }
+
     #[test]
     fn test_is_newer() {
         assert!(is_newer("1.2.0", "1.3.0"));
@@ -725,5 +870,9 @@ mod tests {
         assert!(is_newer("v1.2.0", "v1.3.0")); // with v prefix
         assert!(is_newer("1.4.0-beta.7", "1.4.0"));
         assert!(!is_newer("1.4.0", "1.4.0-beta.7"));
+        assert!(is_newer("1.4.0-beta.9", "1.4.0-beta.10"));
+        assert!(!is_newer("1.4.0-beta.10", "1.4.0-beta.7"));
+        assert!(!is_newer("1.4.0-beta.10", "1.4.0-beta.10"));
+        assert!(is_newer("1.4.0-alpha.9", "1.4.0-beta.1"));
     }
 }

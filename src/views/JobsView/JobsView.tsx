@@ -74,6 +74,14 @@ function clearTransientFileWarnings(warnings: string[], relPath: string): string
   return warnings.filter((warning) => !prefixes.some((prefix) => warning.startsWith(prefix)));
 }
 
+function isTerminalPhase(phase: OffloadPhase): boolean {
+  return phase === "Complete" || phase === "Failed" || phase === "Terminated";
+}
+
+function isTerminablePhase(phase: OffloadPhase): boolean {
+  return !isTerminalPhase(phase);
+}
+
 /** Phase display configuration */
 function usePhaseInfo(): Record<OffloadPhase, { label: string; color: string }> {
   const { t } = useI18n();
@@ -921,7 +929,7 @@ export function JobsView() {
   // Report active job count for exit confirmation dialog
   useEffect(() => {
     const running = Array.from(activeOffloads.values()).filter(
-      (o) => o.phase !== "Complete" && o.phase !== "Failed"
+      (o) => isTerminablePhase(o.phase)
     );
     setActiveJobCount(running.length);
     return () => setActiveJobCount(0);
@@ -1368,8 +1376,10 @@ export function JobsView() {
   const handleRecover = async (jobId: string) => {
     try {
       setError(null);
-      // Guard: prevent double-click / concurrent resume of same job
-      if (activeOffloads.has(jobId)) return;
+      // Guard only live workflows. Terminal active cards can be recovered in
+      // the same UI session without requiring an app restart.
+      const existingActive = activeOffloads.get(jobId);
+      if (existingActive && isTerminablePhase(existingActive.phase)) return;
       // 1. Register ActiveOffload FIRST so the event listener can match events
       //    from the moment the backend starts emitting (fixes race condition where
       //    events were dropped because ActiveOffload wasn't in the map yet)
@@ -1520,6 +1530,11 @@ export function JobsView() {
     return jobs.filter((j) => !activeJobIds.has(j.id));
   }, [activeList, jobs]);
 
+  const terminableActiveJobIds = useMemo(
+    () => activeList.filter((o) => isTerminablePhase(o.phase)).map((o) => o.jobId),
+    [activeList]
+  );
+
   // ─── Selection & Action Handlers ─────────────────────────────────────
 
   const allJobIds = [
@@ -1615,7 +1630,7 @@ export function JobsView() {
         const next = new Map(prev);
         for (const jid of targets) {
           const o = next.get(jid);
-          if (o) {
+          if (o && isTerminablePhase(o.phase)) {
             next.set(jid, {
               ...o,
               phase: "Terminated" as OffloadPhase,
@@ -1802,7 +1817,8 @@ export function JobsView() {
             </button>
             <button
               className="btn-toolbar btn-toolbar--danger"
-              onClick={() => handleTerminateConfirm(allJobIds)}
+              onClick={() => handleTerminateConfirm(terminableActiveJobIds)}
+              disabled={terminableActiveJobIds.length === 0}
             >
               {t.jobs.terminateAll}
             </button>

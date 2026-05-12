@@ -20,7 +20,7 @@ function formatDuration(seconds: number): string {
 }
 
 export function RushesLogView() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().slice(0, 10)
   );
@@ -66,8 +66,14 @@ export function RushesLogView() {
         const { save } = await import("@tauri-apps/plugin-dialog");
         const ext = format;
         const filterName = format === "xlsx" ? "Excel" : format === "pdf" ? "PDF" : format.toUpperCase();
+        const exportTitle = {
+          csv: t.rushesLog.exportCsv,
+          tsv: t.rushesLog.exportTsv,
+          xlsx: t.rushesLog.exportXlsx,
+          pdf: t.rushesLog.exportPdf,
+        }[format];
         const chosen = await save({
-          title: t.rushesLog.exportCsv,
+          title: exportTitle,
           defaultPath: `rushes-log-${selectedDate}.${ext}`,
           filters: [
             { name: filterName, extensions: [ext] },
@@ -86,6 +92,7 @@ export function RushesLogView() {
         date: selectedDate,
         format,
         outputPath,
+        locale,
       });
       if (result.success && result.data) {
         setSuccessMsg(`${t.rushesLog.savedTo} ${result.data}`);
@@ -104,6 +111,7 @@ export function RushesLogView() {
     try {
       const result = await safeInvoke<CommandResult<string>>("copy_rushes_log_clipboard", {
         date: selectedDate,
+        locale,
       });
       if (result.success && result.data) {
         await navigator.clipboard.writeText(result.data);

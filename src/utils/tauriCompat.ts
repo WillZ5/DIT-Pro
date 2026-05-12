@@ -48,10 +48,10 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
     case "get_app_version":
       return {
         version: "1.4.0",
-        preRelease: "beta.10",
+        preRelease: "beta.11",
         buildMeta: null,
         channel: "beta",
-        fullString: "1.4.0-beta.10",
+        fullString: "1.4.0-beta.11",
         gitHash: null,
         buildTime: null,
       } as T;
@@ -152,8 +152,8 @@ function mockInvoke<T>(cmd: string, args?: MockInvokeArgs): T {
     case "check_for_update":
       return {
         hasUpdate: false,
-        latestVersion: "1.4.0-beta.10",
-        currentVersion: "1.4.0-beta.10",
+        latestVersion: "1.4.0-beta.11",
+        currentVersion: "1.4.0-beta.11",
         releaseNotes: "Rushes Log with camera card ID, ffprobe metadata, CSV/TSV/Excel/PDF export.",
         releaseUrl: "https://ditpro.negdims.com/",
         downloadUrl: null,

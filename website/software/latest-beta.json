@@ -1,20 +1,20 @@
 {
   "channel": "beta",
-  "tag_name": "v1.4.0-beta.10",
-  "name": "v1.4.0-beta.10 - Localized Report Export Build",
-  "body": "## DIT Pro v1.4.0-beta.10\n\n### Focus\n\n- Localize Rushes Log report exports so PDF, CSV, TSV, Excel, and clipboard TSV follow the current app language.\n- Add source path, destination paths, total file count, completed/failed file count, video/audio/image/other media breakdown, and source release status to exported reports.\n- Add Chinese-capable PDF font fallback so Chinese report labels render correctly on macOS.\n- Fix beta update comparison so beta.7 is not treated as newer than beta.10.\n- Fix Rushes Log save panel titles so PDF/CSV/TSV/Excel exports show the correct action name.\n- Keep beta-channel version display and update metadata aligned with v1.4.0-beta.10.\n- Sign, notarize, staple, and Gatekeeper-validate the macOS beta10 DMG with Developer ID Application: Negdims Inc. (7C3KJRTUK9).\n\n### Known Issues\n\n- TC207/TC209/TC212 remain pending before stable validation.\n- Cloud upload is still experimental until the independent persistent cloud queue is completed.\n- Chinese PDF export is functional, but current output embeds the full fallback CJK font and can produce large PDFs. Fix this with font subsetting or a Quartz/system-print PDF path before stable.\n- Native macOS select menus and notification banners still require manual confirmation in several Computer Use-limited tests.",
-  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.4.0-beta.10",
-  "published_at": "2026-05-11T11:43:37-04:00",
-  "download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.10_universal.dmg",
+  "tag_name": "v1.4.0-beta.11",
+  "name": "v1.4.0-beta.11 - Compact Report PDF Build",
+  "body": "## Summary\n\nThis beta republishes the report export work with the PDF size fix included in the signed macOS build. Chinese Rushes Log PDF exports now keep localized labels while avoiding the oversized full-font embedding seen in beta10.\n\n## Changes\n\n- Reduced Chinese Rushes Log PDF output size by deduplicating embedded font streams, pruning unused PDF objects, compressing PDF streams, and only loading the CJK font where it is needed.\n- Added Windows-aware temporary PDF replacement so report optimization can safely replace an existing export path on Windows.\n- Added Windows CJK font fallback candidates for future Windows report exports.\n- Kept localized Rushes Log PDF, CSV, TSV, Excel, and clipboard TSV report fields from beta10.\n- Updated beta-channel build metadata to `v1.4.0-beta.11`.\n- Rebuilt the macOS beta DMG from current `main`.\n\n## Downloads\n\n| Platform | File |\n| --- | --- |\n| macOS Universal | `DIT.Pro_1.4.0-beta.11_universal.dmg` |\n| macOS Vercel fallback | `website/software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg` |\n| Windows x64 | Not published for this beta |\n\n## Verification\n\n- `cargo fmt --all --check`\n- `cargo check -p dit-pro`\n- `cargo test -p dit-pro rushes_log --lib`\n- `npm run build`\n- `cargo check -p dit-pro --target x86_64-pc-windows-msvc` attempted; blocked on this macOS host because the Windows/MSVC C toolchain headers are unavailable before app code is checked.\n- `DIT_PRE_RELEASE=beta.11 APPLE_SIGNING_IDENTITY=\"Developer ID Application: Negdims Inc. (7C3KJRTUK9)\" cargo tauri build --target universal-apple-darwin --bundles app,dmg --ci`\n- `xcrun notarytool submit target/universal-apple-darwin/release/bundle/dmg/DIT.Pro_1.4.0-beta.11_universal.dmg --wait`\n- `xcrun stapler validate target/universal-apple-darwin/release/bundle/dmg/DIT.Pro_1.4.0-beta.11_universal.dmg`\n- `spctl -a -vv -t open --context context:primary-signature target/universal-apple-darwin/release/bundle/dmg/DIT.Pro_1.4.0-beta.11_universal.dmg`\n\n## Known Issues\n\n- TC207/TC209/TC212 remain pending before stable validation.\n- Cloud upload remains experimental until the persistent cloud queue milestone.\n- Native macOS select menus and notification banners still require manual confirmation in several Computer Use-limited tests.\n- Windows package is not published for this beta; Windows target validation depends on a Windows/MSVC build environment.\n",
+  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.4.0-beta.11",
+  "published_at": "2026-05-12T04:04:08Z",
+  "download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg",
   "windows_download_url": null,
   "assets": {
     "macos": {
-      "name": "beta-DIT.Pro_1.4.0-beta.10_universal.dmg",
-      "source_asset_name": "DIT.Pro_1.4.0-beta.10_universal.dmg",
-      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-beta.10/DIT.Pro_1.4.0-beta.10_universal.dmg",
-      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0-beta.10_universal.dmg",
-      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.10_universal.dmg",
-      "sha256": "d8583a68c4edd2a1de385ccbf61148707468e59ff6193ebf59afb3e4a7e074ff"
+      "name": "beta-DIT.Pro_1.4.0-beta.11_universal.dmg",
+      "source_asset_name": "DIT.Pro_1.4.0-beta.11_universal.dmg",
+      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-beta.11/DIT.Pro_1.4.0-beta.11_universal.dmg",
+      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg",
+      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg",
+      "sha256": "25ed656335342af8a02b1b6617321dd2f67e115a0e57810de8028dbae1e10080"
     },
     "windows": null
   }

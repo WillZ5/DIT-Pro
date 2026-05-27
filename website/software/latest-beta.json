@@ -6,7 +6,7 @@
   "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.4.0-beta.11",
   "published_at": "2026-05-12T04:04:08Z",
   "download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg",
-  "windows_download_url": null,
+  "windows_download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.11_x64-setup.exe",
   "assets": {
     "macos": {
       "name": "beta-DIT.Pro_1.4.0-beta.11_universal.dmg",
@@ -16,6 +16,13 @@
       "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg",
       "sha256": "a0def394cc24607e9b76f95d98b2e1b39eec381df135fccea0431bbf92b7fcfe"
     },
-    "windows": null
+    "windows": {
+      "name": "beta-DIT.Pro_1.4.0-beta.11_x64-setup.exe",
+      "source_asset_name": "DIT.Pro_1.4.0-beta.11_x64-setup.exe",
+      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-beta.11/DIT.Pro_1.4.0-beta.11_x64-setup.exe",
+      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0-beta.11_x64-setup.exe",
+      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.11_x64-setup.exe",
+      "sha256": "ee9a7b98b8773f04bd7fc979e59cf1d29a2ba483cf2b24bcbfb588aea129f279"
+    }
   }
 }

@@ -22,7 +22,7 @@ fn main() {
     let default_pre = if package_version.contains('-') {
         ""
     } else {
-        "beta.11"
+        "rc.1"
     };
     let pre = std::env::var("DIT_PRE_RELEASE").unwrap_or_else(|_| default_pre.to_string());
     if !pre.is_empty() {

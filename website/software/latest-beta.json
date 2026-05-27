@@ -1,28 +1,28 @@
 {
   "channel": "beta",
-  "tag_name": "v1.4.0-beta.11",
-  "name": "v1.4.0-beta.11 - Compact Report PDF Build",
-  "body": "## Summary\n\nThis beta republishes the report export work with the PDF size fix included in the signed macOS build. Chinese Rushes Log PDF exports now keep localized labels while avoiding the oversized full-font embedding seen in beta10.\n\n## Changes\n\n- Reduced Chinese Rushes Log PDF output size by deduplicating embedded font streams, pruning unused PDF objects, compressing PDF streams, and only loading the CJK font where it is needed.\n- Added Windows-aware temporary PDF replacement so report optimization can safely replace an existing export path on Windows.\n- Added Windows CJK font fallback candidates for future Windows report exports.\n- Kept localized Rushes Log PDF, CSV, TSV, Excel, and clipboard TSV report fields from beta10.\n- Updated beta-channel build metadata to `v1.4.0-beta.11`.\n- Rebuilt the macOS beta DMG from current `main`.\n\n## Downloads\n\n| Platform | File |\n| --- | --- |\n| macOS Universal | `DIT.Pro_1.4.0-beta.11_universal.dmg` |\n| macOS Vercel fallback | `website/software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg` |\n| Windows x64 | Not published for this beta |\n\n## Verification\n\n- `cargo fmt --all --check`\n- `cargo check -p dit-pro`\n- `cargo test -p dit-pro rushes_log --lib`\n- `npm run build`\n- `cargo check -p dit-pro --target x86_64-pc-windows-msvc` attempted; blocked on this macOS host because the Windows/MSVC C toolchain headers are unavailable before app code is checked.\n- `DIT_PRE_RELEASE=beta.11 APPLE_SIGNING_IDENTITY=\"Developer ID Application: Negdims Inc. (7C3KJRTUK9)\" cargo tauri build --target universal-apple-darwin --bundles app,dmg --ci`\n- `xcrun notarytool submit target/universal-apple-darwin/release/bundle/dmg/DIT.Pro_1.4.0-beta.11_universal.dmg --wait`\n- `xcrun stapler validate target/universal-apple-darwin/release/bundle/dmg/DIT.Pro_1.4.0-beta.11_universal.dmg`\n- `spctl -a -vv -t open --context context:primary-signature target/universal-apple-darwin/release/bundle/dmg/DIT.Pro_1.4.0-beta.11_universal.dmg`\n\n## Known Issues\n\n- TC207/TC209/TC212 remain pending before stable validation.\n- Cloud upload remains experimental until the persistent cloud queue milestone.\n- Native macOS select menus and notification banners still require manual confirmation in several Computer Use-limited tests.\n- Windows package is not published for this beta; Windows target validation depends on a Windows/MSVC build environment.\n",
-  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.4.0-beta.11",
-  "published_at": "2026-05-12T04:04:08Z",
-  "download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg",
-  "windows_download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.11_x64-setup.exe",
+  "tag_name": "v1.4.0-rc.1",
+  "name": "v1.4.0-rc.1 - Stable Candidate Build",
+  "body": "# v1.4.0-rc.1 - Stable Candidate Build\n\n## Summary\n\nThis release candidate promotes the v1.4.0 beta line into stable validation. It includes the localized Rushes Log export work, compact Chinese PDF output, macOS notarized distribution, Windows beta11 metadata follow-up, and website fallback wiring needed before the final v1.4.0 stable release.\n\nUse this RC for final real-device validation before publishing v1.4.0 stable.\n\n## Changes\n\n- Changed the default prerelease build suffix from `beta.11` to `rc.1`.\n- Kept the base app version at `1.4.0` across package, Cargo, and Tauri config files.\n- Carries forward localized Rushes Log PDF, CSV, TSV, Excel, and clipboard TSV exports.\n- Carries forward compact Chinese Rushes Log PDF output and Windows-safe PDF overwrite handling.\n- Carries forward beta11 macOS and Windows download metadata behavior.\n- Built and uploaded the Windows installer from the same tag.\n\n## Downloads\n\n| Platform | File |\n| --- | --- |\n| macOS Universal | `DIT.Pro_1.4.0-rc.1_universal.dmg` |\n| macOS Vercel fallback | `website/software/beta-DIT.Pro_1.4.0-rc.1_universal.dmg` |\n| Windows x64 | `DIT.Pro_1.4.0-rc.1_x64-setup.exe` |\n| Windows Vercel fallback | `website/software/beta-DIT.Pro_1.4.0-rc.1_x64-setup.exe` |\n\nmacOS Universal SHA-256:\n\n```text\nfec9355700b286577175301ccc62217362a070738bb5de08acf649227183be24\n```\n\nWindows x64 SHA-256:\n\n```text\n26938d9eb63334a8dd0c5029296533f41091de3e666eac6a82d5981bc755e052\n```\n\n## Verification\n\n### macOS (signing host)\n\n- Base version consistency check: `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` all remain `1.4.0`.\n- `git diff --check`\n- Release text scan for disallowed em dash, en dash, and emoji.\n- `cargo fmt --all --check`\n- `cargo check -p dit-pro`\n- `cargo test -p dit-pro rushes_log --lib` - 14/14 passed.\n- `cargo clippy -p dit-pro --all-targets -- -D warnings`\n- `cargo test -p dit-pro --lib` - 182/182 passed.\n- `cargo test -p dit-pro --tests` - all integration, AC, benchmark, real-device mock, cascade, and stress tests passed.\n- `npm run build`\n- `DIT_PRE_RELEASE=rc.1 APPLE_SIGNING_IDENTITY=\"Developer ID Application: Negdims Inc. (7C3KJRTUK9)\" cargo tauri build --target universal-apple-darwin --bundles app,dmg --ci`\n- `codesign --verify --deep --strict --verbose=2 target/universal-apple-darwin/release/bundle/macos/DIT\\ Pro.app`\n- `xcrun notarytool submit target/universal-apple-darwin/release/bundle/dmg/DIT.Pro_1.4.0-rc.1_universal.dmg --keychain-profile DITProNotaryRC --wait` - Accepted, submission `9ce4dba0-2df9-4487-bc5c-05fdac85a761`.\n- `xcrun stapler staple target/universal-apple-darwin/release/bundle/dmg/DIT.Pro_1.4.0-rc.1_universal.dmg` - passed.\n- `spctl -a -vv -t open --context context:primary-signature target/universal-apple-darwin/release/bundle/dmg/DIT.Pro_1.4.0-rc.1_universal.dmg` - accepted as `Notarized Developer ID`.\n\n### Windows (MSVC build host)\n\n- `git checkout v1.4.0-rc.1` - built from the tagged commit `17f27a6` (source identical to current `main` HEAD).\n- `cargo fmt --all --check`\n- `cargo check -p dit-pro`\n- `cargo test -p dit-pro rushes_log --lib` - 14/14 passed (incl. Excel + PDF + PDF zh locale).\n- `npm run build`\n- `$env:DIT_PRE_RELEASE = \"rc.1\"; cargo tauri build --target x86_64-pc-windows-msvc --bundles nsis --ci`\n- Bundle: `DIT.Pro_1.4.0-rc.1_x64-setup.exe` (7,290,907 bytes).\n- `gh release upload v1.4.0-rc.1 DIT.Pro_1.4.0-rc.1_x64-setup.exe --clobber`\n\n## Known Issues\n\n- TC207/TC209/TC212 remain pending before stable validation.\n- Cloud upload remains experimental until the persistent cloud queue milestone.\n- Native macOS select menus and notification banners still require manual confirmation in several Computer Use-limited tests.\n- The Windows installer is unsigned for this release candidate; Windows SmartScreen may prompt the user to confirm before launch.\n",
+  "html_url": "https://github.com/WillZ5/DIT-Pro/releases/tag/v1.4.0-rc.1",
+  "published_at": "2026-05-27T15:10:26Z",
+  "download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-rc.1_universal.dmg",
+  "windows_download_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-rc.1_x64-setup.exe",
   "assets": {
     "macos": {
-      "name": "beta-DIT.Pro_1.4.0-beta.11_universal.dmg",
-      "source_asset_name": "DIT.Pro_1.4.0-beta.11_universal.dmg",
-      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-beta.11/DIT.Pro_1.4.0-beta.11_universal.dmg",
-      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg",
-      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg",
-      "sha256": "a0def394cc24607e9b76f95d98b2e1b39eec381df135fccea0431bbf92b7fcfe"
+      "name": "beta-DIT.Pro_1.4.0-rc.1_universal.dmg",
+      "source_asset_name": "DIT.Pro_1.4.0-rc.1_universal.dmg",
+      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-rc.1/DIT.Pro_1.4.0-rc.1_universal.dmg",
+      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0-rc.1_universal.dmg",
+      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-rc.1_universal.dmg",
+      "sha256": "fec9355700b286577175301ccc62217362a070738bb5de08acf649227183be24"
     },
     "windows": {
-      "name": "beta-DIT.Pro_1.4.0-beta.11_x64-setup.exe",
-      "source_asset_name": "DIT.Pro_1.4.0-beta.11_x64-setup.exe",
-      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-beta.11/DIT.Pro_1.4.0-beta.11_x64-setup.exe",
-      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0-beta.11_x64-setup.exe",
-      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-beta.11_x64-setup.exe",
-      "sha256": "ee9a7b98b8773f04bd7fc979e59cf1d29a2ba483cf2b24bcbfb588aea129f279"
+      "name": "beta-DIT.Pro_1.4.0-rc.1_x64-setup.exe",
+      "source_asset_name": "DIT.Pro_1.4.0-rc.1_x64-setup.exe",
+      "source_url": "https://github.com/WillZ5/DIT-Pro/releases/download/v1.4.0-rc.1/DIT.Pro_1.4.0-rc.1_x64-setup.exe",
+      "backup_relative_url": "./software/beta-DIT.Pro_1.4.0-rc.1_x64-setup.exe",
+      "backup_absolute_url": "https://ditpro.negdims.com/software/beta-DIT.Pro_1.4.0-rc.1_x64-setup.exe",
+      "sha256": "26938d9eb63334a8dd0c5029296533f41091de3e666eac6a82d5981bc755e052"
     }
   }
 }

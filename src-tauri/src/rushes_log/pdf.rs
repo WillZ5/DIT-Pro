@@ -24,16 +24,6 @@ use super::{format_bytes, format_duration, ReportLocale, RushesLogReport};
 fn load_font_family(locale: ReportLocale) -> Result<FontFamily<FontData>> {
     if locale == ReportLocale::Zh {
         if let Some(regular) = load_first_embedded_font(&cjk_font_candidates()) {
-            let latin = load_builtin_helvetica_family().or_else(load_embedded_latin_family);
-            if let Some(latin) = latin {
-                return Ok(FontFamily {
-                    regular,
-                    bold: latin.bold,
-                    italic: latin.italic,
-                    bold_italic: latin.bold_italic,
-                });
-            }
-
             let regular_clone = regular.clone();
             return Ok(FontFamily {
                 regular,
@@ -42,6 +32,8 @@ fn load_font_family(locale: ReportLocale) -> Result<FontFamily<FontData>> {
                 bold_italic: regular_clone,
             });
         }
+
+        anyhow::bail!("No CJK font found for Chinese PDF generation")
     }
 
     if let Some(family) = load_builtin_helvetica_family() {
@@ -78,10 +70,10 @@ fn cjk_font_candidates() -> Vec<PathBuf> {
         PathBuf::from("/Library/Fonts/Arial Unicode.ttf"),
         // Windows. Some are TTC collections that rusttype may reject; keep
         // trying because Chinese Windows installs vary by edition/language.
-        PathBuf::from(r"C:\Windows\Fonts\msyh.ttc"),
-        PathBuf::from(r"C:\Windows\Fonts\simhei.ttf"),
-        PathBuf::from(r"C:\Windows\Fonts\simsun.ttc"),
         PathBuf::from(r"C:\Windows\Fonts\Deng.ttf"),
+        PathBuf::from(r"C:\Windows\Fonts\simhei.ttf"),
+        PathBuf::from(r"C:\Windows\Fonts\msyh.ttc"),
+        PathBuf::from(r"C:\Windows\Fonts\simsun.ttc"),
         PathBuf::from(r"C:\Windows\Fonts\NotoSansCJK-Regular.ttc"),
         // Linux
         PathBuf::from("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),

@@ -302,6 +302,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-universal-
 
+      - name: Install Tauri CLI
+        if: needs.changes.outputs.app == 'true'
+        run: cargo install tauri-cli --version 2.10.1 --locked
+
       - name: Build Universal macOS app
         if: needs.changes.outputs.app == 'true'
         run: cargo tauri build --target universal-apple-darwin
@@ -364,6 +368,10 @@ jobs:
           key: ${{ runner.os }}-cargo-windows-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-windows-
+
+      - name: Install Tauri CLI
+        if: needs.changes.outputs.app == 'true'
+        run: cargo install tauri-cli --version 2.10.1 --locked
 
       - name: Build Windows app
         if: needs.changes.outputs.app == 'true'

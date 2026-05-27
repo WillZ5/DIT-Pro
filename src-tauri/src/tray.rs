@@ -42,7 +42,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let icon_bytes = include_bytes!("../icons/tray-idle.png");
     let icon = Image::from_bytes(icon_bytes)?;
 
-    let mut tray_builder = TrayIconBuilder::with_id("main-tray")
+    let tray_builder = TrayIconBuilder::with_id("main-tray")
         .icon(icon)
         .tooltip("DIT Pro")
         .menu(&menu)
@@ -50,9 +50,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     // macOS: use template icons for monochrome menu bar appearance
     #[cfg(target_os = "macos")]
-    {
-        tray_builder = tray_builder.icon_as_template(true);
-    }
+    let tray_builder = tray_builder.icon_as_template(true);
 
     let _tray = tray_builder
         .on_tray_icon_event({

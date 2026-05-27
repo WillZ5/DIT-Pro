@@ -294,6 +294,7 @@ fn collect_disk_info() -> Vec<DiskInfo> {
     Vec::new()
 }
 
+#[cfg(unix)]
 fn parse_df_size(s: &str) -> u64 {
     let s = s.trim();
     if s.is_empty() {

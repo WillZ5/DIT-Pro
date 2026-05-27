@@ -424,7 +424,7 @@ fn detect_device_info(mount_point: &str) -> (DeviceType, Option<String>) {
 fn detect_device_info(mount_point: &str) -> (DeviceType, Option<String>) {
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
-    use windows::Win32::Storage::FileSystem::{GetDriveTypeW, GetVolumeInformationW};
+    use windows::Win32::Storage::FileSystem::GetDriveTypeW;
 
     // Ensure mount_point ends with backslash for Win32 APIs (e.g. "C:\")
     let root = if mount_point.ends_with('\\') {

@@ -921,6 +921,7 @@
     <div class="hero-actions">
       <a href="./software/stable-DIT.Pro_1.2.0_universal.dmg" data-download-channel="stable" data-download-platform="auto" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Download stable</a>
       <a href="./software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg" data-download-channel="beta" data-download-platform="auto" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Download beta</a>
+      <a href="./software/stable-DIT.Pro_1.2.0_universal.dmg" data-download-channel="stable" data-download-platform="auto" data-download-source="local" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">备用下载</a>
       <a href="#safety" class="btn btn-ghost">Learn more ↓</a>
     </div>
 
@@ -1207,7 +1208,8 @@
       const targets = pickPlatformTargets(downloadTargets[channel], platform);
       if (!targets) return;
 
-      const useLocal = shouldUseLocalDownload();
+      const requestedSource = link.dataset.downloadSource;
+      const useLocal = requestedSource === 'local' || (requestedSource !== 'github' && shouldUseLocalDownload());
       const nextUrl = useLocal ? targets.local : targets.github;
       if (!nextUrl) return;
 

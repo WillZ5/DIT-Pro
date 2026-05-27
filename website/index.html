@@ -954,6 +954,7 @@
     <div class="hero-actions">
       <a href="./software/stable-DIT.Pro_1.2.0_universal.dmg" data-download-channel="stable" data-download-platform="auto" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Download stable</a>
       <a href="./software/beta-DIT.Pro_1.4.0-beta.11_universal.dmg" data-download-channel="beta" data-download-platform="auto" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Download beta</a>
+      <a href="./software/stable-DIT.Pro_1.2.0_universal.dmg" data-download-channel="stable" data-download-platform="auto" data-download-source="local" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">备用下载</a>
       <a href="#safety" class="btn btn-ghost">Learn more ↓</a>
     </div>
 
@@ -1240,7 +1241,8 @@
       const targets = pickPlatformTargets(downloadTargets[channel], platform);
       if (!targets) return;
 
-      const useLocal = shouldUseLocalDownload();
+      const requestedSource = link.dataset.downloadSource;
+      const useLocal = requestedSource === 'local' || (requestedSource !== 'github' && shouldUseLocalDownload());
       const nextUrl = useLocal ? targets.local : targets.github;
       if (!nextUrl) return;
 
@@ -1366,7 +1368,7 @@
         body: "Professional-grade, open-source data integrity with a clear GUI for production teams. No gimmicks. No guesswork. Just bulletproof backup.",
         statNums: ["v1.2", "MIT", "macOS · Win"],
         statLbls: ["stable release", "open licensed", "native builds"],
-        actions: ["Download stable", "Download beta", "Learn more ↓"]
+        actions: ["Download stable", "Download beta", "Backup download", "Learn more ↓"]
       },
       preview: {
         status: "Ready",
@@ -1448,7 +1450,7 @@
         body: "面向制片团队的专业级开源数据完整性工具，配备清晰的图形界面。无花哨噱头，无任何猜测——只有坚不可摧的备份。",
         statNums: ["v1.2", "MIT", "macOS · Win"],
         statLbls: ["稳定版本", "开源许可", "原生构建"],
-        actions: ["下载稳定版", "下载测试版", "了解更多 ↓"]
+        actions: ["下载稳定版", "下载测试版", "备用下载", "了解更多 ↓"]
       },
       preview: {
         status: "就绪",
